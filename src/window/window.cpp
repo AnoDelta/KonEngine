@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include "../renderer/opengl/opengl_renderer.hpp"
+#include "../time/time.hpp"
 
 struct Window::Impl {
 	GLFWwindow* handle;
@@ -22,6 +23,7 @@ struct Window::Impl {
 		}
 
 		glfwMakeContextCurrent(handle);
+		glfwSwapInterval(1); 
 	}
 
 	~Impl() {
@@ -73,7 +75,10 @@ void Present() {
 }
 
 void PollEvents() {
-	if (window) window->pollEvents();
+	if (window) {
+		TickTime();
+		window->pollEvents();
+	}
 }
 
 void ClearBackground(float r, float g, float b) {
