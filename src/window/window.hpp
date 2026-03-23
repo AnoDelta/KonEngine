@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <memory>
 
 class Window {
 public:
@@ -13,7 +14,7 @@ public:
 
 private:
 	struct Impl;
-	Impl* impl;
+	std::unique_ptr<Impl> impl;
 };
 
 void InitWindow(int width, int height, const std::string& title);

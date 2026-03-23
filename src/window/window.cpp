@@ -1,6 +1,7 @@
 #include "window.hpp"
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <memory>
 
 struct Window::Impl {
 	GLFWwindow* handle;
@@ -31,11 +32,9 @@ struct Window::Impl {
 };
 
 Window::Window(int width, int height, const std::string& title) 
-	: impl(new Impl(width, height, title)) {}
+	: impl(std::make_unique<Impl>(width, height, title)) {}
 
-Window::~Window() {
-	delete impl;
-};
+Window::~Window() = default;
 
 void Window::pollEvents() {
 	glfwPollEvents();
@@ -51,10 +50,10 @@ void Window::swapBuffers() {
 	}
 }
 
-static Window* window = nullptr;
+static std::unique_ptr<Window> window = nullptr;
 
 void InitWindow(int width, int height, const std::string &title) {
-	window = new Window(width, height, title);
+	window = std::make_unique<Window>(width, height, title);
 }
 
 bool WindowShouldClose() {
