@@ -9,4 +9,3 @@ public:
 };
 
 void InitRenderer();
-void ClearBackground(float r, float g, float b);

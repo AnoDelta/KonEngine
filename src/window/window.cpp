@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <memory>
+#include "../renderer/opengl/opengl_renderer.hpp"
 
 struct Window::Impl {
 	GLFWwindow* handle;
@@ -32,7 +33,10 @@ struct Window::Impl {
 };
 
 Window::Window(int width, int height, const std::string& title) 
-	: impl(std::make_unique<Impl>(width, height, title)) {}
+	: impl(std::make_unique<Impl>(width, height, title)),
+	  renderer(std::make_unique<OpenGLRenderer>()) {
+	renderer->Init();
+}
 
 Window::~Window() = default;
 
@@ -48,6 +52,10 @@ void Window::swapBuffers() {
 	if (impl->handle) {
 		glfwSwapBuffers(impl->handle);
 	}
+}
+
+void Window::clearBackground(float r, float g, float b) {
+	renderer->Clear(r, g, b);
 }
 
 static std::unique_ptr<Window> window = nullptr;
@@ -66,4 +74,8 @@ void Present() {
 
 void PollEvents() {
 	if (window) window->pollEvents();
+}
+
+void ClearBackground(float r, float g, float b) {
+	if (window) window->clearBackground(r,g,b);
 }

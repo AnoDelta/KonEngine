@@ -8,9 +8,3 @@ void InitRenderer() {
 	renderer = std::make_unique<OpenGLRenderer>();
 	renderer->Init();
 }
-
-void ClearBackground(float r, float g, float b) {
-	if (renderer) {
-		renderer->Clear(r, g, b);
-	}
-}
