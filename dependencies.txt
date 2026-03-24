@@ -1,0 +1,13 @@
+linux:
+	glfw
+	GL
+	dl
+	pthread
+	X11, Xrandr, Xi
+
+windows:
+	glfw3
+	opengl32
+	gdi32
+	winmm
+

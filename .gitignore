@@ -3,7 +3,7 @@ build/
 build-windows/
 
 # external libs
-libs/
+#libs/
 
 # Compiled objects
 *.o
