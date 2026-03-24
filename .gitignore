@@ -1,5 +1,9 @@
 # Build
 build/
+build-windows/
+
+# external libs
+libs/
 
 # Compiled objects
 *.o
