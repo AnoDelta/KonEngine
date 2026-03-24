@@ -6,8 +6,8 @@ linux:
 	X11, Xrandr, Xi
 
 windows:
-	glfw3
-	opengl32
-	gdi32
-	winmm
+	glfw3 (already bundled)
+	opengl32 (should be installed by default)
+	gdi32 (should be installed by default)
+	winmm (should be installed by default)
 
