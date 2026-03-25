@@ -62,14 +62,14 @@ void Window::swapBuffers() {
 
 int Window::getWidth() {
 	int width, height;
-	glfwGetWindowSize(impl->handle, &width, &height);
+	glfwGetFramebufferSize(impl->handle, &width, &height);
 
 	return width;
 }
 
 int Window::getHeight() {
 	int width, height;
-	glfwGetWindowSize(impl->handle, &width, &height);
+	glfwGetFramebufferSize(impl->handle, &width, &height);
 
 	return height;
 }
