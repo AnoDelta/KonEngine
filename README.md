@@ -7,6 +7,9 @@ that fits my workflow when making games, without the overhead of larger engines.
 
 Heavily inspired by Raylib's simplicity and API style (as of now).
 
+## Roadmap
+See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
+
 ## Features
 - Simple Raylib-style API
 - OpenGL rendering (rectangles, circles, lines)
