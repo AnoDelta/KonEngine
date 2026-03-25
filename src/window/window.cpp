@@ -9,7 +9,7 @@
 struct Window::Impl {
 	GLFWwindow* handle;
 	
-	Impl(int width, int height, const std::string& title, bool canResize = false) {
+	Impl(int width, int height, const std::string& title, bool canResize) {
 		if (!glfwInit()) {
 			std::cerr << "Failed to initialize GLFW" << std::endl;
 			handle = nullptr;
@@ -44,8 +44,8 @@ struct Window::Impl {
 	}
 };
 
-Window::Window(int width, int height, const std::string& title) 
-	: impl(std::make_unique<Impl>(width, height, title)),
+Window::Window(int width, int height, const std::string& title, bool canResize = false) 
+	: impl(std::make_unique<Impl>(width, height, title, canResize)),
 	  renderer(std::make_unique<OpenGLRenderer>()) {
 	renderer->Init();
 	static_cast<OpenGLRenderer*>(renderer.get())->SetProjectionMatrix(width, height);
@@ -90,8 +90,8 @@ void Window::clearBackground(float r, float g, float b) {
 
 static Window* window = nullptr;
 
-void InitWindow(int width, int height, const std::string &title) {
-	window = new Window(width, height, title);
+void InitWindow(int width, int height, const std::string &title, bool canResize = false) {
+	window = new Window(width, height, title, canResize);
 }
 
 bool WindowShouldClose() {

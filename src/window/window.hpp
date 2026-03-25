@@ -6,7 +6,7 @@
 
 class Window {
 public:
-	Window(int width, int height, const std::string& title);
+	Window(int width, int height, const std::string& title, bool canResize);
 	~Window();
 
 	void pollEvents();
@@ -25,7 +25,7 @@ private:
 	std::unique_ptr<IRenderer> renderer;
 };
 
-void InitWindow(int width, int height, const std::string& title);
+void InitWindow(int width, int height, const std::string& title, bool canResize);
 bool WindowShouldClose();
 void Present();
 void PollEvents();
