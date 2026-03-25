@@ -20,7 +20,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-  libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
+          libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
 
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
@@ -33,8 +33,9 @@ jobs:
       with:
         submodules: recursive
     - name: Install dependencies
-      run: dnf install -y gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
-  wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
+      run: |
+        dnf install -y gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
+          wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
@@ -46,8 +47,9 @@ jobs:
       with:
         submodules: recursive
     - name: Install dependencies
-      run: pacman -Syu --noconfirm gcc cmake mesa libx11 libxrandr libxi \
-  wayland wayland-protocols libxkbcommon libxinerama libxcursor
+      run: |
+        pacman -Syu --noconfirm gcc cmake mesa libx11 libxrandr libxi \
+          wayland wayland-protocols libxkbcommon libxinerama libxcursor
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
