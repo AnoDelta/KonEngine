@@ -46,6 +46,6 @@ install(DIRECTORY src/window src/renderer src/time
 )
 
 # Small test executable
-add_executable(KonEngineTest ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
-target_link_libraries(KonEngineTest PRIVATE KonEngine)
-set_target_properties(KonEngineTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
+add_executable(KonTest ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
+target_link_libraries(KonTest PRIVATE KonEngine)
+set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
