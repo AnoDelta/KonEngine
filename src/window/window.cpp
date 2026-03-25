@@ -34,8 +34,8 @@ struct Window::Impl {
 	~Impl() {
 		if (handle) {
 			glfwDestroyWindow(handle);
+			handle = nullptr;
 		}
-		glfwTerminate();
 	}
 };
 
@@ -46,7 +46,10 @@ Window::Window(int width, int height, const std::string& title)
 	static_cast<OpenGLRenderer*>(renderer.get())->SetProjectionMatrix(width, height);
 }
 
-Window::~Window() = default;
+Window::~Window() {
+	renderer.reset();
+	impl.reset();
+};
 
 void Window::pollEvents() {
 	glfwPollEvents();
@@ -80,10 +83,10 @@ void Window::clearBackground(float r, float g, float b) {
 	renderer->Clear(r, g, b);
 }
 
-static std::unique_ptr<Window> window = nullptr;
+static Window* window = nullptr;
 
 void InitWindow(int width, int height, const std::string &title) {
-	window = std::make_unique<Window>(width, height, title);
+	window = new Window(width, height, title);
 }
 
 bool WindowShouldClose() {
