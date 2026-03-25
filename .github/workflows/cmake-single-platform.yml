@@ -17,11 +17,12 @@ jobs:
       with:
         submodules: recursive
     - name: Install dependencies
-      run: |
+    run: |
         sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev libwayland-dev wayland-protocols libxkbcommon-dev
-    - name: Configure & Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+        sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+        libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev
+        - name: Configure & Build
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
   build-fedora:
     runs-on: ubuntu-latest
@@ -31,7 +32,8 @@ jobs:
       with:
         submodules: recursive
     - name: Install dependencies
-      run: dnf install -y gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel wayland-devel wayland-protocols-devel libxkbcommon-devel
+      run: dnf install -y gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
+        wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
@@ -43,7 +45,8 @@ jobs:
       with:
         submodules: recursive
     - name: Install dependencies
-      run: pacman -Syu --noconfirm gcc cmake mesa libx11 libxrandr libxi wayland wayland-protocols libxkbcommon
+      run: pacman -Syu --noconfirm gcc cmake mesa libx11 libxrandr libxi \
+        wayland wayland-protocols libxkbcommon libxinerama
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
