@@ -1,4 +1,4 @@
-#include "KonEngine.hpp"
+#include <KonEngine>
 #include "window/window.hpp"
 #include <iostream>
 
