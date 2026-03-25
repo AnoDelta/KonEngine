@@ -20,6 +20,7 @@ int main() {
 		DrawRectangle(rectX, rectY, rectWidth, rectHeight, 1, 1, 1);
 		rectX++;
 
+		// Prints fps
 		std::cout << "FPS: " << 1.0f / GetDeltaTime() << '\n';
 		Present();
 		PollEvents();
