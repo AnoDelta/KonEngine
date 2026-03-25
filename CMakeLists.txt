@@ -3,6 +3,15 @@ project(KonAkiEngine VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Disable unnecessary GLFW targets
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+# Add the GLFW source tree
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glfw)
+
+# Collect engine sources
 file(GLOB_RECURSE LIB_SRCS
     src/window/*.cpp
     src/renderer/*.cpp
@@ -11,24 +20,21 @@ file(GLOB_RECURSE LIB_SRCS
     src/glad/src/*.c
 )
 
+# Create the KonEngine static library
 add_library(KonEngine STATIC ${LIB_SRCS})
 target_include_directories(KonEngine PUBLIC src src/glad/include)
 
+# Link KonEngine against GLFW (now a proper target from add_subdirectory)
+target_link_libraries(KonEngine PRIVATE glfw)
+
+# Link system libraries depending on platform
 if(WIN32)
-    target_include_directories(KonEngine PUBLIC ${CMAKE_CURRENT_LIST_DIR}/libs/windows/glfw/include)
-    if(MSVC)
-        target_link_directories(KonEngine PUBLIC ${CMAKE_CURRENT_LIST_DIR}/libs/windows/glfw/lib-vc2022)
-        target_link_libraries(KonEngine PRIVATE glfw3_mt opengl32 gdi32 winmm)
-    else()
-        target_link_libraries(KonEngine PRIVATE
-            ${CMAKE_CURRENT_LIST_DIR}/libs/windows/glfw/lib-mingw-w64/libglfw3.a
-            opengl32 gdi32 winmm
-        )
-    endif()
+    target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm)
 else()
-    target_link_libraries(KonEngine PRIVATE glfw GL dl pthread X11 Xrandr Xi)
+    target_link_libraries(KonEngine PRIVATE GL dl pthread X11 Xrandr Xi)
 endif()
 
+# Install targets and headers
 install(TARGETS KonEngine ARCHIVE DESTINATION lib)
 install(FILES src/KonEngine.hpp DESTINATION include/KonEngine)
 install(DIRECTORY src/window src/renderer src/time
@@ -36,6 +42,7 @@ install(DIRECTORY src/window src/renderer src/time
     FILES_MATCHING PATTERN "*.hpp"
 )
 
+# Small test executable
 add_executable(KonEngineTest ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
-target_link_libraries(KonEngineTest KonEngine)
+target_link_libraries(KonEngineTest PRIVATE KonEngine)
 set_target_properties(KonEngineTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
