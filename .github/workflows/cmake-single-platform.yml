@@ -31,7 +31,7 @@ jobs:
     steps:
     - name: Install Git and dependencies
       run: |
-        dnf install -y git gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
+        dnf install -y git gcc-c++ cmake make mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
           wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
     - uses: actions/checkout@v4
       with:
@@ -45,7 +45,7 @@ jobs:
     steps:
     - name: Install Git and dependencies
       run: |
-        pacman -Syu --noconfirm git gcc cmake mesa libx11 libxrandr libxi \
+        pacman -Syu --noconfirm git gcc cmake make mesa libx11 libxrandr libxi \
           wayland wayland-protocols libxkbcommon libxinerama libxcursor
     - uses: actions/checkout@v4
       with:
