@@ -13,6 +13,7 @@ build-windows/
 # Editor
 .cache/          
 compile_commands.json  
+.vscode/
 
 # OS
 .DS_Store        
