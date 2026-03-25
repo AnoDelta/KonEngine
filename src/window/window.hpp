@@ -25,7 +25,7 @@ private:
 	std::unique_ptr<IRenderer> renderer;
 };
 
-void InitWindow(int width, int height, const std::string& title, bool canResize);
+void InitWindow(int width, int height, const std::string& title, bool canResize = false);
 bool WindowShouldClose();
 void Present();
 void PollEvents();
