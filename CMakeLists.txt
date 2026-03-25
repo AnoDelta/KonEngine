@@ -29,7 +29,14 @@ target_link_libraries(KonEngine PRIVATE glfw)
 
 # Link system libraries depending on platform
 if(WIN32)
+<<<<<<< HEAD
     target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm)
+=======
+    target_include_directories(KonEngine PUBLIC ${CMAKE_CURRENT_LIST_DIR}/libs/glfw/include)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glfw)
+    
+    target_link_libraries(KonEngine PRIVATE glfw opengl32 gdi32 winmm)
+>>>>>>> HEAD@{1}
 else()
     target_link_libraries(KonEngine PRIVATE GL dl pthread X11 Xrandr Xi)
 endif()
