@@ -16,3 +16,5 @@ compile_commands.json
 
 # OS
 .DS_Store        
+
+*.bak
