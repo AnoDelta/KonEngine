@@ -9,12 +9,17 @@
 struct Window::Impl {
 	GLFWwindow* handle;
 	
-	Impl(int width, int height, const std::string& title) {
+	Impl(int width, int height, const std::string& title, bool canResize = false) {
 		if (!glfwInit()) {
 			std::cerr << "Failed to initialize GLFW" << std::endl;
 			handle = nullptr;
 			return;
 		}
+
+		if (!canResize)
+			glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		else
+			glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
