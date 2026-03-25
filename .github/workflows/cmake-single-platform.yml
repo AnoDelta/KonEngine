@@ -29,13 +29,13 @@ jobs:
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
+    - name: Install Git and dependencies
+      run: |
+        dnf install -y git gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
+          wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
     - uses: actions/checkout@v4
       with:
         submodules: recursive
-    - name: Install dependencies
-      run: |
-        dnf install -y gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
-          wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
@@ -43,13 +43,13 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
+    - name: Install Git and dependencies
+      run: |
+        pacman -Syu --noconfirm git gcc cmake mesa libx11 libxrandr libxi \
+          wayland wayland-protocols libxkbcommon libxinerama libxcursor
     - uses: actions/checkout@v4
       with:
         submodules: recursive
-    - name: Install dependencies
-      run: |
-        pacman -Syu --noconfirm gcc cmake mesa libx11 libxrandr libxi \
-          wayland wayland-protocols libxkbcommon libxinerama libxcursor
     - name: Configure & Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
