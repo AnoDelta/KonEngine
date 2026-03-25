@@ -5,11 +5,20 @@
 #include <memory>
 #include "../renderer/opengl/opengl_renderer.hpp"
 #include "../time/time.hpp"
+#include <functional>
 
 struct Window::Impl {
+	struct WindowCallbackData {
+		OpenGLRenderer* renderer;
+		GLFWwindow* handle;
+		Impl* impl;
+	};
+
 	GLFWwindow* handle;
+	WindowCallbackData callbackData;
+	float clearR = 0, clearG = 0, clearB = 0;
 	
-	Impl(int width, int height, const std::string& title, bool canResize) {
+	Impl(int width, int height, const std::string& title, bool canResize, OpenGLRenderer* renderer) {
 		if (!glfwInit()) {
 			std::cerr << "Failed to initialize GLFW" << std::endl;
 			handle = nullptr;
@@ -34,6 +43,28 @@ struct Window::Impl {
 
 		glfwMakeContextCurrent(handle);
 		glfwSwapInterval(1); 
+
+		callbackData = { renderer, handle, this }; // <-- add this
+		glfwSetWindowUserPointer(handle, &callbackData); // <-- replace the old one
+
+
+		glfwSetWindowRefreshCallback(handle, [](GLFWwindow* win) {
+			auto* data = static_cast<WindowCallbackData*>(glfwGetWindowUserPointer(win));
+			glfwSwapInterval(0);
+			// re-run the full frame
+			data->renderer->Clear(data->impl->clearR, data->impl->clearG, data->impl->clearB);
+			glfwSwapBuffers(data->handle);
+			glfwSwapInterval(1);
+			// glfwPollEvents();
+		});
+
+		if (canResize) {
+			glfwSetFramebufferSizeCallback(handle, [](GLFWwindow* win, int w, int h) {
+				glViewport(0, 0, w, h);
+				auto* data = static_cast<WindowCallbackData*>(glfwGetWindowUserPointer(win));
+				data->renderer->SetProjectionMatrix(w, h);
+			});
+		}
 	}
 
 	~Impl() {
@@ -45,10 +76,10 @@ struct Window::Impl {
 };
 
 Window::Window(int width, int height, const std::string& title, bool canResize) 
-	: impl(std::make_unique<Impl>(width, height, title, canResize)),
-	  renderer(std::make_unique<OpenGLRenderer>()) {
-	renderer->Init();
-	static_cast<OpenGLRenderer*>(renderer.get())->SetProjectionMatrix(width, height);
+	: impl(nullptr), renderer(std::make_unique<OpenGLRenderer>()) {
+		impl = std::make_unique<Impl>(width, height, title, canResize, static_cast<OpenGLRenderer*>(renderer.get()));
+		renderer->Init();
+		static_cast<OpenGLRenderer*>(renderer.get())->SetProjectionMatrix(width, height);
 }
 
 Window::~Window() {
@@ -85,6 +116,9 @@ int Window::getHeight() {
 }
 
 void Window::clearBackground(float r, float g, float b) {
+	impl->clearR = r;
+	impl->clearG = g;
+	impl->clearB = b;
 	renderer->Clear(r, g, b);
 }
 
