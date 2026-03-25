@@ -6,7 +6,7 @@
 
 class Window {
 public:
-	Window(int width, int height, const std::string& title, bool canResize);
+	Window(int width, int height, const std::string& title, bool canResize = false);
 	~Window();
 
 	void pollEvents();

@@ -44,7 +44,7 @@ struct Window::Impl {
 	}
 };
 
-Window::Window(int width, int height, const std::string& title, bool canResize = false) 
+Window::Window(int width, int height, const std::string& title, bool canResize) 
 	: impl(std::make_unique<Impl>(width, height, title, canResize)),
 	  renderer(std::make_unique<OpenGLRenderer>()) {
 	renderer->Init();
@@ -90,7 +90,7 @@ void Window::clearBackground(float r, float g, float b) {
 
 static Window* window = nullptr;
 
-void InitWindow(int width, int height, const std::string &title, bool canResize = false) {
+void InitWindow(int width, int height, const std::string &title, bool canResize) {
 	window = new Window(width, height, title, canResize);
 }
 
