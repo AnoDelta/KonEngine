@@ -60,6 +60,20 @@ void Window::swapBuffers() {
 	}
 }
 
+int Window::getWidth() {
+	int width, height;
+	glfwGetWindowSize(impl->handle, &width, &height);
+
+	return width;
+}
+
+int Window::getHeight() {
+	int width, height;
+	glfwGetWindowSize(impl->handle, &width, &height);
+
+	return height;
+}
+
 void Window::clearBackground(float r, float g, float b) {
 	renderer->Clear(r, g, b);
 }
@@ -87,4 +101,16 @@ void PollEvents() {
 
 void ClearBackground(float r, float g, float b) {
 	if (window) window->clearBackground(r,g,b);
+}
+
+int GetWindowWidth() {
+	if (!window) return 0;
+
+	return window->getWidth();
+}
+
+int GetWindowHeight() {
+	if (!window) return 0;
+
+	return window->getHeight();
 }

@@ -13,6 +13,8 @@ public:
 	bool shouldClose() const;
 	void swapBuffers();
 	void clearBackground(float r, float g, float b);
+	int getHeight();
+	int getWidth();
 
 private:
 	struct Impl;
@@ -25,3 +27,6 @@ bool WindowShouldClose();
 void Present();
 void PollEvents();
 void ClearBackground(float r, float g, float b);
+
+int GetWindowWidth();
+int GetWindowHeight();
