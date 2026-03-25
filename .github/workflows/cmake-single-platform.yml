@@ -1,0 +1,57 @@
+name: CMake Multi-Platform
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev
+    - name: Configure & Build
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+
+  build-fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: dnf install -y gcc-c++ cmake mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel
+    - name: Configure & Build
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+
+  build-arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: pacman -Syu --noconfirm gcc cmake mesa libx11 libxrandr libxi
+    - name: Configure & Build
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Configure & Build
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
