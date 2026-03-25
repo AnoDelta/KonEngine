@@ -45,7 +45,7 @@ jobs:
     steps:
     - name: Install Git and dependencies
       run: |
-        pacman -Syu --noconfirm git gcc cmake make mesa libx11 libxrandr libxi \
+        pacman -Syu --noconfirm git gcc cmake make pkgconf mesa libx11 libxrandr libxi \
           wayland wayland-protocols libxkbcommon libxinerama libxcursor
     - uses: actions/checkout@v4
       with:
