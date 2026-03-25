@@ -11,6 +11,9 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 # Add the GLFW source tree
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glfw)
 
+# Add GLM (header-only library)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glm)
+
 # Collect engine sources
 file(GLOB_RECURSE LIB_SRCS
     src/window/*.cpp
@@ -24,19 +27,12 @@ file(GLOB_RECURSE LIB_SRCS
 add_library(KonEngine STATIC ${LIB_SRCS})
 target_include_directories(KonEngine PUBLIC src src/glad/include)
 
-# Link KonEngine against GLFW (now a proper target from add_subdirectory)
-target_link_libraries(KonEngine PRIVATE glfw)
+# Link KonEngine against GLFW and GLM
+target_link_libraries(KonEngine PUBLIC glfw glm::glm)
 
 # Link system libraries depending on platform
 if(WIN32)
-<<<<<<< HEAD
     target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm)
-=======
-    target_include_directories(KonEngine PUBLIC ${CMAKE_CURRENT_LIST_DIR}/libs/glfw/include)
-    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glfw)
-    
-    target_link_libraries(KonEngine PRIVATE glfw opengl32 gdi32 winmm)
->>>>>>> HEAD@{1}
 else()
     target_link_libraries(KonEngine PRIVATE GL dl pthread X11 Xrandr Xi)
 endif()

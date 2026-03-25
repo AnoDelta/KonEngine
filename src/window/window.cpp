@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <memory>
@@ -42,6 +43,7 @@ Window::Window(int width, int height, const std::string& title)
 	: impl(std::make_unique<Impl>(width, height, title)),
 	  renderer(std::make_unique<OpenGLRenderer>()) {
 	renderer->Init();
+	static_cast<OpenGLRenderer*>(renderer.get())->SetProjectionMatrix(width, height);
 }
 
 Window::~Window() = default;
