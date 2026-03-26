@@ -1,4 +1,5 @@
 #include "KonEngine.hpp"
+#include "input/input.hpp"
 #include <iostream>
 
 int main() {
@@ -26,12 +27,31 @@ int main() {
 		width = GetWindowWidth();
 		height = GetWindowHeight();
 
-		if (rectX <= 0 || rectX >= width - rectWidth) {
-			directionX = -directionX;
+		if (IsKeyDown(Key::W)) {
+			directionY = -1;
+		}
+		else if (IsKeyDown(Key::S)) {
+			directionY = 1;
+		}
+		else {
+			directionY = 0;
 		}
 
-		if (rectY <= 0 || rectY >= height - rectHeight) {
-			directionY = -directionY;
+		if (IsKeyDown(Key::A)) {
+			directionX = -1;
+		}
+		else if (IsKeyDown(Key::D)) {
+			directionX = 1;
+		}
+		else {
+			directionX = 0;
+		}
+
+		if (IsMouseButtonPressed(Mouse::Left))
+			std::cout << "Left mouse button pressed at (" << GetMouseX() << ", " << GetMouseY() << ")\n";
+
+		if (IsKeyPressed(Key::Escape)) {
+			break;
 		}
 
 		rectX += static_cast<int>(directionX * speed);
@@ -41,7 +61,7 @@ int main() {
 		PollEvents();
 
 		// Prints fps
-		std::cout << "FPS: " << 1.0f / GetDeltaTime() << '\n';
+		// std::cout << "FPS: " << 1.0f / GetDeltaTime() << '\n';
 	}
 
 	return 0;

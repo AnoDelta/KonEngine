@@ -6,6 +6,7 @@
 #include "../renderer/opengl/opengl_renderer.hpp"
 #include "../time/time.hpp"
 #include <functional>
+#include "../input/input.hpp"
 
 struct Window::Impl {
 	struct WindowCallbackData {
@@ -80,6 +81,7 @@ Window::Window(int width, int height, const std::string& title, bool canResize)
 	: impl(nullptr), renderer(std::make_unique<OpenGLRenderer>()) {
 		impl = std::make_unique<Impl>(width, height, title, canResize, static_cast<OpenGLRenderer*>(renderer.get()));
 		renderer->Init();
+		InitInput(impl->handle);
 		static_cast<OpenGLRenderer*>(renderer.get())->SetProjectionMatrix(width, height);
 }
 
@@ -208,3 +210,4 @@ void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
                     float srcX, float srcY, float srcW, float srcH) {
     if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH);
 }
+
