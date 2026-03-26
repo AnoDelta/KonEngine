@@ -21,6 +21,7 @@ struct Window::Impl {
 	bool vsyncEnabled = true;
 	
 	Impl(int width, int height, const std::string& title, bool canResize, OpenGLRenderer* renderer) {
+		// glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
 		if (!glfwInit()) {
 			std::cerr << "Failed to initialize GLFW" << std::endl;
 			handle = nullptr;
@@ -146,6 +147,7 @@ void Present() {
 
 void PollEvents() {
 	if (window) {
+		UpdateInput();
 		TickTime();
 		window->pollEvents();
 	}
