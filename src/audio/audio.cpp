@@ -25,7 +25,6 @@ void InitAudio() {
         return;
     }
     audioInitialized = true;
-	atexit(ShutdownAudio);
 }
 
 void ShutdownAudio() {

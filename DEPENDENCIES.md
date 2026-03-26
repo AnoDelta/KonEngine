@@ -1,19 +1,29 @@
-# Dependencies
+# Roadmap
 
-## Linux
-- `glfw` — window creation and input
-- `GL` — OpenGL
-- `dl` — dynamic linking
-- `pthread` — threading
-- `X11`, `Xrandr`, `Xi`, `Xinerama`, `Xcursor` — Linux windowing system
-- `wayland`, `wayland-protocols`, `xkbcommon` — Wayland support
+KonEngine is still in early stages. Here's a rough idea of where it's headed.
 
-## Windows
-- `opengl32` — comes with Windows
-- `gdi32` — comes with Windows
-- `winmm` — comes with Windows
+## Done (v0.4.0)
+- OpenGL 2D renderer (rectangles, circles, lines)
+- Texture loading + drawing + sprite sheet support
+- Text rendering with custom and default font (Inconsolata)
+- Input system (keyboard, mouse, gamepad)
+- Color system with presets
+- Audio (sound effects + music streaming)
+- Delta time + FPS cap
+- VSync toggle
+- Cross-platform (Linux + Windows)
 
-## Bundled (no install needed)
-- `GLAD` — OpenGL function loader (in `src/glad/`)
-- `GLFW` — bundled as submodule in `libs/glfw/`
-- `GLM` — math library, bundled as submodule in `libs/glm/`
+## Next (v0.5.0)
+- Camera / viewport system
+- Collision detection (AABB, circle)
+
+## Planned
+- Scene / entity system
+- Asset packer (bundle + encrypt assets into a single .pak file)
+
+## Far Future
+- GUI editor
+
+## No Guarantees
+This is a personal project built for my own use and for friends.
+Features get added when I need them. Nothing here is a promise.

@@ -9,9 +9,15 @@ See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
 
 ## Features
 - Simple Raylib-style API
-- OpenGL rendering (rectangles, circles, lines)
-- Built-in delta time and FPS capping
-- Cross-platform (Linux, Windows)
+- OpenGL 2D rendering (rectangles, circles, lines, textures)
+- Texture loading + sprite sheet support
+- Text rendering with custom fonts or built-in default font
+- Input system (keyboard, mouse, gamepad)
+- Color system with presets (RED, GREEN, BLUE, WHITE...)
+- Audio (sound effects + music streaming via miniaudio)
+- Delta time + FPS capping
+- VSync toggle
+- Cross-platform (Linux + Windows)
 
 ## Getting Started
 
@@ -91,12 +97,48 @@ int main() {
     InitWindow(900, 800, "My Game");
     SetTargetFPS(60);
 
+    unsigned int tex = LoadTexture("player.png");
+    Music bgm = LoadMusic("bgm.mp3");
+    PlayMusic(bgm);
+
     while (!WindowShouldClose()) {
         ClearBackground(0.2f, 0.0f, 0.0f);
-        DrawRectangle(100, 100, 200, 200, 1.0f, 0.0f, 0.0f);
+
+        DrawTexture(tex, 100, 100, 64, 64);
+        DrawText("Hello World!", 10, 10, WHITE);
+        DrawRectangle(200, 200, 100, 100, RED);
+
+        if (IsKeyPressed(Key::Space))
+            PlaySound(LoadSound("jump.wav"));
+
         Present();
         PollEvents();
     }
+
+    UnloadTexture(tex);
+    UnloadMusic(bgm);
+}
+
+```
+
+## Template
+```
+#include "KonEngine.hpp"
+
+int main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    while (!WindowShouldClose()) {
+        ClearBackground(0.1f, 0.1f, 0.1f);
+
+        // Your game code here
+
+        Present();
+        PollEvents();
+    }
+
+    return 0;
 }
 ```
 
