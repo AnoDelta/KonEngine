@@ -10,6 +10,8 @@ private:
 	GLuint circleVAO, circleVBO;
 	GLuint lineVAO, lineVBO;
 	GLuint shaderProgram;
+	GLuint textureVAO, textureVBO;
+	GLuint textureShaderProgram;
 	
 	glm::mat4 projectionMatrix;
 	
@@ -18,6 +20,9 @@ private:
 	void CreateLineBuffers();
 	GLuint CompileShaders();
 	void SetupShaders();
+
+	void CreateTextureBuffers();
+	void SetupTextureShader();
 	
 public:
 	OpenGLRenderer();
@@ -37,4 +42,11 @@ public:
 					 float width, float height) override;
 	
 	void SetProjectionMatrix(int screenWidth, int screenHeight);
+
+	unsigned int LoadTexture(const char* path) override;
+	void UnloadTexture(unsigned int id) override;
+	void DrawTextureRec(unsigned int id, float x, float y,
+					 float width, float height,
+					 float srcX, float srcY,
+					 float srcWidth, float srcHeight) override;
 };

@@ -25,7 +25,7 @@ file(GLOB_RECURSE LIB_SRCS
 
 # Create the KonEngine static library
 add_library(KonEngine STATIC ${LIB_SRCS})
-target_include_directories(KonEngine PUBLIC src src/glad/include)
+target_include_directories(KonEngine PUBLIC src src/glad/include src/stb)
 
 # Link KonEngine against GLFW and GLM
 target_link_libraries(KonEngine PUBLIC glfw glm::glm)

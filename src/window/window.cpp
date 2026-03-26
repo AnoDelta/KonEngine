@@ -188,3 +188,23 @@ void DrawLine(float x1, float y1, float x2, float y2, float r, float g, float b,
 void SetVsync(bool enabled) {
 	if (window) window->setVsync(enabled);
 }
+
+unsigned int Window::loadTexture(const char* path) { return renderer->LoadTexture(path); }
+void Window::unloadTexture(unsigned int id) { renderer->UnloadTexture(id); }
+void Window::drawTexture(unsigned int id, float x, float y, float w, float h) {
+    renderer->DrawTexture(id, x, y, w, h);
+}
+void Window::drawTextureRec(unsigned int id, float x, float y, float w, float h,
+                             float srcX, float srcY, float srcW, float srcH) {
+    renderer->DrawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH);
+}
+
+unsigned int LoadTexture(const char* path) { return window ? window->loadTexture(path) : 0; }
+void UnloadTexture(unsigned int id) { if (window) window->unloadTexture(id); }
+void DrawTexture(unsigned int id, float x, float y, float w, float h) {
+    if (window) window->drawTexture(id, x, y, w, h);
+}
+void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
+                    float srcX, float srcY, float srcW, float srcH) {
+    if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH);
+}

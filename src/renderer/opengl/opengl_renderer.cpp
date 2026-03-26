@@ -1,3 +1,5 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "../../stb/stb_image.h"
 #include "opengl_renderer.hpp"
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -7,7 +9,8 @@
 
 OpenGLRenderer::OpenGLRenderer() 
 	: rectangleVAO(0), rectangleVBO(0), circleVAO(0), circleVBO(0), 
-	  lineVAO(0), lineVBO(0), shaderProgram(0) {
+	  lineVAO(0), lineVBO(0), shaderProgram(0),
+	  textureVAO(0), textureVBO(0), textureShaderProgram(0) {
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -18,6 +21,9 @@ OpenGLRenderer::~OpenGLRenderer() {
 	glDeleteVertexArrays(1, &lineVAO);
 	glDeleteBuffers(1, &lineVBO);
 	glDeleteProgram(shaderProgram);
+	glDeleteVertexArrays(1, &textureVAO);
+	glDeleteBuffers(1, &textureVBO);
+	glDeleteProgram(textureShaderProgram);
 }
 
 void OpenGLRenderer::Init() {
@@ -26,13 +32,14 @@ void OpenGLRenderer::Init() {
 	CreateRectangleBuffers();
 	CreateCircleBuffers();
 	CreateLineBuffers();
+	SetupTextureShader();
+	CreateTextureBuffers();
 	
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void OpenGLRenderer::Present() {
-	// Present is handled by window swap
 }
 
 void OpenGLRenderer::Clear(float r, float g, float b) {
@@ -47,6 +54,10 @@ void OpenGLRenderer::SetProjectionMatrix(int screenWidth, int screenHeight) {
 	glUseProgram(shaderProgram);
 	GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+
+	glUseProgram(textureShaderProgram);
+	GLint texProjLoc = glGetUniformLocation(textureShaderProgram, "projection");
+	glUniformMatrix4fv(texProjLoc, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
 }
 
 void OpenGLRenderer::SetupShaders() {
@@ -109,12 +120,67 @@ void OpenGLRenderer::SetupShaders() {
 	glDeleteShader(fragment);
 }
 
+void OpenGLRenderer::SetupTextureShader() {
+	const char* vertSrc = R"(
+		#version 330 core
+		layout(location = 0) in vec2 position;
+		layout(location = 1) in vec2 texCoord;
+		uniform mat4 projection;
+		uniform mat4 transform;
+		out vec2 TexCoord;
+		void main() {
+			gl_Position = projection * transform * vec4(position, 0.0, 1.0);
+			TexCoord = texCoord;
+		}
+	)";
+
+	const char* fragSrc = R"(
+		#version 330 core
+		in vec2 TexCoord;
+		out vec4 FragColor;
+		uniform sampler2D tex;
+		uniform vec4 tint;
+		void main() {
+			FragColor = texture(tex, TexCoord) * tint;
+		}
+	)";
+
+	GLuint vert = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vert, 1, &vertSrc, nullptr);
+	glCompileShader(vert);
+
+	int success; char infoLog[512];
+	glGetShaderiv(vert, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		glGetShaderInfoLog(vert, 512, nullptr, infoLog);
+		std::cerr << "Texture vertex shader failed: " << infoLog << std::endl;
+	}
+
+	GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(frag, 1, &fragSrc, nullptr);
+	glCompileShader(frag);
+
+	glGetShaderiv(frag, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		glGetShaderInfoLog(frag, 512, nullptr, infoLog);
+		std::cerr << "Texture fragment shader failed: " << infoLog << std::endl;
+	}
+
+	textureShaderProgram = glCreateProgram();
+	glAttachShader(textureShaderProgram, vert);
+	glAttachShader(textureShaderProgram, frag);
+	glLinkProgram(textureShaderProgram);
+
+	glDeleteShader(vert);
+	glDeleteShader(frag);
+}
+
 void OpenGLRenderer::CreateRectangleBuffers() {
 	float vertices[] = {
-		0.0f, 0.0f,  // Bottom-left
-		1.0f, 0.0f,  // Bottom-right
-		1.0f, 1.0f,  // Top-right
-		0.0f, 1.0f   // Top-left
+		0.0f, 0.0f,
+		1.0f, 0.0f,
+		1.0f, 1.0f,
+		0.0f, 1.0f
 	};
 	
 	glGenVertexArrays(1, &rectangleVAO);
@@ -169,11 +235,30 @@ void OpenGLRenderer::CreateLineBuffers() {
 	
 	glBindVertexArray(lineVAO);
 	glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
 	
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 	
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+}
+
+void OpenGLRenderer::CreateTextureBuffers() {
+	glGenVertexArrays(1, &textureVAO);
+	glGenBuffers(1, &textureVBO);
+
+	glBindVertexArray(textureVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, textureVBO);
+	glBufferData(GL_ARRAY_BUFFER, 16 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+
+	// position (location 0)
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	// texcoord (location 1)
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
 }
@@ -234,7 +319,71 @@ void OpenGLRenderer::DrawLine(float x1, float y1, float x2, float y2,
 	glLineWidth(1.0f);
 }
 
-void OpenGLRenderer::DrawTexture(unsigned int textureID, float x, float y, 
-								 float width, float height) {
-	// TODO: Implement texture rendering with separate shader
+unsigned int OpenGLRenderer::LoadTexture(const char* path) {
+	GLuint id;
+	glGenTextures(1, &id);
+	glBindTexture(GL_TEXTURE_2D, id);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	stbi_set_flip_vertically_on_load(true);
+	int w, h, channels;
+	unsigned char* data = stbi_load(path, &w, &h, &channels, 0);
+	if (!data) {
+		std::cerr << "Failed to load texture: " << path << std::endl;
+		glDeleteTextures(1, &id);
+		return 0;
+	}
+
+	GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+	glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, data);
+	glGenerateMipmap(GL_TEXTURE_2D);
+
+	stbi_image_free(data);
+	return id;
+}
+
+void OpenGLRenderer::UnloadTexture(unsigned int id) {
+	glDeleteTextures(1, &id);
+}
+
+void OpenGLRenderer::DrawTexture(unsigned int id, float x, float y,
+								  float width, float height) {
+	DrawTextureRec(id, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f);
+}
+
+void OpenGLRenderer::DrawTextureRec(unsigned int id, float x, float y,
+									 float width, float height,
+									 float srcX, float srcY,
+									 float srcWidth, float srcHeight) {
+	glUseProgram(textureShaderProgram);
+
+	glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
+	transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
+
+	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"),
+					   1, GL_FALSE, glm::value_ptr(projectionMatrix));
+	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "transform"),
+					   1, GL_FALSE, glm::value_ptr(transform));
+	glUniform4f(glGetUniformLocation(textureShaderProgram, "tint"), 1, 1, 1, 1);
+
+	float verts[] = {
+		0.0f, 0.0f,  srcX,            srcY + srcHeight,
+		1.0f, 0.0f,  srcX + srcWidth, srcY + srcHeight,
+		1.0f, 1.0f,  srcX + srcWidth, srcY,
+		0.0f, 1.0f,  srcX,            srcY,
+	};
+
+	glBindVertexArray(textureVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, textureVBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, id);
+	glUniform1i(glGetUniformLocation(textureShaderProgram, "tex"), 0);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
