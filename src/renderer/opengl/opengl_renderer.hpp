@@ -3,6 +3,7 @@
 #include "../renderer.hpp"
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include "../../color/color.hpp"
 
 class OpenGLRenderer : public IRenderer {
 private:
@@ -49,4 +50,11 @@ public:
 					 float width, float height,
 					 float srcX, float srcY,
 					 float srcWidth, float srcHeight) override;
+
+	void DrawRectangle(float x, float y, float width, float height, Color color) override;
+	void DrawCircle(float x, float y, float radius, Color color) override;
+	void DrawLine(float x1, float y1, float x2, float y2, Color color) override;
+	void DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) override;
+	void DrawTextureRec(unsigned int id, float x, float y, float width, float height,
+					 float srcX, float srcY, float srcWidth, float srcHeight, Color tint) override;
 };

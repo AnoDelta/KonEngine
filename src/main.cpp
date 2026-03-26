@@ -22,7 +22,7 @@ int main() {
 
 	while (!WindowShouldClose()) {
 		ClearBackground(0.2f, 0.0f, 0.0f);
-		DrawRectangle(rectX, rectY, rectWidth, rectHeight, 1, 1, 1);
+		DrawRectangle(rectX, rectY, rectWidth, rectHeight, RED);
 
 		width = GetWindowWidth();
 		height = GetWindowHeight();

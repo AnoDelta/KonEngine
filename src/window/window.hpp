@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include "../renderer/renderer.hpp"
+#include "../color/color.hpp"
 
 class Window {
 public:
@@ -25,6 +26,13 @@ public:
 	void drawTexture(unsigned int id, float x, float y, float width, float height);
 	void drawTextureRec(unsigned int id, float x, float y, float width, float height,
 					 float srcX, float srcY, float srcWidth, float srcHeight);
+
+	void drawRectangle(float x, float y, float w, float h, Color color);
+	void drawCircle(float x, float y, float radius, Color color);
+	void drawLine(float x1, float y1, float x2, float y2, Color color);
+	void drawTexture(unsigned int id, float x, float y, float w, float h, Color tint);
+	void drawTextureRec(unsigned int id, float x, float y, float w, float h,
+						float srcX, float srcY, float srcW, float srcH, Color tint);
 
 private:
 	struct Impl;
@@ -52,3 +60,10 @@ void UnloadTexture(unsigned int id);
 void DrawTexture(unsigned int id, float x, float y, float width, float height);
 void DrawTextureRec(unsigned int id, float x, float y, float width, float height,
                     float srcX, float srcY, float srcWidth, float srcHeight);
+
+void DrawRectangle(float x, float y, float w, float h, Color color);
+void DrawCircle(float x, float y, float radius, Color color);
+void DrawLine(float x1, float y1, float x2, float y2, Color color);
+void DrawTexture(unsigned int id, float x, float y, float w, float h, Color tint);
+void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
+					float srcX, float srcY, float srcW, float srcH, Color tint);

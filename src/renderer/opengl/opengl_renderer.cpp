@@ -387,3 +387,47 @@ void OpenGLRenderer::DrawTextureRec(unsigned int id, float x, float y,
 
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
+
+void OpenGLRenderer::DrawRectangle(float x, float y, float width, float height, Color color) {
+	DrawRectangle(x, y, width, height, color.r, color.g, color.b, color.a);
+}
+void OpenGLRenderer::DrawCircle(float x, float y, float radius, Color color) {
+	DrawCircle(x, y, radius, color.r, color.g, color.b, color.a);
+}
+void OpenGLRenderer::DrawLine(float x1, float y1, float x2, float y2, Color color) {
+	DrawLine(x1, y1, x2, y2, color.r, color.g, color.b, color.a);
+}
+
+void OpenGLRenderer::DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) {
+	DrawTextureRec(id, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f, tint);
+}
+void OpenGLRenderer::DrawTextureRec(unsigned int id, float x, float y, float width, float height,
+									float srcX, float srcY, float srcWidth, float srcHeight, Color tint) {
+	glUseProgram(textureShaderProgram);
+
+	glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
+	transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
+
+	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"),
+					   1, GL_FALSE, glm::value_ptr(projectionMatrix));
+	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "transform"),
+					   1, GL_FALSE, glm::value_ptr(transform));
+	glUniform4f(glGetUniformLocation(textureShaderProgram, "tint"), tint.r, tint.g, tint.b, tint.a);
+
+	float verts[] = {
+		0.0f, 0.0f,  srcX,            srcY + srcHeight,
+		1.0f, 0.0f,  srcX + srcWidth, srcY + srcHeight,
+		1.0f, 1.0f,  srcX + srcWidth, srcY,
+		0.0f, 1.0f,  srcX,            srcY,
+	};
+
+	glBindVertexArray(textureVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, textureVBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, id);
+	glUniform1i(glGetUniformLocation(textureShaderProgram, "tex"), 0);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+									}

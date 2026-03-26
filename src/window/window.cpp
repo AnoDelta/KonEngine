@@ -213,3 +213,36 @@ void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
     if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH);
 }
 
+void Window::drawRectangle(float x, float y, float w, float h, Color color) {
+    renderer->DrawRectangle(x, y, w, h, color);
+}
+void Window::drawCircle(float x, float y, float radius, Color color) {
+    renderer->DrawCircle(x, y, radius, color);
+}
+void Window::drawLine(float x1, float y1, float x2, float y2, Color color) {
+    renderer->DrawLine(x1, y1, x2, y2, color);
+}
+void Window::drawTexture(unsigned int id, float x, float y, float w, float h, Color tint) {
+    renderer->DrawTexture(id, x, y, w, h, tint);
+}
+void Window::drawTextureRec(unsigned int id, float x, float y, float w, float h,
+                             float srcX, float srcY, float srcW, float srcH, Color tint) {
+    renderer->DrawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH, tint);
+}
+
+void DrawRectangle(float x, float y, float w, float h, Color color) {
+    if (window) window->drawRectangle(x, y, w, h, color);
+}
+void DrawCircle(float x, float y, float radius, Color color) {
+    if (window) window->drawCircle(x, y, radius, color);
+}
+void DrawLine(float x1, float y1, float x2, float y2, Color color) {
+    if (window) window->drawLine(x1, y1, x2, y2, color);
+}
+void DrawTexture(unsigned int id, float x, float y, float w, float h, Color tint) {
+    if (window) window->drawTexture(id, x, y, w, h, tint);
+}
+void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
+                    float srcX, float srcY, float srcW, float srcH, Color tint) {
+    if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH, tint);
+}
