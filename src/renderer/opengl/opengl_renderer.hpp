@@ -45,25 +45,18 @@ public:
 					float r, float g, float b, float a = 1.0f) override;
 	void DrawLine(float x1, float y1, float x2, float y2, 
 				  float r, float g, float b, float a = 1.0f) override;
-	void DrawTexture(unsigned int textureID, float x, float y, 
-					 float width, float height) override;
-	
 	void SetProjectionMatrix(int screenWidth, int screenHeight);
-
-	unsigned int LoadTexture(const char* path) override;
-	void UnloadTexture(unsigned int id) override;
-	void DrawTextureRec(unsigned int id, float x, float y,
-					 float width, float height,
-					 float srcX, float srcY,
-					 float srcWidth, float srcHeight) override;
-
 	void DrawRectangle(float x, float y, float width, float height, Color color) override;
 	void DrawCircle(float x, float y, float radius, Color color) override;
 	void DrawLine(float x1, float y1, float x2, float y2, Color color) override;
-	void DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) override;
-	void DrawTextureRec(unsigned int id, float x, float y, float width, float height,
+	Texture LoadTexture(const char* path) override;
+	void UnloadTexture(Texture& texture) override;
+	void DrawTexture(Texture& texture, float x, float y, float width, float height) override;
+	void DrawTextureRec(Texture& texture, float x, float y, float width, float height,
+					 float srcX, float srcY, float srcWidth, float srcHeight) override;
+	void DrawTexture(Texture& texture, float x, float y, float width, float height, Color tint) override;
+	void DrawTextureRec(Texture& texture, float x, float y, float width, float height,
 					 float srcX, float srcY, float srcWidth, float srcHeight, Color tint) override;
-
 	void SetTextProjection();
 
 	void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,

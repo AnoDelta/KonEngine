@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include "../color/color.hpp"
+#include "texture.hpp"
 
 class IRenderer {
 public:
@@ -19,14 +20,14 @@ public:
 	virtual void DrawLine(float x1, float y1, float x2, float y2, 
 					   float r, float g, float b, float a = 1.0f) = 0;
 
-	virtual unsigned int LoadTexture(const char* path) = 0;
-	virtual void UnloadTexture(unsigned int id) = 0;
-	virtual void DrawTexture(unsigned int id, float x, float y, 
-						  float width, float height) = 0;
-	virtual void DrawTextureRec(unsigned int id, float x, float y,
-							 float width, float height,
-							 float srcX, float srcY,
-							 float srcWidth, float srcHeight) = 0;
+	virtual Texture LoadTexture(const char* path) = 0;
+	virtual void UnloadTexture(Texture& texture) = 0;
+	virtual void DrawTexture(Texture& texture, float x, float y, float width, float height) = 0;
+	virtual void DrawTextureRec(Texture& texture, float x, float y, float width, float height,
+							 float srcX, float srcY, float srcWidth, float srcHeight) = 0;
+	virtual void DrawTexture(Texture& texture, float x, float y, float width, float height, Color tint) = 0;
+	virtual void DrawTextureRec(Texture& texture, float x, float y, float width, float height,
+							 float srcX, float srcY, float srcWidth, float srcHeight, Color tint) = 0;
 
 	// Just added these for making the color process simpler.
 	virtual void DrawRectangle(float x, float y, float width, float height, Color color) = 0;
