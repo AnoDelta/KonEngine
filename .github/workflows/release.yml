@@ -19,12 +19,10 @@ jobs:
           libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
     - name: Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-    - name: Rename artifact
-      run: mv build/libKonEngine.a build/KonEngine-${{ github.ref_name }}-linux.a
     - name: Upload to release
       uses: softprops/action-gh-release@v1
       with:
-        files: build/KonEngine-${{ github.ref_name }}-linux.a
+        files: build/libKonEngine.a
 
   release-windows:
     runs-on: windows-latest
@@ -33,12 +31,8 @@ jobs:
       with:
         submodules: recursive
     - name: Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-    - name: Find build output
-      run: Get-ChildItem -Recurse build -Filter "*.lib"
-    - name: Rename artifact
-      run: mv build/Debug/KonEngine.lib build/KonEngine-${{ github.ref_name }}-windows.lib
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CONFIGURATION_TYPES=Release && cmake --build build --config Release
     - name: Upload to release
       uses: softprops/action-gh-release@v1
       with:
-        files: build/KonEngine-${{ github.ref_name }}-windows.lib
+        files: build/Release/KonEngine.lib
