@@ -17,12 +17,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
           libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
-    - name: Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+    - name: Rename artifact
+      run: mv build/libKonEngine.a build/KonEngine-${{ github.ref_name }}-linux.a
+
     - name: Upload to release
       uses: softprops/action-gh-release@v1
       with:
-        files: build/libKonEngine.a
+        files: build/KonEngine-${{ github.ref_name }}-linux.a
 
   release-windows:
     runs-on: windows-latest
@@ -32,7 +33,10 @@ jobs:
         submodules: recursive
     - name: Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+    - name: Rename artifact
+      run: mv build/Release/KonEngine.lib build/KonEngine-${{ github.ref_name }}-windows.lib
+
     - name: Upload to release
       uses: softprops/action-gh-release@v1
       with:
-        files: build/KonEngine.lib
+        files: build/KonEngine-${{ github.ref_name }}-windows.lib
