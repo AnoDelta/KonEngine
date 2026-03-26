@@ -18,6 +18,7 @@ public:
     void drawLine(float x1, float y1, float x2, float y2, float r, float g, float b, float a = 1.0f);
 	int getHeight();
 	int getWidth();
+	void setVsync(bool enabled);
 
 private:
 	struct Impl;
@@ -30,6 +31,8 @@ bool WindowShouldClose();
 void Present();
 void PollEvents();
 void ClearBackground(float r, float g, float b);
+
+void SetVsync(bool enabled);
 
 int GetWindowWidth();
 int GetWindowHeight();

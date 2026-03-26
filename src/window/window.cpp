@@ -17,6 +17,7 @@ struct Window::Impl {
 	GLFWwindow* handle;
 	WindowCallbackData callbackData;
 	float clearR = 0, clearG = 0, clearB = 0;
+	bool vsyncEnabled = true;
 	
 	Impl(int width, int height, const std::string& title, bool canResize, OpenGLRenderer* renderer) {
 		if (!glfwInit()) {
@@ -54,7 +55,7 @@ struct Window::Impl {
 			// re-run the full frame
 			data->renderer->Clear(data->impl->clearR, data->impl->clearG, data->impl->clearB);
 			glfwSwapBuffers(data->handle);
-			glfwSwapInterval(1);
+			glfwSwapInterval(data->impl->vsyncEnabled ? 1 : 0);
 			// glfwPollEvents();
 		});
 
@@ -122,6 +123,11 @@ void Window::clearBackground(float r, float g, float b) {
 	renderer->Clear(r, g, b);
 }
 
+void Window::setVsync(bool enabled) {
+	impl->vsyncEnabled = enabled;
+	glfwSwapInterval(enabled ? 1 : 0);
+}
+
 static Window* window = nullptr;
 
 void InitWindow(int width, int height, const std::string &title, bool canResize) {
@@ -178,4 +184,7 @@ void DrawCircle(float x, float y, float radius, float r, float g, float b, float
 }
 void DrawLine(float x1, float y1, float x2, float y2, float r, float g, float b, float a) {
     if (window) window->drawLine(x1, y1, x2, y2, r, g, b, a);
+}
+void SetVsync(bool enabled) {
+	if (window) window->setVsync(enabled);
 }
