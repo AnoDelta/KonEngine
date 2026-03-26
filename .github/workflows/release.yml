@@ -34,9 +34,10 @@ jobs:
         submodules: recursive
     - name: Build
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+    - name: Find build output
+      run: Get-ChildItem -Recurse build -Filter "*.lib"
     - name: Rename artifact
       run: mv build/Release/KonEngine.lib build/KonEngine-${{ github.ref_name }}-windows.lib
-
     - name: Upload to release
       uses: softprops/action-gh-release@v1
       with:
