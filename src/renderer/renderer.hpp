@@ -35,4 +35,7 @@ public:
 	virtual void DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) = 0;
 	virtual void DrawTextureRec(unsigned int id, float x, float y, float width, float height,
 								float srcX, float srcY, float srcWidth, float srcHeight, Color tint) = 0;
+
+	virtual void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+                       float u0, float v0, float u1, float v1, Color color) = 0;
 };

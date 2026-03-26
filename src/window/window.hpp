@@ -34,6 +34,9 @@ public:
 	void drawTextureRec(unsigned int id, float x, float y, float w, float h,
 						float srcX, float srcY, float srcW, float srcH, Color tint);
 
+	void drawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+				   float u0, float v0, float u1, float v1, Color color);
+
 private:
 	struct Impl;
 	std::unique_ptr<Impl> impl;
@@ -67,3 +70,6 @@ void DrawLine(float x1, float y1, float x2, float y2, Color color);
 void DrawTexture(unsigned int id, float x, float y, float w, float h, Color tint);
 void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
 					float srcX, float srcY, float srcW, float srcH, Color tint);
+
+void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+			   float u0, float v0, float u1, float v1, Color color);

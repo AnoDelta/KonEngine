@@ -22,6 +22,7 @@ file(GLOB_RECURSE LIB_SRCS
     src/time/*.cpp
     src/glad/src/*.c
 	src/input/*.cpp
+	src/font/*.cpp
 )
 
 # Create the KonEngine static library

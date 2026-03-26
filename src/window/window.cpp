@@ -246,3 +246,13 @@ void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
                     float srcX, float srcY, float srcW, float srcH, Color tint) {
     if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH, tint);
 }
+
+void Window::drawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+					   float u0, float v0, float u1, float v1, Color color) {
+	renderer->DrawGlyph(atlasID, x, y, w, h, u0, v0, u1, v1, color);
+					   }
+
+					   void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+									  float u0, float v0, float u1, float v1, Color color) {
+						   if (window) window->drawGlyph(atlasID, x, y, w, h, u0, v0, u1, v1, color);
+									  }

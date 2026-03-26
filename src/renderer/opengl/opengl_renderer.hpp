@@ -24,6 +24,12 @@ private:
 
 	void CreateTextureBuffers();
 	void SetupTextureShader();
+
+	GLuint textVAO, textVBO;
+	GLuint textShaderProgram;
+
+	void CreateTextBuffers();
+	void SetupTextShader();
 	
 public:
 	OpenGLRenderer();
@@ -57,4 +63,9 @@ public:
 	void DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) override;
 	void DrawTextureRec(unsigned int id, float x, float y, float width, float height,
 					 float srcX, float srcY, float srcWidth, float srcHeight, Color tint) override;
+
+	void SetTextProjection();
+
+	void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+				   float u0, float v0, float u1, float v1, Color color) override;
 };

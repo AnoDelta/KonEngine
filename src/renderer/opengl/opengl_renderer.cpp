@@ -10,7 +10,8 @@
 OpenGLRenderer::OpenGLRenderer() 
 	: rectangleVAO(0), rectangleVBO(0), circleVAO(0), circleVBO(0), 
 	  lineVAO(0), lineVBO(0), shaderProgram(0),
-	  textureVAO(0), textureVBO(0), textureShaderProgram(0) {
+	  textureVAO(0), textureVBO(0), textureShaderProgram(0),
+	  textVAO(0), textVBO(0), textShaderProgram(0){
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -24,6 +25,9 @@ OpenGLRenderer::~OpenGLRenderer() {
 	glDeleteVertexArrays(1, &textureVAO);
 	glDeleteBuffers(1, &textureVBO);
 	glDeleteProgram(textureShaderProgram);
+	glDeleteVertexArrays(1, &textVAO);
+	glDeleteBuffers(1, &textVBO);
+	glDeleteProgram(textShaderProgram);
 }
 
 void OpenGLRenderer::Init() {
@@ -37,6 +41,9 @@ void OpenGLRenderer::Init() {
 	
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	SetupTextShader();
+	CreateTextBuffers();
 }
 
 void OpenGLRenderer::Present() {
@@ -58,6 +65,10 @@ void OpenGLRenderer::SetProjectionMatrix(int screenWidth, int screenHeight) {
 	glUseProgram(textureShaderProgram);
 	GLint texProjLoc = glGetUniformLocation(textureShaderProgram, "projection");
 	glUniformMatrix4fv(texProjLoc, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+
+	glUseProgram(textShaderProgram);
+	GLint textProjLoc = glGetUniformLocation(textShaderProgram, "projection");
+	glUniformMatrix4fv(textProjLoc, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
 }
 
 void OpenGLRenderer::SetupShaders() {
@@ -430,4 +441,104 @@ void OpenGLRenderer::DrawTextureRec(unsigned int id, float x, float y, float wid
 	glUniform1i(glGetUniformLocation(textureShaderProgram, "tex"), 0);
 
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-									}
+
+}
+
+void OpenGLRenderer::SetupTextShader() {
+	const char* vertSrc = R"(
+		#version 330 core
+		layout(location = 0) in vec2 position;
+		layout(location = 1) in vec2 texCoord;
+		uniform mat4 projection;
+		out vec2 TexCoord;
+		void main() {
+			gl_Position = projection * vec4(position, 0.0, 1.0);
+			TexCoord = texCoord;
+		}
+	)";
+
+	const char* fragSrc = R"(
+		#version 330 core
+		in vec2 TexCoord;
+		out vec4 FragColor;
+		uniform sampler2D tex;
+		uniform vec4 textColor;
+		void main() {
+			float alpha = texture(tex, TexCoord).r;
+			FragColor = vec4(textColor.rgb, textColor.a * alpha);
+		}
+	)";
+
+	GLuint vert = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vert, 1, &vertSrc, nullptr);
+	glCompileShader(vert);
+
+	int success; char infoLog[512];
+	glGetShaderiv(vert, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		glGetShaderInfoLog(vert, 512, nullptr, infoLog);
+		std::cerr << "Text vertex shader failed: " << infoLog << std::endl;
+	}
+
+	GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(frag, 1, &fragSrc, nullptr);
+	glCompileShader(frag);
+
+	glGetShaderiv(frag, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		glGetShaderInfoLog(frag, 512, nullptr, infoLog);
+		std::cerr << "Text fragment shader failed: " << infoLog << std::endl;
+	}
+
+	textShaderProgram = glCreateProgram();
+	glAttachShader(textShaderProgram, vert);
+	glAttachShader(textShaderProgram, frag);
+	glLinkProgram(textShaderProgram);
+
+	glDeleteShader(vert);
+	glDeleteShader(frag);
+}
+
+void OpenGLRenderer::CreateTextBuffers() {
+	glGenVertexArrays(1, &textVAO);
+	glGenBuffers(1, &textVBO);
+
+	glBindVertexArray(textVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, textVBO);
+	glBufferData(GL_ARRAY_BUFFER, 16 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+}
+
+void OpenGLRenderer::DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
+							   float u0, float v0, float u1, float v1, Color color) {
+	glUseProgram(textShaderProgram);
+
+	glUniformMatrix4fv(glGetUniformLocation(textShaderProgram, "projection"),
+					   1, GL_FALSE, glm::value_ptr(projectionMatrix));
+	glUniform4f(glGetUniformLocation(textShaderProgram, "textColor"),
+				color.r, color.g, color.b, color.a);
+
+	float verts[] = {
+		x,     y,      u0, v0,
+		x + w, y,      u1, v0,
+		x + w, y + h,  u1, v1,
+		x,     y + h,  u0, v1,
+	};
+
+	glBindVertexArray(textVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, textVBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, atlasID);
+	glUniform1i(glGetUniformLocation(textShaderProgram, "tex"), 0);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+}
