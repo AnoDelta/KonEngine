@@ -1,6 +1,7 @@
 # Build
 build/
 build-windows/
+build-clion/
 
 # external libs
 #libs/
