@@ -8,7 +8,7 @@
 #include <cmath>
 
 OpenGLRenderer::OpenGLRenderer() 
-	: rectangleVAO(0), rectangleVBO(0), circleVAO(0), circleVBO(0), 
+	: screenWidth(0), screenHeight(0), rectangleVAO(0), rectangleVBO(0), circleVAO(0), circleVBO(0), 
 	  lineVAO(0), lineVBO(0), shaderProgram(0),
 	  textureVAO(0), textureVBO(0), textureShaderProgram(0),
 	  textVAO(0), textVBO(0), textShaderProgram(0){
@@ -55,8 +55,10 @@ void OpenGLRenderer::Clear(float r, float g, float b) {
 }
 
 void OpenGLRenderer::SetProjectionMatrix(int screenWidth, int screenHeight) {
-	projectionMatrix = glm::ortho(0.0f, (float)screenWidth, 
-								  (float)screenHeight, 0.0f, -1.0f, 1.0f);
+	this->screenWidth = screenWidth;   // add
+    this->screenHeight = screenHeight; // add
+    projectionMatrix = glm::ortho(0.0f, (float)screenWidth, 
+                                  (float)screenHeight, 0.0f, -1.0f, 1.0f);
 	
 	glUseProgram(shaderProgram);
 	GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
@@ -523,4 +525,33 @@ void OpenGLRenderer::DrawGlyph(unsigned int atlasID, float x, float y, float w, 
 	glUniform1i(glGetUniformLocation(textShaderProgram, "tex"), 0);
 
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+}
+
+void OpenGLRenderer::BeginCamera2D(const Camera2D& cam) {
+    savedProjectionMatrix = projectionMatrix;
+
+    float hw = screenWidth / 2.0f;
+    float hh = screenHeight / 2.0f;
+
+    glm::mat4 view = glm::mat4(1.0f);
+    view = glm::translate(view, glm::vec3(hw, hh, 0.0f));
+    view = glm::rotate(view, glm::radians(cam.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
+    view = glm::scale(view, glm::vec3(cam.zoom, cam.zoom, 1.0f));
+    view = glm::translate(view, glm::vec3(-cam.x, -cam.y, 0.0f));
+
+    glm::mat4 cameraProjection = projectionMatrix * view;
+
+    glUseProgram(shaderProgram);
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(cameraProjection));
+
+    glUseProgram(textureShaderProgram);
+    glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(cameraProjection));
+}
+
+void OpenGLRenderer::EndCamera2D() {
+    glUseProgram(shaderProgram);
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
+
+    glUseProgram(textureShaderProgram);
+    glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
 }

@@ -7,6 +7,7 @@
 #include "../time/time.hpp"
 #include <functional>
 #include "../input/input.hpp"
+#include "../camera/camera.hpp"
 
 struct Window::Impl {
 	struct WindowCallbackData {
@@ -256,3 +257,17 @@ void Window::drawGlyph(unsigned int atlasID, float x, float y, float w, float h,
 									  float u0, float v0, float u1, float v1, Color color) {
 						   if (window) window->drawGlyph(atlasID, x, y, w, h, u0, v0, u1, v1, color);
 									  }
+
+void Window::beginCamera2D(const Camera2D& cam) {
+    renderer->BeginCamera2D(cam);
+}
+void Window::endCamera2D() {
+    renderer->EndCamera2D();
+}
+
+void BeginCamera2D(const Camera2D& cam) {
+    if (window) window->beginCamera2D(cam);
+}
+void EndCamera2D() {
+    if (window) window->endCamera2D();
+}

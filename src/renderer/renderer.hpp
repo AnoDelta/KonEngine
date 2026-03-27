@@ -3,7 +3,9 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include "../color/color.hpp"
+#include "../renderer/renderer.hpp"
 #include "texture.hpp"
+#include "../camera/camera.hpp"
 
 class IRenderer {
 public:
@@ -36,4 +38,6 @@ public:
 
 	virtual void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
                        float u0, float v0, float u1, float v1, Color color) = 0;
+	virtual void BeginCamera2D(const Camera2D& cam) = 0;
+	virtual void EndCamera2D() = 0;
 };

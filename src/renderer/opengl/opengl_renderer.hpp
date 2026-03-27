@@ -14,7 +14,9 @@ private:
 	GLuint textureVAO, textureVBO;
 	GLuint textureShaderProgram;
 	
+    int screenWidth, screenHeight; 
 	glm::mat4 projectionMatrix;
+    glm::mat4 savedProjectionMatrix;
 	
 	void CreateRectangleBuffers();
 	void CreateCircleBuffers();
@@ -61,4 +63,7 @@ public:
 
 	void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
 				   float u0, float v0, float u1, float v1, Color color) override;
+
+	void BeginCamera2D(const Camera2D& cam) override;
+	void EndCamera2D() override;
 };

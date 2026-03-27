@@ -8,3 +8,4 @@
 #include "font/font.hpp"
 #include "audio/audio.hpp"
 #include "renderer/texture.hpp"
+#include "camera/camera.hpp"

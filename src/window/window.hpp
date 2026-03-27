@@ -37,6 +37,9 @@ public:
 	void drawGlyph(unsigned int atlasID, float x, float y, float w, float h,
 				   float u0, float v0, float u1, float v1, Color color);
 
+	void beginCamera2D(const Camera2D& cam);
+	void endCamera2D();
+
 private:
 	struct Impl;
 	std::unique_ptr<Impl> impl;
@@ -73,3 +76,6 @@ void DrawLine(float x1, float y1, float x2, float y2, Color color);
 
 void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
 			   float u0, float v0, float u1, float v1, Color color);
+
+void BeginCamera2D(const Camera2D& cam);
+void EndCamera2D();
