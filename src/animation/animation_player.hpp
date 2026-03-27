@@ -199,20 +199,19 @@ private:
         }
     }
 
-    void ApplySpriteFrame() {
-        if (!target || current.empty()) return;
-        auto it = animations.find(current);
-        if (it == animations.end() || it->second.frames.empty()) return;
+	void ApplySpriteFrame() {
+		if (!target || current.empty()) return;
+		auto it = animations.find(current);
+		if (it == animations.end() || it->second.frames.empty()) return;
 
-        const AnimationFrame& f = it->second.frames[currentFrame];
-        target->srcX         = f.srcX;
-        target->srcY         = f.srcY;
-        target->srcWidth     = f.srcWidth;
-        target->srcHeight    = f.srcHeight;
-        target->width        = f.srcWidth;
-        target->height       = f.srcHeight;
-        target->useSourceRect = true;
-    }
+		const AnimationFrame& f = it->second.frames[currentFrame];
+		target->srcX          = f.srcX;
+		target->srcY          = f.srcY;
+		target->srcWidth      = f.srcWidth;
+		target->srcHeight     = f.srcHeight;
+		// target->width / height are the DISPLAY dimensions — leave them alone
+		target->useSourceRect = true;
+	}
 
     // Sample all keyframe tracks and write to node properties
     void ApplyTracks(Animation& anim) {
