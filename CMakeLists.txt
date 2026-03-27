@@ -44,7 +44,6 @@ endif()
 # Install targets and headers
 install(TARGETS KonEngine ARCHIVE DESTINATION lib)
 install(FILES src/KonEngine.hpp DESTINATION include)
-install(FILES KonEngine DESTINATION include)
 install(DIRECTORY src/window src/renderer src/time src/camera src/collision
     DESTINATION include/KonEngine
     FILES_MATCHING PATTERN "*.hpp"
