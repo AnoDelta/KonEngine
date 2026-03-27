@@ -1,8 +1,8 @@
 # KonEngine
-A lightweight game engine written in C++, built for old and low-end machines.
-Made primarily for personal use and for friends — I wanted something simple and fast 
+A lightweight 2D game engine written in C++, built for old and low-end machines.
+Made primarily for personal use and for friends — I wanted something simple and fast
 that fits my workflow when making games, without the overhead of larger engines.
-Heavily inspired by Raylib's simplicity and API style (as of now).
+Heavily inspired by Raylib's simplicity and API style, with plans for a full Godot-style editor.
 
 ## Roadmap
 See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
@@ -12,6 +12,8 @@ See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
 - OpenGL 2D rendering (rectangles, circles, lines, textures)
 - Texture loading + sprite sheet support
 - Text rendering with custom fonts or built-in default font
+- Camera system (pan, zoom, rotation)
+- Collision detection (AABB, circle, circle vs rectangle)
 - Input system (keyboard, mouse, gamepad)
 - Color system with presets (RED, GREEN, BLUE, WHITE...)
 - Audio (sound effects + music streaming via miniaudio)
@@ -90,40 +92,45 @@ target_link_libraries(YourGame PRIVATE KonEngine)
 ```
 
 ## Usage
+
 ```cpp
-#include "KonEngine.hpp"
+#include <KonEngine>
 
 int main() {
-    InitWindow(900, 800, "My Game");
+    InitWindow(800, 600, "My Game");
     SetTargetFPS(60);
 
-    unsigned int tex = LoadTexture("player.png");
-    Music bgm = LoadMusic("bgm.mp3");
-    PlayMusic(bgm);
+    Camera2D cam(400, 300, 1.0f, 0.0f);
+
+    Rectangle player(100, 100, 64, 64);
+    Rectangle wall(300, 200, 128, 128);
 
     while (!WindowShouldClose()) {
-        ClearBackground(0.2f, 0.0f, 0.0f);
+        ClearBackground(0.1f, 0.1f, 0.1f);
 
-        DrawTexture(tex, 100, 100, 64, 64);
-        DrawText("Hello World!", 10, 10, WHITE);
-        DrawRectangle(200, 200, 100, 100, RED);
+        if (IsKeyDown(Key::Right)) player.x += 3;
+        if (IsKeyDown(Key::Left))  player.x -= 3;
 
-        if (IsKeyPressed(Key::Space))
-            PlaySound(LoadSound("jump.wav"));
+        if (CheckCollisionRecs(player, wall))
+            DrawText("Collision!", 10, 10, RED);
+
+        BeginCamera2D(cam);
+            DrawRectangle(player.x, player.y, player.width, player.height, GREEN);
+            DrawRectangle(wall.x, wall.y, wall.width, wall.height, RED);
+        EndCamera2D();
 
         Present();
         PollEvents();
     }
 
-    UnloadTexture(tex);
-    UnloadMusic(bgm);
+    return 0;
 }
-
 ```
 
 ## Template
-```
-#include "KonEngine.hpp"
+
+```cpp
+#include <KonEngine>
 
 int main() {
     InitWindow(800, 600, "My Game");
