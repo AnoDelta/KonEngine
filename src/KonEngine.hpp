@@ -14,3 +14,4 @@
 #include "node/node2d.hpp"
 #include "node/sprite2d.hpp"
 #include "node/scene.hpp"
+#include "math/vector2.hpp"
