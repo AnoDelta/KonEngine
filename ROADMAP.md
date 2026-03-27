@@ -21,20 +21,22 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 
 ### v0.6.0 — Node & Scene System
 - Base Node class
-- Node2D, Sprite2D nodes
+- Node2D, Sprite2D nodes with pivot/origin support
 - Scene tree (Godot-style hierarchy)
 - Signals
 - Auto update/draw
+- Collider2D integrated into scene tree
+
+### v0.7.0 — Animator
+- Sprite sheet animation (frame by frame)
+- Keyframe animation for nodes (position, rotation, scale, alpha)
+- Animation player node
+- `.anim` text format + `anim_compiler` tool → `.konani` binary
+- GUI compiler tool (cross-platform, ImGui)
 
 ---
 
 ## Upcoming
-
-### v0.7.0 — Animator
-- Sprite sheet animation (frame by frame)
-- Keyframe animation for nodes (position, rotation, scale, color)
-- Animation player node
-- `.anim` file format
 
 ### v0.8.0 — Asset Pipeline
 - AES-256 asset encryption

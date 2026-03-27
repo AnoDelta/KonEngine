@@ -20,7 +20,10 @@ See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
 - Delta time + FPS capping
 - VSync toggle
 - Cross-platform (Linux + Windows)
-- Node/scene system (Godot-style, with signals)
+- Node/scene system (Godot-style hierarchy, signals)
+- Sprite2D with pivot/origin support
+- Animation system (sprite sheet + keyframe, 16 easing curves)
+- `anim_compiler` tool with GUI — compiles `.anim` → `.konani`
 
 ## Getting Started
 
@@ -94,6 +97,92 @@ target_link_libraries(YourGame PRIVATE KonEngine)
 
 ## Usage
 
+### Basic template
+```cpp
+#include <KonEngine>
+
+int main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    while (!WindowShouldClose()) {
+        ClearBackground(0.1f, 0.1f, 0.1f);
+
+        // Your game code here
+
+        Present();
+        PollEvents();
+    }
+
+    return 0;
+}
+```
+
+### Node/scene system
+```cpp
+#include <KonEngine>
+
+int main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    Scene scene;
+
+    auto* player = scene.Add<Sprite2D>("player");
+    player->x = 400;
+    player->y = 300;
+
+    Texture sheet = LoadTexture("player.png");
+    player->SetTexture(sheet);
+
+    while (!WindowShouldClose()) {
+        ClearBackground(0.1f, 0.1f, 0.1f);
+        scene.Update(GetDeltaTime());
+        scene.Draw();
+        Present();
+        PollEvents();
+    }
+
+    return 0;
+}
+```
+
+### Animation
+```cpp
+#include <KonEngine>
+
+int main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    Scene scene;
+
+    auto* player = scene.Add<Sprite2D>("player");
+    player->x = 400;
+    player->y = 300;
+
+    Texture sheet = LoadTexture("player.png");
+    player->SetTexture(sheet);
+
+    auto* anim = player->AddChild<AnimationPlayer>("anim");
+    anim->target = player;
+    anim->node   = player;
+    anim->LoadFromFile("player.konani");
+    anim->Play("idle");
+
+    while (!WindowShouldClose()) {
+        ClearBackground(0.1f, 0.1f, 0.1f);
+        scene.Update(GetDeltaTime());
+        scene.Draw();
+        Present();
+        PollEvents();
+    }
+
+    return 0;
+}
+```
+
+### Collision
 ```cpp
 #include <KonEngine>
 
@@ -128,26 +217,40 @@ int main() {
 }
 ```
 
-## Template
+## Anim Compiler
+The `anim_compiler` tool converts `.anim` text files into `.konani` binary files for use at runtime.
 
-```cpp
-#include <KonEngine>
+**Build it:**
+```bash
+cmake --build build --target=anim_compiler
+```
 
-int main() {
-    InitWindow(800, 600, "My Game");
-    SetTargetFPS(60);
+**CLI usage:**
+```bash
+./anim_compiler player.anim           # outputs player.konani
+./anim_compiler player.anim out.konani
+```
 
-    while (!WindowShouldClose()) {
-        ClearBackground(0.1f, 0.1f, 0.1f);
+**GUI usage** — run with no arguments:
+```bash
+./anim_compiler
+```
 
-        // Your game code here
+**`.anim` format:**
+```
+# Sprite sheet animation
+anim idle loop
+  frame 0 0 32 32 0.15
+  frame 32 0 32 32 0.15
+end
 
-        Present();
-        PollEvents();
-    }
-
-    return 0;
-}
+# Keyframe animation
+anim pop_in
+  track scaleX 0.0 0.0 easeinoutback
+  track scaleX 0.4 1.0 easeinoutback
+  track alpha  0.0 0.0 easeout
+  track alpha  0.3 1.0 easeout
+end
 ```
 
 ## License
