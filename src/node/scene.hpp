@@ -1,18 +1,33 @@
 #pragma once
 #include "node.hpp"
+#include "collider2d.hpp"
+#include "../collision/collision_world.hpp"
 
 class Scene {
 public:
+    CollisionWorld collisionWorld; // accessible if you want manual queries too
+
     template<typename T, typename... Args>
     T* Add(const std::string& nodeName, Args&&... args) {
         auto node = std::make_unique<T>(std::forward<Args>(args)...);
         node->name = nodeName;
         T* ptr = node.get();
         nodes.push_back(std::move(node));
+
+        // Auto-register colliders
+        if (auto* col = dynamic_cast<Collider2D*>(ptr))
+            collisionWorld.Add(col);
+
         return ptr;
     }
 
     void Remove(const std::string& nodeName) {
+        for (auto& node : nodes) {
+            if (node->name == nodeName) {
+                if (auto* col = dynamic_cast<Collider2D*>(node.get()))
+                    collisionWorld.Remove(col);
+            }
+        }
         nodes.erase(
             std::remove_if(nodes.begin(), nodes.end(),
                 [&](const std::unique_ptr<Node>& n) {
@@ -32,6 +47,9 @@ public:
     }
 
     void Update(float dt) {
+        // Run collision checks first
+        collisionWorld.Update();
+
         for (auto& node : nodes)
             if (node->active) {
                 node->Update(dt);
