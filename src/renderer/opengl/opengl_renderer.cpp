@@ -342,7 +342,6 @@ Texture OpenGLRenderer::LoadTexture(const char* path) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    stbi_set_flip_vertically_on_load(true);
     int w, h, channels;
     unsigned char* data = stbi_load(path, &w, &h, &channels, 0);
     if (!data) {
@@ -392,19 +391,17 @@ void OpenGLRenderer::DrawTextureRec(Texture& texture, float x, float y,
     glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
     transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
 
-    glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"),
-                       1, GL_FALSE, glm::value_ptr(projectionMatrix));
     glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "transform"),
                        1, GL_FALSE, glm::value_ptr(transform));
     glUniform4f(glGetUniformLocation(textureShaderProgram, "tint"),
                 tint.r, tint.g, tint.b, tint.a);
 
-    float verts[] = {
-        0.0f, 0.0f,  srcX,            srcY + srcHeight,
-        1.0f, 0.0f,  srcX + srcWidth, srcY + srcHeight,
-        1.0f, 1.0f,  srcX + srcWidth, srcY,
-        0.0f, 1.0f,  srcX,            srcY,
-    };
+	float verts[] = {
+		0.0f, 0.0f,  srcX,      srcY,
+		1.0f, 0.0f,  srcWidth,  srcY,
+		1.0f, 1.0f,  srcWidth,  srcHeight,
+		0.0f, 1.0f,  srcX,      srcHeight,
+	};
 
     glBindVertexArray(textureVAO);
     glBindBuffer(GL_ARRAY_BUFFER, textureVBO);

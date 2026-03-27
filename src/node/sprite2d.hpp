@@ -28,10 +28,15 @@ public:
 		float dy = DrawY(height);
 
 		if (texture.id != 0) {
-			if (useSourceRect)
-				DrawTextureRec(texture, dx, dy, width, height, srcX, srcY, srcWidth, srcHeight, tint);
-			else
+			if (useSourceRect && texture.width > 0 && texture.height > 0) {
+				float u0 = srcX              / (float)texture.width;
+				float v0 = srcY              / (float)texture.height;
+				float u1 = (srcX + srcWidth) / (float)texture.width;   // ← fixed
+				float v1 = (srcY + srcHeight)/ (float)texture.height;  // ← fixed
+				DrawTextureRec(texture, dx, dy, width, height, u0, v0, u1, v1, tint);
+			} else {
 				DrawTexture(texture, dx, dy, width, height, tint);
+			}
 		} else {
 			DrawRectangle(dx, dy, width, height, tint);
 		}

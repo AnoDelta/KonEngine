@@ -205,11 +205,10 @@ private:
 		if (it == animations.end() || it->second.frames.empty()) return;
 
 		const AnimationFrame& f = it->second.frames[currentFrame];
-		target->srcX          = f.srcX;
-		target->srcY          = f.srcY;
-		target->srcWidth      = f.srcWidth;
-		target->srcHeight     = f.srcHeight;
-		// target->width / height are the DISPLAY dimensions — leave them alone
+		target->srcX      = f.srcX;
+		target->srcY      = f.srcY;
+		target->srcWidth  = f.srcWidth;
+		target->srcHeight = f.srcHeight;
 		target->useSourceRect = true;
 	}
 
