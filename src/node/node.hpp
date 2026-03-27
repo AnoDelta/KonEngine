@@ -67,7 +67,7 @@ public:
     }
 
     // Update and draw all children
-    void UpdateChildren(float dt) {
+    virtual void UpdateChildren(float dt) {
         for (auto& child : children)
             if (child->active) {
                 child->Update(dt);
@@ -75,7 +75,7 @@ public:
             }
     }
 
-    void DrawChildren() {
+    virtual void DrawChildren() {
         for (auto& child : children)
             if (child->active) {
                 child->Draw();

@@ -16,17 +16,20 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glm)
 
 # Collect engine sources
 file(GLOB_RECURSE LIB_SRCS
-    src/window/*.cpp
-    src/renderer/*.cpp
-    src/renderer/opengl/*.cpp
-    src/time/*.cpp
-    src/glad/src/*.c
-    src/input/*.cpp
-    src/font/*.cpp
-    src/audio/*.cpp
-    src/collision/*.cpp
-    src/animation/*.cpp
+        src/window/*.cpp
+        src/renderer/*.cpp
+        src/renderer/opengl/*.cpp
+        src/time/*.cpp
+        src/glad/src/*.c
+        src/input/*.cpp
+        src/font/*.cpp
+        src/audio/*.cpp
+        src/collision/*.cpp
+        src/animation/*.cpp
 )
+
+# anim_compiler.cpp is a standalone tool, not part of the engine library
+list(FILTER LIB_SRCS EXCLUDE REGEX ".*anim_compiler\\.cpp$")
 
 # Create the KonEngine static library
 add_library(KonEngine STATIC ${LIB_SRCS})
@@ -46,11 +49,42 @@ endif()
 install(TARGETS KonEngine ARCHIVE DESTINATION lib)
 install(FILES src/KonEngine.hpp DESTINATION include)
 install(DIRECTORY src/window src/renderer src/time src/camera src/collision
-    DESTINATION include/KonEngine
-    FILES_MATCHING PATTERN "*.hpp"
+        DESTINATION include/KonEngine
+        FILES_MATCHING PATTERN "*.hpp"
 )
 
 # Small test executable
 add_executable(KonTest ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(KonTest PRIVATE KonEngine)
 set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# -----------------------------------------------------------------------
+# anim_compiler — standalone GUI tool
+# -----------------------------------------------------------------------
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
+set(IMGUI_SRCS
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+add_executable(anim_compiler
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp
+        ${IMGUI_SRCS}
+)
+target_include_directories(anim_compiler PRIVATE
+        ${IMGUI_DIR}
+        ${IMGUI_DIR}/backends
+        ${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/glad/include
+)
+target_link_libraries(anim_compiler PRIVATE glfw)
+if(WIN32)
+    target_link_libraries(anim_compiler PRIVATE opengl32)
+else()
+    target_link_libraries(anim_compiler PRIVATE GL)
+endif()
+set_target_properties(anim_compiler PROPERTIES EXCLUDE_FROM_ALL TRUE)
