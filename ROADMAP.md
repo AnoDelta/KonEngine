@@ -23,11 +23,12 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 
 ## Upcoming
 
-### v0.6.0 — Node & Scene System
-- Base `Node` class
-- `Node2D`, `Sprite2D`, `CollisionShape2D`, `AudioPlayer` nodes
+### v0.6.0 — Node & Scene System ✅
+- Base Node class
+- Node2D, Sprite2D nodes
 - Scene tree (Godot-style hierarchy)
-- Save/load scenes to disk
+- Signals
+- Auto update/draw
 
 ### v0.7.0 — Animator
 - Sprite sheet animation (frame by frame)

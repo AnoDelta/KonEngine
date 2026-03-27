@@ -20,6 +20,7 @@ See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
 - Delta time + FPS capping
 - VSync toggle
 - Cross-platform (Linux + Windows)
+- Node/scene system (Godot-style, with signals)
 
 ## Getting Started
 
