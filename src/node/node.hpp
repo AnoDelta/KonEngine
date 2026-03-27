@@ -46,6 +46,14 @@ public:
         return nullptr;
     }
 
+    // Walk every child (and their children) — used by Scene to find colliders etc.
+    void ForEachDescendant(const std::function<void(Node*)>& cb) {
+        for (auto& child : children) {
+            cb(child.get());
+            child->ForEachDescendant(cb);
+        }
+    }
+
     // Signals
     void Connect(const std::string& signal, std::function<void()> callback) {
         signals[signal].push_back(callback);

@@ -14,9 +14,15 @@ public:
         T* ptr = node.get();
         nodes.push_back(std::move(node));
 
-        // Auto-register colliders
+        // Register the node itself if it's a collider
         if (auto* col = dynamic_cast<Collider2D*>(ptr))
             collisionWorld.Add(col);
+
+        // Also register any Collider2D children already attached before scene add
+        ptr->ForEachDescendant([this](Node* n) {
+            if (auto* col = dynamic_cast<Collider2D*>(n))
+                collisionWorld.Add(col);
+        });
 
         return ptr;
     }
@@ -24,8 +30,14 @@ public:
     void Remove(const std::string& nodeName) {
         for (auto& node : nodes) {
             if (node->name == nodeName) {
+                // Unregister the node itself
                 if (auto* col = dynamic_cast<Collider2D*>(node.get()))
                     collisionWorld.Remove(col);
+                // Unregister any collider descendants
+                node->ForEachDescendant([this](Node* n) {
+                    if (auto* col = dynamic_cast<Collider2D*>(n))
+                        collisionWorld.Remove(col);
+                });
             }
         }
         nodes.erase(
