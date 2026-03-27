@@ -24,6 +24,7 @@ file(GLOB_RECURSE LIB_SRCS
 	src/input/*.cpp
 	src/font/*.cpp
 	src/audio/*.cpp
+	src/collision/*.cpp
 )
 
 # Create the KonEngine static library
@@ -44,7 +45,7 @@ endif()
 install(TARGETS KonEngine ARCHIVE DESTINATION lib)
 install(FILES src/KonEngine.hpp DESTINATION include/KonEngine)
 install(FILES KonEngine DESTINATION include)
-install(DIRECTORY src/window src/renderer src/time
+install(DIRECTORY src/window src/renderer src/time src/camera src/collision
     DESTINATION include/KonEngine
     FILES_MATCHING PATTERN "*.hpp"
 )
