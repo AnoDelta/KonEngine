@@ -10,3 +10,7 @@
 #include "renderer/texture.hpp"
 #include "camera/camera.hpp"
 #include "collision/collision.hpp"
+#include "node/node.hpp"
+#include "node/node2d.hpp"
+#include "node/sprite2d.hpp"
+#include "node/scene.hpp"
