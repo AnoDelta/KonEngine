@@ -3,7 +3,6 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include "../color/color.hpp"
-#include "../renderer/renderer.hpp"
 #include "texture.hpp"
 #include "../camera/camera.hpp"
 
