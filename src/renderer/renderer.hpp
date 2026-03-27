@@ -33,9 +33,6 @@ public:
 	virtual void DrawRectangle(float x, float y, float width, float height, Color color) = 0;
 	virtual void DrawCircle(float x, float y, float radius, Color color) = 0;
 	virtual void DrawLine(float x1, float y1, float x2, float y2, Color color) = 0;
-	virtual void DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) = 0;
-	virtual void DrawTextureRec(unsigned int id, float x, float y, float width, float height,
-								float srcX, float srcY, float srcWidth, float srcHeight, Color tint) = 0;
 
 	virtual void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
                        float u0, float v0, float u1, float v1, Color color) = 0;

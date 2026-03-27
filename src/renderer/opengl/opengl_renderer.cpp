@@ -330,73 +330,89 @@ void OpenGLRenderer::DrawLine(float x1, float y1, float x2, float y2,
 	glLineWidth(1.0f);
 }
 
-unsigned int OpenGLRenderer::LoadTexture(const char* path) {
-	GLuint id;
-	glGenTextures(1, &id);
-	glBindTexture(GL_TEXTURE_2D, id);
+Texture OpenGLRenderer::LoadTexture(const char* path) {
+    GLuint id;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-	stbi_set_flip_vertically_on_load(true);
-	int w, h, channels;
-	unsigned char* data = stbi_load(path, &w, &h, &channels, 0);
-	if (!data) {
-		std::cerr << "Failed to load texture: " << path << std::endl;
-		glDeleteTextures(1, &id);
-		return 0;
-	}
+    stbi_set_flip_vertically_on_load(true);
+    int w, h, channels;
+    unsigned char* data = stbi_load(path, &w, &h, &channels, 0);
+    if (!data) {
+        std::cerr << "Failed to load texture: " << path << std::endl;
+        glDeleteTextures(1, &id);
+        return {0, 0, 0};
+    }
 
-	GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
-	glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, data);
-	glGenerateMipmap(GL_TEXTURE_2D);
+    GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+    glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
 
-	stbi_image_free(data);
-	return id;
+    stbi_image_free(data);
+    return {id, w, h};
 }
 
-void OpenGLRenderer::UnloadTexture(unsigned int id) {
-	glDeleteTextures(1, &id);
+void OpenGLRenderer::UnloadTexture(Texture& texture) {
+    glDeleteTextures(1, &texture.id);
+    texture.id = 0;
+    texture.width = 0;
+    texture.height = 0;
 }
 
-void OpenGLRenderer::DrawTexture(unsigned int id, float x, float y,
-								  float width, float height) {
-	DrawTextureRec(id, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f);
+void OpenGLRenderer::DrawTexture(Texture& texture, float x, float y,
+                                  float width, float height) {
+    DrawTextureRec(texture, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f);
 }
 
-void OpenGLRenderer::DrawTextureRec(unsigned int id, float x, float y,
-									 float width, float height,
-									 float srcX, float srcY,
-									 float srcWidth, float srcHeight) {
-	glUseProgram(textureShaderProgram);
+void OpenGLRenderer::DrawTexture(Texture& texture, float x, float y,
+                                  float width, float height, Color tint) {
+    DrawTextureRec(texture, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f, tint);
+}
 
-	glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
-	transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
+void OpenGLRenderer::DrawTextureRec(Texture& texture, float x, float y,
+                                     float width, float height,
+                                     float srcX, float srcY,
+                                     float srcWidth, float srcHeight) {
+    DrawTextureRec(texture, x, y, width, height, srcX, srcY, srcWidth, srcHeight, WHITE);
+}
 
-	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"),
-					   1, GL_FALSE, glm::value_ptr(projectionMatrix));
-	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "transform"),
-					   1, GL_FALSE, glm::value_ptr(transform));
-	glUniform4f(glGetUniformLocation(textureShaderProgram, "tint"), 1, 1, 1, 1);
+void OpenGLRenderer::DrawTextureRec(Texture& texture, float x, float y,
+                                     float width, float height,
+                                     float srcX, float srcY,
+                                     float srcWidth, float srcHeight, Color tint) {
+    glUseProgram(textureShaderProgram);
 
-	float verts[] = {
-		0.0f, 0.0f,  srcX,            srcY + srcHeight,
-		1.0f, 0.0f,  srcX + srcWidth, srcY + srcHeight,
-		1.0f, 1.0f,  srcX + srcWidth, srcY,
-		0.0f, 1.0f,  srcX,            srcY,
-	};
+    glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
+    transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
 
-	glBindVertexArray(textureVAO);
-	glBindBuffer(GL_ARRAY_BUFFER, textureVBO);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+    glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"),
+                       1, GL_FALSE, glm::value_ptr(projectionMatrix));
+    glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "transform"),
+                       1, GL_FALSE, glm::value_ptr(transform));
+    glUniform4f(glGetUniformLocation(textureShaderProgram, "tint"),
+                tint.r, tint.g, tint.b, tint.a);
 
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, id);
-	glUniform1i(glGetUniformLocation(textureShaderProgram, "tex"), 0);
+    float verts[] = {
+        0.0f, 0.0f,  srcX,            srcY + srcHeight,
+        1.0f, 0.0f,  srcX + srcWidth, srcY + srcHeight,
+        1.0f, 1.0f,  srcX + srcWidth, srcY,
+        0.0f, 1.0f,  srcX,            srcY,
+    };
 
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindVertexArray(textureVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, textureVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture.id);
+    glUniform1i(glGetUniformLocation(textureShaderProgram, "tex"), 0);
+
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
 void OpenGLRenderer::DrawRectangle(float x, float y, float width, float height, Color color) {
@@ -409,40 +425,6 @@ void OpenGLRenderer::DrawLine(float x1, float y1, float x2, float y2, Color colo
 	DrawLine(x1, y1, x2, y2, color.r, color.g, color.b, color.a);
 }
 
-void OpenGLRenderer::DrawTexture(unsigned int id, float x, float y, float width, float height, Color tint) {
-	DrawTextureRec(id, x, y, width, height, 0.0f, 0.0f, 1.0f, 1.0f, tint);
-}
-void OpenGLRenderer::DrawTextureRec(unsigned int id, float x, float y, float width, float height,
-									float srcX, float srcY, float srcWidth, float srcHeight, Color tint) {
-	glUseProgram(textureShaderProgram);
-
-	glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
-	transform = glm::scale(transform, glm::vec3(width, height, 1.0f));
-
-	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "projection"),
-					   1, GL_FALSE, glm::value_ptr(projectionMatrix));
-	glUniformMatrix4fv(glGetUniformLocation(textureShaderProgram, "transform"),
-					   1, GL_FALSE, glm::value_ptr(transform));
-	glUniform4f(glGetUniformLocation(textureShaderProgram, "tint"), tint.r, tint.g, tint.b, tint.a);
-
-	float verts[] = {
-		0.0f, 0.0f,  srcX,            srcY + srcHeight,
-		1.0f, 0.0f,  srcX + srcWidth, srcY + srcHeight,
-		1.0f, 1.0f,  srcX + srcWidth, srcY,
-		0.0f, 1.0f,  srcX,            srcY,
-	};
-
-	glBindVertexArray(textureVAO);
-	glBindBuffer(GL_ARRAY_BUFFER, textureVBO);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, id);
-	glUniform1i(glGetUniformLocation(textureShaderProgram, "tex"), 0);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-}
 
 void OpenGLRenderer::SetupTextShader() {
 	const char* vertSrc = R"(

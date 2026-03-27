@@ -193,24 +193,38 @@ void SetVsync(bool enabled) {
 	if (window) window->setVsync(enabled);
 }
 
-unsigned int Window::loadTexture(const char* path) { return renderer->LoadTexture(path); }
-void Window::unloadTexture(unsigned int id) { renderer->UnloadTexture(id); }
-void Window::drawTexture(unsigned int id, float x, float y, float w, float h) {
-    renderer->DrawTexture(id, x, y, w, h);
+Texture Window::loadTexture(const char* path) { return renderer->LoadTexture(path); }
+void Window::unloadTexture(Texture& texture) { renderer->UnloadTexture(texture); }
+void Window::drawTexture(Texture& texture, float x, float y, float w, float h) {
+    renderer->DrawTexture(texture, x, y, w, h);
 }
-void Window::drawTextureRec(unsigned int id, float x, float y, float w, float h,
+void Window::drawTextureRec(Texture& texture, float x, float y, float w, float h,
                              float srcX, float srcY, float srcW, float srcH) {
-    renderer->DrawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH);
+    renderer->DrawTextureRec(texture, x, y, w, h, srcX, srcY, srcW, srcH);
+}
+void Window::drawTexture(Texture& texture, float x, float y, float w, float h, Color tint) {
+    renderer->DrawTexture(texture, x, y, w, h, tint);
+}
+void Window::drawTextureRec(Texture& texture, float x, float y, float w, float h,
+                             float srcX, float srcY, float srcW, float srcH, Color tint) {
+    renderer->DrawTextureRec(texture, x, y, w, h, srcX, srcY, srcW, srcH, tint);
 }
 
-unsigned int LoadTexture(const char* path) { return window ? window->loadTexture(path) : 0; }
-void UnloadTexture(unsigned int id) { if (window) window->unloadTexture(id); }
-void DrawTexture(unsigned int id, float x, float y, float w, float h) {
-    if (window) window->drawTexture(id, x, y, w, h);
+Texture LoadTexture(const char* path) { return window ? window->loadTexture(path) : Texture{0,0,0}; }
+void UnloadTexture(Texture& texture) { if (window) window->unloadTexture(texture); }
+void DrawTexture(Texture& texture, float x, float y, float w, float h) {
+    if (window) window->drawTexture(texture, x, y, w, h);
 }
-void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
+void DrawTextureRec(Texture& texture, float x, float y, float w, float h,
                     float srcX, float srcY, float srcW, float srcH) {
-    if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH);
+    if (window) window->drawTextureRec(texture, x, y, w, h, srcX, srcY, srcW, srcH);
+}
+void DrawTexture(Texture& texture, float x, float y, float w, float h, Color tint) {
+    if (window) window->drawTexture(texture, x, y, w, h, tint);
+}
+void DrawTextureRec(Texture& texture, float x, float y, float w, float h,
+                    float srcX, float srcY, float srcW, float srcH, Color tint) {
+    if (window) window->drawTextureRec(texture, x, y, w, h, srcX, srcY, srcW, srcH, tint);
 }
 
 void Window::drawRectangle(float x, float y, float w, float h, Color color) {
@@ -222,13 +236,6 @@ void Window::drawCircle(float x, float y, float radius, Color color) {
 void Window::drawLine(float x1, float y1, float x2, float y2, Color color) {
     renderer->DrawLine(x1, y1, x2, y2, color);
 }
-void Window::drawTexture(unsigned int id, float x, float y, float w, float h, Color tint) {
-    renderer->DrawTexture(id, x, y, w, h, tint);
-}
-void Window::drawTextureRec(unsigned int id, float x, float y, float w, float h,
-                             float srcX, float srcY, float srcW, float srcH, Color tint) {
-    renderer->DrawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH, tint);
-}
 
 void DrawRectangle(float x, float y, float w, float h, Color color) {
     if (window) window->drawRectangle(x, y, w, h, color);
@@ -238,13 +245,6 @@ void DrawCircle(float x, float y, float radius, Color color) {
 }
 void DrawLine(float x1, float y1, float x2, float y2, Color color) {
     if (window) window->drawLine(x1, y1, x2, y2, color);
-}
-void DrawTexture(unsigned int id, float x, float y, float w, float h, Color tint) {
-    if (window) window->drawTexture(id, x, y, w, h, tint);
-}
-void DrawTextureRec(unsigned int id, float x, float y, float w, float h,
-                    float srcX, float srcY, float srcW, float srcH, Color tint) {
-    if (window) window->drawTextureRec(id, x, y, w, h, srcX, srcY, srcW, srcH, tint);
 }
 
 void Window::drawGlyph(unsigned int atlasID, float x, float y, float w, float h,
