@@ -19,16 +19,16 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - Camera system (pan, zoom, rotation)
 - Collision detection (AABB, circle, circle vs rectangle)
 
----
-
-## Upcoming
-
-### v0.6.0 — Node & Scene System ✅
+### v0.6.0 — Node & Scene System
 - Base Node class
 - Node2D, Sprite2D nodes
 - Scene tree (Godot-style hierarchy)
 - Signals
 - Auto update/draw
+
+---
+
+## Upcoming
 
 ### v0.7.0 — Animator
 - Sprite sheet animation (frame by frame)
