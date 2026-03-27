@@ -276,10 +276,21 @@ the first frame starts at X=0, the second at X=32, the third at X=64, and so on.
 
 ---
 
-#### Keyframe animations
+#### Keyframe animations (tweening)
 
 Use this when you want to animate a property of a node over time — like making a sprite
-pop into view, slide across the screen, or fade out.
+pop into view, slide across the screen, or fade out. This is also how you do tweening:
+interpolating a value from A to B over time with an easing curve.
+
+For example, sliding a node in from offscreen is a tween:
+```
+anim slide_in
+  track x 0.0 -100.0 easeout
+  track x 0.4  400.0 easeout
+end
+```
+That moves the node from x=-100 to x=400 over 0.4 seconds. Any property can be tweened
+the same way — position, scale, rotation, alpha.
 
 ```
 anim pop_in
