@@ -52,9 +52,10 @@ public:
     // Helper: get world-space AABB for broad phase
     void GetAABB(float& outX, float& outY, float& outW, float& outH) const {
         switch (shape) {
-            case ColliderShape::Rectangle:
-                outX = x; outY = y; outW = width; outH = height;
-                break;
+			case ColliderShape::Rectangle:
+				outX = DrawX(width); outY = DrawY(height);
+				outW = width; outH = height;
+				break;
             case ColliderShape::Circle:
                 outX = x - radius; outY = y - radius;
                 outW = radius * 2;  outH = radius * 2;
@@ -78,14 +79,17 @@ public:
     std::vector<glm::vec2> GetWorldPoints() const {
         std::vector<glm::vec2> wp;
         switch (shape) {
-            case ColliderShape::Rectangle:
-                wp = {
-                    { x,         y          },
-                    { x + width, y          },
-                    { x + width, y + height },
-                    { x,         y + height }
-                };
-                break;
+			case ColliderShape::Rectangle: {
+				float dx = DrawX(width);
+				float dy = DrawY(height);
+				wp = {
+					{ dx,         dy          },
+					{ dx + width, dy          },
+					{ dx + width, dy + height },
+					{ dx,         dy + height }
+				};
+				break;
+}
             case ColliderShape::Circle:
                 // Circles handled separately in SAT — return center as single point
                 wp.push_back({ x, y });
@@ -100,13 +104,14 @@ public:
 
 	void Draw() override {
 		if (!debugDraw) return;
-
+		float dx = DrawX(width);
+		float dy = DrawY(height);
 		switch (shape) {
 			case ColliderShape::Rectangle:
-				DrawRectangle(x, y, width, height, debugColor);
+				DrawRectangle(dx, dy, width, height, debugColor);
 				break;
 			case ColliderShape::Circle:
-				DrawCircle(x, y, radius, debugColor);
+				DrawCircle(x, y, radius, debugColor); // circle already draws from center
 				break;
 			case ColliderShape::Custom: {
 				if (points.size() < 2) break;

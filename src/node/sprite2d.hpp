@@ -18,10 +18,12 @@ public:
         height = tex.height;
     }
 
-    void Draw() override {
-        if (texture.id != 0)
-            DrawTexture(texture, x, y, width, height, tint);
-        else
-            DrawRectangle(x, y, width, height, tint);
-    }
+	void Draw() override {
+		float dx = DrawX(width);
+		float dy = DrawY(height);
+		if (texture.id != 0)
+			DrawTexture(texture, dx, dy, width, height, tint);
+		else
+			DrawRectangle(dx, dy, width, height, tint);
+	}
 };

@@ -3,7 +3,6 @@
 #include <iostream>
 
 int main() {
-
 	int width = 700, height = 500;
 
 	const int rectWidth = 500 / 3; 
@@ -17,8 +16,9 @@ int main() {
 	int directionX = 1;
 	int directionY = 1;
 
+	SetVsync(false);
 	InitWindow(width, height, "KonAkiEngine", true);
-	SetTargetFPS(60);
+	SetTargetFPS(165);
 
 	while (!WindowShouldClose()) {
 		ClearBackground(0.2f, 0.0f, 0.0f);
