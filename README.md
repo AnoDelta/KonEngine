@@ -218,40 +218,139 @@ int main() {
 ```
 
 ## Anim Compiler
-The `anim_compiler` tool converts `.anim` text files into `.konani` binary files for use at runtime.
 
-**Build it:**
+The `anim_compiler` tool is how you create animations for KonEngine. You describe your
+animation in a simple `.anim` text file, then compile it into a `.konani` binary that
+the engine loads at runtime.
+
+**Build the tool:**
 ```bash
 cmake --build build --target=anim_compiler
 ```
 
-**CLI usage:**
-```bash
-./anim_compiler player.anim           # outputs player.konani
-./anim_compiler player.anim out.konani
-```
-
-**GUI usage** — run with no arguments:
+**Run with no arguments to open the GUI:**
 ```bash
 ./anim_compiler
 ```
 
-**`.anim` format:**
+**Or use the command line:**
+```bash
+./anim_compiler player.anim        # outputs player.konani automatically
+./anim_compiler player.anim out.konani
 ```
-# Sprite sheet animation
+
+---
+
+### Writing .anim files
+
+An `.anim` file can contain as many animations as you want, one after another.
+There are two types of animation: **sprite sheet** and **keyframe**.
+
+---
+
+#### Sprite sheet animations
+
+Use this when your character has a sprite sheet — a single image where each frame
+of the animation is laid out in a row.
+
+```
 anim idle loop
   frame 0 0 32 32 0.15
   frame 32 0 32 32 0.15
+  frame 64 0 32 32 0.15
 end
+```
 
-# Keyframe animation
+**Breaking it down:**
+
+- `anim idle loop` — start an animation called `idle`. The word `loop` makes it repeat.
+  Leave it out if you only want it to play once (e.g. a death animation).
+- `frame 0 0 32 32 0.15` — one frame of the animation. The numbers are:
+  - `0 0` — where on the sprite sheet this frame starts (X, Y in pixels from the top-left)
+  - `32 32` — the size of the frame (width, height in pixels)
+  - `0.15` — how long to show this frame (in seconds). `0.15` is about 6-7 frames per second.
+- `end` — closes the animation block.
+
+So for a sprite sheet where your frames are 32×32 pixels and laid out in a horizontal row,
+the first frame starts at X=0, the second at X=32, the third at X=64, and so on.
+
+---
+
+#### Keyframe animations
+
+Use this when you want to animate a property of a node over time — like making a sprite
+pop into view, slide across the screen, or fade out.
+
+```
 anim pop_in
   track scaleX 0.0 0.0 easeinoutback
   track scaleX 0.4 1.0 easeinoutback
+  track scaleY 0.0 0.0 easeinoutback
+  track scaleY 0.4 1.0 easeinoutback
   track alpha  0.0 0.0 easeout
   track alpha  0.3 1.0 easeout
 end
 ```
+
+**Breaking it down:**
+
+- `anim pop_in` — start an animation called `pop_in`. No `loop` so it plays once.
+- `track scaleX 0.0 0.0 easeinoutback` — a keyframe on the `scaleX` track. The numbers are:
+  - `scaleX` — which property to animate. Options: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `alpha`
+  - `0.0` — the time this keyframe is at (in seconds)
+  - `0.0` — the value at this time (`scaleX` of 0 = invisible, 1 = normal size)
+  - `easeinoutback` — the easing curve (how it moves from this keyframe to the next)
+- You need at least two keyframes per track — a start and an end.
+
+**What the example does:** at time 0 the sprite is scaled to 0 (invisible), and by time 0.4
+seconds it scales up to full size with a slight overshoot (the `back` in `easeinoutback`).
+The alpha does the same thing but finishes a bit earlier at 0.3 seconds.
+
+---
+
+#### Easing curves
+
+The curve controls how a value moves from one keyframe to the next.
+
+| Curve | What it feels like |
+|---|---|
+| `linear` | Constant speed, robotic |
+| `easein` | Starts slow, ends fast |
+| `easeout` | Starts fast, ends slow |
+| `easeinout` | Slow → fast → slow, smooth |
+| `easeincubic` / `easeoutcubic` / `easeinoutcubic` | Same as above but stronger |
+| `easeinelastic` / `easeoutelastic` / `easeinoutelastic` | Springy, bounces past the target |
+| `easeinbounce` / `easeoutbounce` / `easeinoutbounce` | Bounces like a ball hitting the floor |
+| `easeinback` / `easeoutback` / `easeinoutback` | Slight overshoot past the target |
+
+When in doubt, `easeinout` or `easeinoutback` look good for most UI animations.
+`easeout` is good for things sliding into place. `linear` is good for looping things
+like a spinning object.
+
+---
+
+#### Combining both types
+
+One `.anim` file can have both sprite sheet and keyframe animations:
+
+```
+anim idle loop
+  frame 0 0 32 32 0.12
+  frame 32 0 32 32 0.12
+  frame 64 0 32 32 0.12
+  frame 96 0 32 32 0.12
+end
+
+anim die
+  frame 128 0 32 32 0.1
+  frame 160 0 32 32 0.1
+  frame 192 0 32 32 0.2
+  track alpha 0.0 1.0 linear
+  track alpha 0.5 0.0 linear
+end
+```
+
+Lines starting with `#` are comments and are ignored by the compiler.
 
 ## License
 MIT — free to use in commercial and open source projects.
