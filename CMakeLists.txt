@@ -21,10 +21,11 @@ file(GLOB_RECURSE LIB_SRCS
     src/renderer/opengl/*.cpp
     src/time/*.cpp
     src/glad/src/*.c
-	src/input/*.cpp
-	src/font/*.cpp
-	src/audio/*.cpp
-	src/collision/*.cpp
+    src/input/*.cpp
+    src/font/*.cpp
+    src/audio/*.cpp
+    src/collision/*.cpp
+    src/animation/*.cpp
 )
 
 # Create the KonEngine static library
