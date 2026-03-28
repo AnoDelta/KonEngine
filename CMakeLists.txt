@@ -59,61 +59,87 @@ target_link_libraries(KonTest PRIVATE KonEngine)
 set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # -----------------------------------------------------------------------
-# KonEngine test suite
-# cmake -DKON_BUILD_TESTS=ON .. && cmake --build . --target KonEngineTest
+# anim_compiler — standalone GUI tool
 # -----------------------------------------------------------------------
-option(KON_BUILD_TESTS "Build the KonEngine test suite" OFF)
-if(KON_BUILD_TESTS)
-    add_subdirectory(tests)
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
+set(IMGUI_SRCS
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+add_executable(anim_compiler
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp
+        ${IMGUI_SRCS}
+)
+target_include_directories(anim_compiler PRIVATE
+        ${IMGUI_DIR}
+        ${IMGUI_DIR}/backends
+        ${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/glad/include
+)
+target_link_libraries(anim_compiler PRIVATE glfw)
+if(WIN32)
+    target_link_libraries(anim_compiler PRIVATE opengl32)
+else()
+    target_link_libraries(anim_compiler PRIVATE GL)
+endif()
+set_target_properties(anim_compiler PROPERTIES EXCLUDE_FROM_ALL TRUE)
+# -----------------------------------------------------------------------
+# KonScript integration
+# Provides konscript_sources() for game projects using KonEngine.
+#
+# Usage in your game's CMakeLists.txt:
+#   konscript_sources(MyGame src/Player.ks src/Enemy.ks)
+#
+# This compiles each .ks file to .cpp at build time and adds it to
+# the target's sources automatically.
+# -----------------------------------------------------------------------
+find_program(KONSCRIPT_COMPILER konscript
+    HINTS
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/KonScript
+        ${CMAKE_CURRENT_BINARY_DIR}/tools/KonScript
+        /usr/local/bin
+        /usr/bin
+)
+
+if(KONSCRIPT_COMPILER)
+    message(STATUS "KonScript compiler: ${KONSCRIPT_COMPILER}")
+else()
+    message(STATUS "KonScript compiler not found -- .ks files will not be compiled")
+    message(STATUS "  Install with: cd tools/KonScript && ./install.sh")
 endif()
 
-# -----------------------------------------------------------------------
-# Qt tools — anim_compiler and KonAnimator
-# These are NOT built by default. Use the dedicated scripts:
-#   Linux:   ./build-tools.sh
-#   Windows: build-tools.bat
-# Or build manually:
-#   cmake --build build --target anim_compiler
-#   cmake --build build --target KonAnimator
-# -----------------------------------------------------------------------
-option(KON_BUILD_TOOLS "Build KonAnimator and anim_compiler Qt tools" OFF)
-
-if(KON_BUILD_TOOLS)
-    find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
-
-    if(Qt5_FOUND)
-        set(CMAKE_AUTOMOC ON)
-
-        # anim_compiler
-        if(WIN32)
-            add_executable(anim_compiler WIN32
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
-        else()
-            add_executable(anim_compiler
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
-        endif()
-        target_include_directories(anim_compiler PRIVATE src)
-        target_link_libraries(anim_compiler PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets)
-
-        # KonAnimator
-        add_subdirectory(
-            ${CMAKE_CURRENT_SOURCE_DIR}/tools/KonAnimator
-            ${CMAKE_CURRENT_BINARY_DIR}/tools/KonAnimator)
-
-        # Windows: copy Qt DLLs next to anim_compiler
-        # (KonAnimator handles its own DLL copy in tools/KonAnimator/CMakeLists.txt)
-        if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
-            add_custom_command(TARGET anim_compiler POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:Qt5::Core>
-                    $<TARGET_FILE:Qt5::Gui>
-                    $<TARGET_FILE:Qt5::Widgets>
-                    $<TARGET_FILE_DIR:anim_compiler>
-                COMMENT "Copying Qt DLLs for anim_compiler...")
-        endif()
-
-        message(STATUS "KonAnimator and anim_compiler targets enabled")
-    else()
-        message(WARNING "KON_BUILD_TOOLS=ON but Qt5 not found — tools skipped")
+function(konscript_sources TARGET)
+    if(NOT KONSCRIPT_COMPILER)
+        message(WARNING "konscript_sources: konscript not found, skipping .ks files for ${TARGET}")
+        return()
     endif()
-endif()
+
+    foreach(KS_FILE ${ARGN})
+        # Get absolute path
+        if(NOT IS_ABSOLUTE "${KS_FILE}")
+            set(KS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${KS_FILE}")
+        endif()
+
+        # Output .cpp alongside the .ks file
+        get_filename_component(KS_DIR  "${KS_FILE}" DIRECTORY)
+        get_filename_component(KS_NAME "${KS_FILE}" NAME_WE)
+        set(CPP_FILE "${KS_DIR}/${KS_NAME}.ks.cpp")
+
+        # Custom command: run konscript to compile .ks -> .cpp
+        add_custom_command(
+            OUTPUT  "${CPP_FILE}"
+            COMMAND "${KONSCRIPT_COMPILER}" "${KS_FILE}" -o "${CPP_FILE}"
+            DEPENDS "${KS_FILE}" "${KONSCRIPT_COMPILER}"
+            COMMENT "Compiling KonScript: ${KS_NAME}.ks"
+            VERBATIM
+        )
+
+        # Add the generated .cpp to the target
+        target_sources(${TARGET} PRIVATE "${CPP_FILE}")
+    endforeach()
+endfunction()

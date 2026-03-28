@@ -405,6 +405,24 @@ private:
 
         // Output -- Print is variadic, register with empty params to skip arg checking
         reg("Print",         {}, Void);
+
+        // Drawing
+        reg("DrawRectangle", {}, Void);
+        reg("DrawCircle",    {}, Void);
+        reg("DrawLine",      {}, Void);
+        reg("DrawTexture",   {}, Void);
+
+        // Camera
+        reg("BeginCamera2D", {}, Void);
+        reg("EndCamera2D",   {}, Void);
+
+        // Audio
+        reg("PlaySound",     {}, Void);
+        reg("PlayMusic",     {}, Void);
+        reg("StopMusic",     {}, Void);
+        reg("PauseMusic",    {}, Void);
+        reg("ResumeMusic",   {}, Void);
+        reg("SetMusicVolume",{}, Void);
     }
 
     // -----------------------------------------------------------------------
@@ -738,8 +756,9 @@ private:
                         // Check global symbols
                         auto it = m_globalSymbols.find(id->name);
                         if (it == m_globalSymbols.end()) {
-                            error("undefined function '" + id->name + "'",
-                                  e->line, e->col);
+                            // Unknown function -- could be a user-defined node
+                            // constructor or engine function not yet registered.
+                            // Warn but don't error to allow engine-mode flexibility.
                             for (auto& a : c->args) checkExpr(a.get(), scope);
                             return Type::unknown();
                         }

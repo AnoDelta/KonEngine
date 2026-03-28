@@ -706,37 +706,54 @@ private:
         genExpr(e->value.get());
     }
 
-    void genCall(const CallExpr* e) {
-        // Special case: Print maps to std::cout
-        if (e->callee->kind == Expr::Kind::Ident) {
-            auto* id = static_cast<const IdentExpr*>(e->callee.get());
-            if (id->name == "Print") {
-                write("std::cout");
-                for (auto& arg : e->args) {
-                    write(" << ");
-                    genExpr(arg.get());
-                }
-                write(" << \"\\n\"");
-                return;
+void genCall(const CallExpr* e) {
+    if (e->callee->kind == Expr::Kind::Ident) {
+        auto* id = static_cast<const IdentExpr*>(e->callee.get());
+
+        // Print -> std::cout
+        if (id->name == "Print") {
+            write("std::cout");
+            for (auto& arg : e->args) {
+                write(" << ");
+                genExpr(arg.get());
             }
+            write(" << \"\\n\"");
+            return;
         }
 
-        genExpr(e->callee.get());
-        write("(");
-        for (size_t i = 0; i < e->args.size(); i++) {
-            if (i > 0) write(", ");
-            genExpr(e->args[i].get());
+        // KeyDown/KeyPressed/KeyReleased -> cast arg to Key::Code
+        static const std::unordered_map<std::string,std::string> keyFuncs = {
+            {"KeyDown",      "IsKeyDown"},
+            {"KeyPressed",   "IsKeyPressed"},
+            {"KeyReleased",  "IsKeyReleased"},
+            {"IsKeyDown",    "IsKeyDown"},
+            {"IsKeyPressed", "IsKeyPressed"},
+            {"IsKeyReleased","IsKeyReleased"},
+        };
+        auto kfit = keyFuncs.find(id->name);
+        if (kfit != keyFuncs.end() && e->args.size() == 1) {
+            write(kfit->second + "((Key::Code)");
+            genExpr(e->args[0].get());
+            write(")");
+            return;
         }
-        write(")");
     }
+
+    genExpr(e->callee.get());
+    write("(");
+    for (size_t i = 0; i < e->args.size(); i++) {
+        if (i > 0) write(", ");
+        genExpr(e->args[i].get());
+    }
+    write(")");
+}
 
     void genMember(const MemberExpr* e) {
         genExpr(e->object.get());
-        // Safe member: use -> for pointers, . for values
-        // We use -> since node types are pointers in C++
         if (e->safe)
-            write(" ? ");  // x?.y -> (x ? x->y : nullopt) -- simplified
-        write("->");
+            write(".");  // safe access -- simplified
+        else
+            write(".");
         write(e->member);
     }
 
