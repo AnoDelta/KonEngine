@@ -117,7 +117,7 @@ jobs:
             }
           }
 
-          Get-ChildItem src -MaxDepth 1 -Filter "*.hpp" | Copy-Item -Destination staging/include/KonEngine/
+          Get-ChildItem src -Filter "*.hpp" | Copy-Item -Destination staging/include/KonEngine/
 
       - name: Package engine
         run: Compress-Archive -Path staging\* -DestinationPath KonEngine-windows-${{ github.ref_name }}.zip
