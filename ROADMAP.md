@@ -19,50 +19,54 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - Camera system (pan, zoom, rotation)
 - Collision detection (AABB, circle, circle vs rectangle)
 
-### v0.6.0 — Node & Scene System
-- Base Node class
+### v0.6.0 -- Node & Scene System
+- Base Node class with parent pointers and signals
 - Node2D, Sprite2D nodes with pivot/origin support
 - Scene tree (Godot-style hierarchy)
-- Signals
 - Auto update/draw
 - Collider2D integrated into scene tree
+- CollisionWorld with SAT, enter/exit signals, layer/mask filtering
 
-### v0.7.0 — Animator
+### v0.7.0 -- Animator
 - Sprite sheet animation (frame by frame)
 - Keyframe animation for nodes (position, rotation, scale, alpha)
-- Animation player node
-- `.anim` text format + `anim_compiler` tool → `.konani` binary
+- AnimationPlayer node (auto-detects parent Sprite2D)
+- 16 easing curves
+- `.anim` text format + `anim_compiler` tool -> `.konani` binary
 - `anim_compiler` Qt GUI tool (cross-platform)
 
-### v0.8.0 — KonAnimator
-- Standalone Qt-based animation editor
+### v0.8.0 -- KonAnimator & Polish
+- Standalone Qt-based animation editor (KonAnimator)
 - Visual spritesheet frame editor (click+drag to define frames)
 - Live OpenGL preview with zoom, pan, fullscreen
 - Keyframe track editor with timeline
 - Direct `.anim` save/load and one-click `.konani` compile
-- Cross-platform (Linux + Windows, including cross-compile from Linux)
+- `DebugMode(true)` -- FPS, mouse crosshair, auto collider outlines
+- Test suite with headless + visual tests (`./build-test.sh`)
+- Cross-platform builds (Linux + Windows, cross-compile from Linux via MXE)
+- GitHub Actions CI/CD with automatic release packaging
 
 ---
 
 ## Upcoming
 
-### v0.9.0 — Asset Pipeline
+### v0.9.0 -- Asset Pipeline
 - AES-256 asset encryption
 - `.pak` file bundler (pack + encrypt all assets into one file)
 - Asset manager (load from `.pak` or loose files)
 
-### v0.10.0 — Editor MVP
+### v0.10.0 -- Editor MVP
 - Viewport panel
 - Hierarchy + properties panels
 - Scene open/save
 - Asset browser
 
-### v0.11.0 — Editor Scripting
+### v0.11.0 -- Editor Scripting
 - Built-in code editor
 - Project management (new/open project)
 - In-editor compile + run games
 
-### v1.0.0 — Stable Release
+### v1.0.0 -- Stable Release
 - Polish
 - Full documentation
 - Ready for serious use
