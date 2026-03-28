@@ -6,22 +6,28 @@
 #include <unordered_map>
 #include <algorithm>
 
+// Forward declaration so OnCollisionEnter/Exit can reference Collider2D
+class Collider2D;
+
 class Node {
 public:
     std::string name;
-    bool active = true;
-    Node* parent = nullptr;
+    bool        active = true;
+    Node*       parent = nullptr;
 
     Node(const std::string& name = "Node") : name(name) {}
     virtual ~Node() = default;
 
+    virtual void Ready() {}
     virtual void Update(float dt) {}
     virtual void Draw() {}
+    virtual void OnCollisionEnter(Collider2D* other) {}
+    virtual void OnCollisionExit(Collider2D* other) {}
 
     // Children
     template<typename T, typename... Args>
     T* AddChild(const std::string& childName, Args&&... args) {
-        auto node = std::make_unique<T>(std::forward<Args>(args)...);
+        auto node = std::make_unique<T>(childName, std::forward<Args>(args)...);
         node->name   = childName;
         node->parent = this;
         T* ptr = node.get();
@@ -39,7 +45,6 @@ public:
         );
     }
 
-    // Walk entire subtree — calls fn(node) for every descendant
     void ForEachDescendant(std::function<void(Node*)> fn) {
         for (auto& child : children) {
             fn(child.get());
@@ -56,7 +61,7 @@ public:
         return nullptr;
     }
 
-    // Signals
+    // Signals (no-arg)
     void Connect(const std::string& signal, std::function<void()> callback) {
         signals[signal].push_back(callback);
     }
@@ -68,8 +73,7 @@ public:
                 cb();
     }
 
-    // Update and draw all children
-    void UpdateChildren(float dt) {
+    virtual void UpdateChildren(float dt) {
         for (auto& child : children)
             if (child->active) {
                 child->Update(dt);

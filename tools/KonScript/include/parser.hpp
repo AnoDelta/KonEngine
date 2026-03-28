@@ -80,12 +80,15 @@ private:
     }
 
     void synchronize() {
+        // Always advance at least one token to prevent infinite loops
+        if (!atEnd()) advance();
+ 
         while (!atEnd()) {
             auto t = peek().type;
             if (t == TokenType::Semicolon) { advance(); return; }
             if (t == TokenType::RBrace)    return;
             if (t == TokenType::Func  ||
-                t == TokenType::Node  ||
+                t == TokenType::Node   ||
                 t == TokenType::Let   ||
                 t == TokenType::Const ||
                 t == TokenType::If    ||

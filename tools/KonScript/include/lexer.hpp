@@ -249,7 +249,6 @@ public:
                     directive += advance();
                 if (directive == "include") {
                     m_tokens.push_back({TokenType::Include, "#include", startLine, startCol});
-                    // Read the rest of the include line as a string
                     skipWhitespace();
                     char delim = peek();
                     bool isSys = (delim == '<');
@@ -263,7 +262,9 @@ public:
                         (isSys ? "<" : "\"") + path + (isSys ? ">" : "\""),
                         startLine, startCol});
                 } else {
-                    m_tokens.push_back({TokenType::Hash, "#" + directive, startLine, startCol});
+                    // Not a directive -- treat as a line comment, skip to end of line
+                    while (!atEnd() && peek() != '\n')
+                        advance();
                 }
                 continue;
             }

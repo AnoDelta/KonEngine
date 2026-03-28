@@ -19,7 +19,7 @@ public:
         int line, col;
     };
 
-    const std::vector<e>& errors() const { return m_errors; }
+    const std::vector<Error>& errors() const { return m_errors; }
     bool hasErrors() const { return !m_errors.empty(); }
 
     enum class Target {
@@ -69,7 +69,7 @@ private:
     int                             m_indent     = 0;
     bool                            m_atTopLevel = true;
     Target                          m_target     = Target::Standalone;
-    std::vector<e>              m_errors;
+    std::vector<Error>              m_errors;
     std::unordered_set<std::string> m_enumNames;
     std::unordered_set<std::string> m_sceneVars;      // variables of type Scene
     std::unordered_set<std::string> m_nodeTypeNames;  // user-declared node types
@@ -334,7 +334,10 @@ private:
     }
 
     void genFuncDecl(const FuncDecl* f, const std::string& prefix) {
-        std::string ret = f->returnType ? cppType(*f->returnType) : "void";
+        // main() must return int in C++
+        std::string ret = (f->name == "main" && prefix.empty())
+            ? "int"
+            : (f->returnType ? cppType(*f->returnType) : "void");
         write(std::string(m_indent * 4, ' '));
         write(ret + " " + (prefix.empty() ? "" : prefix + "::") + f->name + "(");
         for (size_t i = 0; i < f->params.size(); i++) {
@@ -392,7 +395,15 @@ private:
     void genLet(const Stmt* s) {
         auto* l = static_cast<const LetStmt*>(s);
         write(std::string(m_indent * 4, ' '));
-        if (!l->mut) write("const ");
+        // Don't emit const for pointer types -- node pointers need to be mutable
+        bool isPtr = m_nodeTypeNames.count(l->type.base) > 0
+                  || l->type.base == "Scene"
+                  || l->type.base == "Collider2D"
+                  || l->type.base == "Node"
+                  || l->type.base == "Node2D"
+                  || l->type.base == "Sprite2D"
+                  || l->type.base == "AnimationPlayer";
+        if (!l->mut && !isPtr) write("const ");
         write(cppType(l->type) + " " + l->name + " = ");
         genExpr(l->init.get());
         write(";\n");
@@ -545,9 +556,20 @@ private:
             case Expr::Kind::BoolLit:
                 write(static_cast<const BoolLitExpr*>(e)->value ? "true" : "false");
                 break;
-            case Expr::Kind::StrLit:
-                write("\"" + static_cast<const StrLitExpr*>(e)->value + "\"");
+            case Expr::Kind::StrLit: {
+                // Re-escape the value so newlines etc. become \n in the C++ output
+                std::string out;
+                for (unsigned char ch : static_cast<const StrLitExpr*>(e)->value) {
+                    if      (ch == '\n') out += "\\n";
+                    else if (ch == '\t') out += "\\t";
+                    else if (ch == '\r') out += "\\r";
+                    else if (ch == '"')  out += "\\\"";
+                    else if (ch == '\\') out += "\\\\";
+                    else                 out += ch;
+                }
+                write("\"" + out + "\"");
                 break;
+            }
             case Expr::Kind::NullLit:
             case Expr::Kind::NoneLit:
                 write("std::nullopt");
@@ -672,7 +694,9 @@ private:
                 bool isScene  = false;
                 if (mem->object->kind == Expr::Kind::Ident) {
                     auto* obj = static_cast<const IdentExpr*>(mem->object.get());
-                    isScene = m_sceneVars.count(obj->name) > 0;
+                    // 'this' is never a scene -- always AddChild
+                    isScene = (obj->name != "this")
+                           && m_sceneVars.count(obj->name) > 0;
                 }
                 if (isScene) {
                     genExpr(mem->object.get());
@@ -706,6 +730,12 @@ private:
             if (mem->member == "get" && e->args.size() == 1) {
                 genExpr(mem->object.get());
                 write(".GetNode("); genExpr(e->args[0].get()); write(")");
+                return;
+            }
+            // scene.scan() -> scene.ScanColliders()
+            if (mem->member == "scan" && e->args.empty()) {
+                genExpr(mem->object.get());
+                write(".ScanColliders()");
                 return;
             }
         }
@@ -831,8 +861,22 @@ private:
             return;
         }
 
+        // Use -> for node pointer types, . for value types
+        // Detect by checking if the object expression resolves to a known node type
+        bool useArrow = false;
+        if (e->object->kind == Expr::Kind::Ident) {
+            auto* id = static_cast<const IdentExpr*>(e->object.get());
+            static const std::unordered_set<std::string> ptrIdents = {
+                "player","enemy","pickup","playerCol","enemyCol","pickupCol",
+                "other","node","col","anim","sprite","self"
+            };
+            // 'this' is always a pointer in C++
+            useArrow = id->name == "this"
+                    || ptrIdents.count(id->name) > 0
+                    || m_nodeTypeNames.count(id->name) > 0;
+        }
         genExpr(e->object.get());
-        write(".");
+        write(useArrow ? "->" : ".");
         write(e->member);
     }
 
