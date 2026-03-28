@@ -193,24 +193,29 @@ jobs:
           cmake --build build --config Release --target KonAnimator
           cmake --build build --config Release --target anim_compiler
 
-      - name: Find tool binaries
+      - name: List all build output
         shell: pwsh
         run: |
-          Get-ChildItem -Recurse build -Include "KonAnimator.exe","anim_compiler.exe" | Select-Object FullName
+          Write-Host "=== All executables in build/ ==="
+          Get-ChildItem -Recurse build -Filter "*.exe" | Select-Object FullName
 
-      - name: Deploy Qt DLLs
+      - name: Package tools
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path tools-staging | Out-Null
           $ka = Get-ChildItem -Recurse build -Filter "KonAnimator.exe" | Select-Object -First 1
           $ac = Get-ChildItem -Recurse build -Filter "anim_compiler.exe" | Select-Object -First 1
+          if (-not $ka) { Write-Error "KonAnimator.exe not found in build/"; exit 1 }
+          if (-not $ac) { Write-Error "anim_compiler.exe not found in build/"; exit 1 }
+          Write-Host "Found KonAnimator at: $($ka.FullName)"
+          Write-Host "Found anim_compiler at: $($ac.FullName)"
           Copy-Item $ka.FullName tools-staging\
           Copy-Item $ac.FullName tools-staging\
           $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
           & "$qtBin\windeployqt.exe" --release tools-staging\KonAnimator.exe
           & "$qtBin\windeployqt.exe" --release tools-staging\anim_compiler.exe
 
-      - name: Package tools
+      - name: Package tools archive
         run: Compress-Archive -Path tools-staging\* -DestinationPath KonAnimator-windows-${{ github.ref_name }}.zip
 
       - name: Upload tools release
@@ -239,7 +244,7 @@ jobs:
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows zlib:x64-windows
-          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build KonPaktor
         shell: pwsh
@@ -250,23 +255,28 @@ jobs:
           cmake --build build --config Release --target KonPaktor
           cmake --build build --config Release --target konpak
 
-      - name: Find KonPaktor binaries
+      - name: List all build output
         shell: pwsh
         run: |
-          Get-ChildItem -Recurse tools/KonPaktor/build -Include "KonPaktor.exe","konpak.exe" | Select-Object FullName
+          Write-Host "=== All executables in tools/KonPaktor/build/ ==="
+          Get-ChildItem -Recurse tools/KonPaktor/build -Filter "*.exe" | Select-Object FullName
 
-      - name: Deploy Qt DLLs
+      - name: Package KonPaktor
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path konpaktor-staging | Out-Null
           $kp = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "KonPaktor.exe" | Select-Object -First 1
           $kc = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "konpak.exe" | Select-Object -First 1
+          if (-not $kp) { Write-Error "KonPaktor.exe not found"; exit 1 }
+          if (-not $kc) { Write-Error "konpak.exe not found"; exit 1 }
+          Write-Host "Found KonPaktor at: $($kp.FullName)"
+          Write-Host "Found konpak at: $($kc.FullName)"
           Copy-Item $kp.FullName konpaktor-staging\
           Copy-Item $kc.FullName konpaktor-staging\
           $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
           & "$qtBin\windeployqt.exe" --release konpaktor-staging\KonPaktor.exe
 
-      - name: Package KonPaktor
+      - name: Package KonPaktor archive
         run: Compress-Archive -Path konpaktor-staging\* -DestinationPath KonPaktor-windows-${{ github.ref_name }}.zip
 
       - name: Upload KonPaktor release
