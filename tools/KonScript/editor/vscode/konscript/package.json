@@ -1,0 +1,37 @@
+{
+    "name": "konscript",
+    "displayName": "KonScript",
+    "description": "KonScript language support for KonEngine",
+    "version": "0.1.0",
+    "publisher": "konengine",
+    "engines": { "vscode": "^1.75.0" },
+    "categories": ["Programming Languages"],
+    "contributes": {
+        "languages": [
+            {
+                "id": "konscript",
+                "aliases": ["KonScript", "konscript"],
+                "extensions": [".ks"],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "konscript",
+                "scopeName": "source.konscript",
+                "path": "./syntaxes/konscript.tmLanguage.json"
+            }
+        ],
+        "taskDefinitions": [
+            {
+                "type": "ksc",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "description": "The .ks file to compile"
+                    }
+                }
+            }
+        ]
+    }
+}
