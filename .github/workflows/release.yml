@@ -187,16 +187,27 @@ jobs:
           arch: win64_msvc2019_64
           cache: true
 
-      - name: Build tools
+      - name: Diagnose Qt5 environment
+        shell: pwsh
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON
+          Write-Host "Qt5_DIR  = $env:Qt5_DIR"
+          Write-Host "QTDIR    = $env:QTDIR"
+          $qtRoot = (Get-Item "$env:Qt5_DIR/../../..").FullName
+          Write-Host "Qt root  = $qtRoot"
+          "QT_ROOT=$qtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build tools
+        shell: pwsh
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT"
           cmake --build build --config Release --target KonAnimator
           cmake --build build --config Release --target anim_compiler
 
-      - name: List all build output
+      - name: List all executables in build
         shell: pwsh
         run: |
-          Write-Host "=== All executables in build/ ==="
+          Write-Host "=== Executables ==="
           Get-ChildItem -Recurse build -Filter "*.exe" | Select-Object FullName
 
       - name: Package tools
@@ -207,8 +218,8 @@ jobs:
           $ac = Get-ChildItem -Recurse build -Filter "anim_compiler.exe" | Select-Object -First 1
           if (-not $ka) { Write-Error "KonAnimator.exe not found in build/"; exit 1 }
           if (-not $ac) { Write-Error "anim_compiler.exe not found in build/"; exit 1 }
-          Write-Host "Found KonAnimator at: $($ka.FullName)"
-          Write-Host "Found anim_compiler at: $($ac.FullName)"
+          Write-Host "KonAnimator: $($ka.FullName)"
+          Write-Host "anim_compiler: $($ac.FullName)"
           Copy-Item $ka.FullName tools-staging\
           Copy-Item $ac.FullName tools-staging\
           $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
@@ -251,14 +262,15 @@ jobs:
         run: |
           Set-Location tools/KonPaktor
           cmake -B build -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
           cmake --build build --config Release --target KonPaktor
           cmake --build build --config Release --target konpak
 
-      - name: List all build output
+      - name: List all executables
         shell: pwsh
         run: |
-          Write-Host "=== All executables in tools/KonPaktor/build/ ==="
+          Write-Host "=== Executables in tools/KonPaktor/build/ ==="
           Get-ChildItem -Recurse tools/KonPaktor/build -Filter "*.exe" | Select-Object FullName
 
       - name: Package KonPaktor
@@ -269,8 +281,8 @@ jobs:
           $kc = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "konpak.exe" | Select-Object -First 1
           if (-not $kp) { Write-Error "KonPaktor.exe not found"; exit 1 }
           if (-not $kc) { Write-Error "konpak.exe not found"; exit 1 }
-          Write-Host "Found KonPaktor at: $($kp.FullName)"
-          Write-Host "Found konpak at: $($kc.FullName)"
+          Write-Host "KonPaktor: $($kp.FullName)"
+          Write-Host "konpak: $($kc.FullName)"
           Copy-Item $kp.FullName konpaktor-staging\
           Copy-Item $kc.FullName konpaktor-staging\
           $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
