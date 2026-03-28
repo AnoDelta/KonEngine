@@ -1,0 +1,107 @@
+#!/bin/bash
+# ksc -- KonScript compiler and runner
+# The main frontend for KonScript.
+#
+# Usage:
+#   ksc <file.ks>              -- compile + run, clean up after
+#   ksc <file.ks> --keep       -- compile + run, keep .cpp and binary
+#   ksc <file.ks> --clean      -- remove .cpp and binary from previous run
+#   ksc --compile <file.ks>    -- compile to .cpp only, no run
+#   ksc --compile <file.ks> -o out.cpp
+#   ksc --lex   <file.ks>      -- dump tokens
+#   ksc --parse <file.ks>      -- dump AST
+#   ksc --check <file.ks>      -- typecheck only
+#   ksc --help
+
+set -e
+
+KSC_BACKEND="konscript"
+CXX="${CXX:-g++}"
+CXXFLAGS="${CXXFLAGS:--std=c++17}"
+
+# ---- Find the backend ----
+if ! command -v "$KSC_BACKEND" &>/dev/null; then
+    echo "ksc: konscript not found -- is it installed?"
+    echo "     Run: cd ~/projects/KonEngine/tools/KonScript && ./install.sh"
+    exit 1
+fi
+
+# ---- Help ----
+if [ $# -eq 0 ] || [ "$1" = "--help" ]; then
+    cat << 'HELP'
+ksc -- KonScript v0.1.0
+
+Usage:
+  ksc <file.ks>              compile + run (cleans up afterwards)
+  ksc <file.ks> --keep       compile + run (keeps .cpp and binary)
+  ksc <file.ks> --clean      remove generated .cpp and binary
+  ksc --compile <file.ks>    compile to .cpp only
+  ksc --compile <file.ks> -o <out.cpp>
+  ksc --lex   <file.ks>      dump tokens
+  ksc --parse <file.ks>      dump AST
+  ksc --check <file.ks>      typecheck only
+
+Environment:
+  CXX       C++ compiler to use (default: g++)
+  CXXFLAGS  Compiler flags (default: -std=c++17)
+HELP
+    exit 0
+fi
+
+# ---- Debug / compile-only modes (pass straight to backend) ----
+case "$1" in
+    --lex|--parse|--check)
+        exec "$KSC_BACKEND" "$@"
+        ;;
+    --compile)
+        shift
+        exec "$KSC_BACKEND" "$@"
+        ;;
+esac
+
+# ---- Run mode ----
+KS_FILE="$1"
+shift
+
+if [ ! -f "$KS_FILE" ]; then
+    echo "ksc: cannot open '$KS_FILE'"
+    exit 1
+fi
+
+KEEP=0
+CLEAN=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --keep)  KEEP=1 ;;
+        --clean) CLEAN=1 ;;
+    esac
+done
+
+BASE="${KS_FILE%.ks}"
+CPP_FILE="${BASE}.cpp"
+BIN_FILE="${BASE}"
+
+# ---- Clean mode ----
+if [ "$CLEAN" = "1" ]; then
+    rm -f "$CPP_FILE" "./$BIN_FILE"
+    echo "ksc: cleaned $CPP_FILE $BIN_FILE"
+    exit 0
+fi
+
+# ---- Compile ----
+"$KSC_BACKEND" "$KS_FILE" -o "$CPP_FILE"
+
+# ---- Build ----
+"$CXX" $CXXFLAGS "$CPP_FILE" -o "./$BIN_FILE"
+
+# ---- Run ----
+"./$BIN_FILE"
+EXIT_CODE=$?
+
+# ---- Clean up unless --keep ----
+if [ "$KEEP" = "0" ]; then
+    rm -f "$CPP_FILE" "./$BIN_FILE"
+fi
+
+exit $EXIT_CODE
