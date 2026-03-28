@@ -16,7 +16,7 @@ namespace Key {
         Right=262, Left, Down, Up,
 
         // Special
-        Space=32, Enter=257, Escape=256, Tab=258,
+        Space=32, Enter=257, Escape=256, Esc=256, Tab=258,
         Backspace=259, Shift=340, Ctrl=341, Alt=342,
 
         // Function keys
