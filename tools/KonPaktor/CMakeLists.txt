@@ -7,14 +7,7 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Multimedia)
 
-# miniz is in third_party/ -- copy it to src/ at configure time so
-# MOC-generated files (compiled relative to src/) can find it via #include "miniz.h"
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/miniz.h"
-    COPYONLY)
-
-# Crypto
+# Crypto -- bcrypt is built-in on Windows, OpenSSL on Linux
 if(WIN32)
     set(CRYPTO_LIBS bcrypt)
 else()
