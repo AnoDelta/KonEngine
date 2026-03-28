@@ -7,10 +7,14 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Multimedia)
 
-# miniz -- bundled single-header zlib replacement (no system zlib needed)
-set(MINIZ_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+# miniz is in third_party/ -- copy it to src/ at configure time so
+# MOC-generated files (compiled relative to src/) can find it via #include "miniz.h"
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/miniz.h"
+    COPYONLY)
 
-# Crypto -- bcrypt is built into Windows, OpenSSL on Linux
+# Crypto
 if(WIN32)
     set(CRYPTO_LIBS bcrypt)
 else()
@@ -20,7 +24,7 @@ endif()
 
 # CLI tool
 add_executable(konpak src/konpak_cli.cpp)
-target_include_directories(konpak PRIVATE src ${MINIZ_INCLUDE})
+target_include_directories(konpak PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(konpak PRIVATE ${CRYPTO_LIBS})
 if(NOT WIN32)
     target_link_libraries(konpak PRIVATE stdc++fs)
@@ -33,7 +37,7 @@ else()
     add_executable(KonPaktor src/main.cpp src/MainWindow.cpp)
 endif()
 
-target_include_directories(KonPaktor PRIVATE src ${MINIZ_INCLUDE})
+target_include_directories(KonPaktor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(KonPaktor PRIVATE
     Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Multimedia
     ${CRYPTO_LIBS})
