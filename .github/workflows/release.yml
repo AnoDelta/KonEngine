@@ -142,12 +142,30 @@ jobs:
           version: '5.15.2'
           arch: win64_msvc2019_64
           cache: true
+      - name: Configure
+        shell: pwsh
+        run: |
+          Write-Host "Qt5_DIR = $env:Qt5_DIR"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+      - name: Verify KonAnimator target exists
+        shell: pwsh
+        run: |
+          $targets = cmake --build build --config Release --target help 2>&1
+          if ($targets -match "KonAnimator") {
+            Write-Host "KonAnimator target found"
+          } else {
+            Write-Host "Available targets:"
+            $targets
+            throw "KonAnimator target not found - Qt5 likely not detected"
+          }
       - name: Build tools
         shell: pwsh
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
-          cmake --build build --config Release --target KonAnimator
-          cmake --build build --config Release --target anim_compiler
+          cmake --build build --config Release --target KonAnimator 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "KonAnimator build failed" }
+          cmake --build build --config Release --target anim_compiler 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "anim_compiler build failed" }
       - name: List executables
         shell: pwsh
         run: Get-ChildItem -Recurse build -Filter "*.exe" | Select-Object FullName
