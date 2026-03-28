@@ -124,6 +124,7 @@ private:
         if (name == "str")    return "const char*";
         if (name == "String") return "std::string";
         if (name == "Vec2")   return "Vector2";
+		if (name == "Color")  return "Color";
         if (name == "void")   return "void";
         if (name == "Scene")  return "Scene";
         static const std::unordered_set<std::string> builtinNodes = {

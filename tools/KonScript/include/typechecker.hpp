@@ -281,6 +281,7 @@ private:
         if (name == "str")    return Type::make(Type::Kind::Str);
         if (name == "String") return Type::make(Type::Kind::String);
         if (name == "Vec2")   return Type::make(Type::Kind::Vec2);
+		if (name == "Color")  return Type::make(Type::Kind::Struct, "Color");
         if (m_nodeTypes.count(name))
             return Type::make(Type::Kind::Node, name);
         if (m_structs.count(name))
@@ -380,6 +381,29 @@ private:
         auto Void = Type::void_();
         auto Node = Type::make(Type::Kind::Node, "Node");
 
+		// Color type + engine presets
+		auto Color = Type::make(Type::Kind::Struct, "Color");
+		auto regConst = [&](const std::string& n, Type t) {
+			Symbol s; s.name = n; s.type = t; s.mut = false;
+			m_globalSymbols[n] = s;
+		};
+		regConst("WHITE",      Color);
+		regConst("BLACK",      Color);
+		regConst("RED",        Color);
+		regConst("GREEN",      Color);
+		regConst("BLUE",       Color);
+		regConst("YELLOW",     Color);
+		regConst("CYAN",       Color);
+		regConst("MAGENTA",    Color);
+		regConst("ORANGE",     Color);
+		regConst("GRAY",       Color);
+		regConst("DARKGRAY",   Color);
+		regConst("LIGHTGRAY",  Color);
+		regConst("PINK",       Color);
+		regConst("PURPLE",     Color);
+		regConst("BROWN",      Color);
+		regConst("BLANK",      Color);
+
         // Window
         reg("InitWindow",    {I32, I32, Str}, Void);
         reg("WindowShouldClose", {}, Bool);
@@ -393,6 +417,9 @@ private:
         reg("SetTimeScale",  {F64}, Void);
         reg("DebugMode",     {Bool}, Void);
         reg("IsDebugMode",   {}, Bool);
+		reg("GetWindowWidth",  {}, I32);
+		reg("GetWindowHeight", {}, I32);
+		reg("SetVsync",        {Bool}, Void);
 
         // Input
         reg("KeyDown",       {I32}, Bool);
@@ -402,6 +429,10 @@ private:
         reg("MousePressed",  {I32}, Bool);
         reg("GetMouseX",     {}, F64);
         reg("GetMouseY",     {}, F64);
+		reg("MouseReleased",   {I32}, Bool);
+		reg("GetMouseDeltaX",  {}, F64);
+		reg("GetMouseDeltaY",  {}, F64);
+		reg("GetMouseScroll",  {}, F64);
 
         // Node
         reg("GetNode",       {Str}, Type::makeNullable(Node));
