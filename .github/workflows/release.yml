@@ -193,7 +193,11 @@ jobs:
       - name: Build KonPaktor
         shell: pwsh
         run: |
-          cmake -B tools/KonPaktor/build -S tools/KonPaktor -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
+          vcpkg install zlib:x64-windows
+          $toolchain = "$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake -B tools/KonPaktor/build -S tools/KonPaktor `
+            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain"
           cmake --build tools/KonPaktor/build --config Release --target KonPaktor
           cmake --build tools/KonPaktor/build --config Release --target konpak
       - name: List executables
