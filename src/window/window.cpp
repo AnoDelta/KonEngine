@@ -197,6 +197,9 @@ void Present() {
 			if (IsMouseButtonPressed(Mouse::Middle))
 				std::cout << "[KonEngine DEBUG] Mouse: MIDDLE clicked at ("
 					<< (int)mx << ", " << (int)my << ")\n";
+			float scroll = GetMouseScroll();
+			if (scroll != 0.0f)
+				std::cout << "[KonEngine DEBUG] Mouse: SCROLL " << scroll << "\n";
         }
 
         window->swapBuffers();
