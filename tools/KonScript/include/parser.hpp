@@ -761,10 +761,11 @@ private:
             return std::make_unique<IntLitExpr>(val, l, c);
         }
 
-        // Float literal
+        // Float literal -- BUG-07: keep raw text so codegen emits it verbatim
         if (check(TokenType::Float)) {
-            double val = std::stod(advance().value);
-            return std::make_unique<FloatLitExpr>(val, l, c);
+            std::string raw = advance().value;
+            double val = std::stod(raw);
+            return std::make_unique<FloatLitExpr>(val, raw, l, c);
         }
 
         // Bool literal

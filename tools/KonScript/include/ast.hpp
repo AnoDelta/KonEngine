@@ -98,8 +98,10 @@ struct IntLitExpr : Expr {
 };
 
 struct FloatLitExpr : Expr {
-    double value;
-    FloatLitExpr(double v, int l, int c) : value(v) { kind = Kind::FloatLit; line=l; col=c; }
+    double      value;
+    std::string rawValue; // BUG-07: preserve source text for lossless emit
+    FloatLitExpr(double v, const std::string& raw, int l, int c)
+        : value(v), rawValue(raw) { kind = Kind::FloatLit; line=l; col=c; }
 };
 
 struct BoolLitExpr : Expr {
