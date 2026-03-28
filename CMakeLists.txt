@@ -66,7 +66,7 @@ option(KON_BUILD_TOOLS "Build KonAnimator and anim_compiler Qt tools" OFF)
 if(KON_BUILD_TOOLS)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
-    find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
+    find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets OpenGL)
     if(Qt5_FOUND)
         # anim_compiler
         set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
