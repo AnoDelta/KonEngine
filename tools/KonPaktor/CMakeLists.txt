@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 # -----------------------------------------------------------------------
 # Dependencies
 # -----------------------------------------------------------------------
-find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Multimedia)
 
 # miniz (single header, bundled)
 set(MINIZ_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
@@ -42,7 +42,7 @@ endif()
 
 target_include_directories(KonPaktor PRIVATE src ${MINIZ_INCLUDE})
 target_link_libraries(KonPaktor PRIVATE
-    Qt5::Core Qt5::Gui Qt5::Widgets
+    Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Multimedia
     ${CRYPTO_LIBS} z)
 if(NOT WIN32)
     target_link_libraries(KonPaktor PRIVATE stdc++fs)
