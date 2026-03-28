@@ -649,7 +649,17 @@ pos += vel * GetDeltaTime();
 
 ## 19. Tools
 
-KonEngine ships with companion tools.
+KonEngine ships with companion tools. Pre-built binaries are available on the
+[Releases page](https://github.com/AnoDelta/KonEngine/releases).
+
+| Release asset | Contents |
+|---|---|
+| `KonEngine-linux-vX.X.X.zip` | Engine static library + headers |
+| `KonEngine-windows-vX.X.X.zip` | Engine static library + headers |
+| `KonAnimator-linux-vX.X.X.zip` | KonAnimator + anim_compiler |
+| `KonAnimator-windows-vX.X.X.zip` | KonAnimator.exe + anim_compiler.exe + Qt DLLs |
+| `KonPaktor-linux-vX.X.X.zip` | KonPaktor (GUI) + konpak (CLI) |
+| `KonPaktor-windows-vX.X.X.zip` | KonPaktor.exe + konpak.exe + Qt DLLs |
 
 ### KonScript
 
@@ -732,14 +742,46 @@ See **[tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md)** for the full refe
 ./build-tools.sh  # builds KonAnimator and anim_compiler
 ```
 
-### KonPaktor
+### KonPaktor + konpak
 
 Asset packer — bundles and encrypts game assets into `.konpak` files for distribution.
+Ships as two tools: `KonPaktor` (Qt GUI) and `konpak` (CLI).
 
 See **[tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md)** for the full reference.
 
+**Build:**
 ```bash
-konpak create game.konpak assets/ --pass mypassword
-konpak list   game.konpak
-konpak extract game.konpak --out ./out
+cd tools/KonPaktor && ./build.sh
 ```
+
+**Dependencies:**
+```bash
+# Ubuntu/Debian
+sudo apt-get install qtbase5-dev libqt5multimedia5-dev libssl-dev zlib1g-dev
+
+# Fedora
+sudo dnf install qt5-qtbase-devel qt5-qtmultimedia-devel openssl-devel zlib-devel
+
+# Arch
+sudo pacman -S qt5-base qt5-multimedia openssl zlib
+```
+
+**Quick usage:**
+```bash
+# Pack assets
+konpak create game.konpak assets/ --pass mypassword
+
+# List contents
+konpak list game.konpak
+
+# Extract
+konpak extract game.konpak --out ./out
+
+# Add or replace a file
+konpak add game.konpak new.png --as sprites/new.png --pass mypassword
+```
+
+| Release asset | Contents |
+|---|---|
+| `KonPaktor-linux-vX.X.X.zip` | `KonPaktor` (GUI) + `konpak` (CLI) |
+| `KonPaktor-windows-vX.X.X.zip` | `KonPaktor.exe` + `konpak.exe` + Qt DLLs |

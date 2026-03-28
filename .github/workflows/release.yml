@@ -7,7 +7,7 @@ on:
 
 jobs:
   # -----------------------------------------------------------------------
-  # Linux — engine library + headers
+  # Linux -- engine library + headers
   # -----------------------------------------------------------------------
   release-linux:
     runs-on: ubuntu-latest
@@ -49,7 +49,7 @@ jobs:
           files: KonEngine-linux-${{ github.ref_name }}.zip
 
   # -----------------------------------------------------------------------
-  # Linux — KonAnimator + anim_compiler tools
+  # Linux -- KonAnimator + anim_compiler
   # -----------------------------------------------------------------------
   release-linux-tools:
     runs-on: ubuntu-latest
@@ -76,7 +76,7 @@ jobs:
       - name: Package tools
         run: |
           mkdir -p tools-staging
-          cp build/tools/KonAnimator/KonAnimator tools-staging/
+          cp build/KonAnimator tools-staging/
           cp build/anim_compiler tools-staging/
           zip -r KonAnimator-linux-${{ github.ref_name }}.zip tools-staging/
 
@@ -86,7 +86,43 @@ jobs:
           files: KonAnimator-linux-${{ github.ref_name }}.zip
 
   # -----------------------------------------------------------------------
-  # Windows — engine library + headers
+  # Linux -- KonPaktor + konpak
+  # -----------------------------------------------------------------------
+  release-linux-konpaktor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install KonPaktor dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qtbase5-dev libqt5multimedia5-dev \
+            libssl-dev zlib1g-dev
+
+      - name: Build KonPaktor
+        run: |
+          cd tools/KonPaktor
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target KonPaktor
+          cmake --build build --target konpak
+
+      - name: Package KonPaktor
+        run: |
+          mkdir -p konpaktor-staging
+          cp tools/KonPaktor/build/KonPaktor konpaktor-staging/
+          cp tools/KonPaktor/build/konpak konpaktor-staging/
+          zip -r KonPaktor-linux-${{ github.ref_name }}.zip konpaktor-staging/
+
+      - name: Upload KonPaktor release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KonPaktor-linux-${{ github.ref_name }}.zip
+
+  # -----------------------------------------------------------------------
+  # Windows -- engine library + headers
   # -----------------------------------------------------------------------
   release-windows:
     runs-on: windows-latest
@@ -116,7 +152,6 @@ jobs:
               Get-ChildItem "src/$dir" -Filter "*.hpp" | Copy-Item -Destination "staging/include/KonEngine/$dir/"
             }
           }
-
           Get-ChildItem src -Filter "*.hpp" | Copy-Item -Destination staging/include/KonEngine/
 
       - name: Package engine
@@ -128,7 +163,7 @@ jobs:
           files: KonEngine-windows-${{ github.ref_name }}.zip
 
   # -----------------------------------------------------------------------
-  # Windows — KonAnimator + anim_compiler tools
+  # Windows -- KonAnimator + anim_compiler
   # -----------------------------------------------------------------------
   release-windows-tools:
     runs-on: windows-latest
@@ -154,9 +189,9 @@ jobs:
         shell: pwsh
         run: |
           mkdir tools-staging
-          Copy-Item build\tools\KonAnimator\Release\KonAnimator.exe tools-staging\
+          Copy-Item build\Release\KonAnimator.exe tools-staging\
           Copy-Item build\Release\anim_compiler.exe tools-staging\
-          $qtBin = (Get-ChildItem "D:\a\KonEngine\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
+          $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
           & "$qtBin\windeployqt.exe" --release tools-staging\KonAnimator.exe
           & "$qtBin\windeployqt.exe" --release tools-staging\anim_compiler.exe
 
@@ -167,3 +202,50 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: KonAnimator-windows-${{ github.ref_name }}.zip
+
+  # -----------------------------------------------------------------------
+  # Windows -- KonPaktor + konpak
+  # -----------------------------------------------------------------------
+  release-windows-konpaktor:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt5
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Install OpenSSL + zlib via vcpkg
+        run: |
+          vcpkg install openssl:x64-windows zlib:x64-windows
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+
+      - name: Build KonPaktor
+        run: |
+          cd tools/KonPaktor
+          cmake -B build -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release --target KonPaktor
+          cmake --build build --config Release --target konpak
+
+      - name: Deploy Qt DLLs
+        shell: pwsh
+        run: |
+          mkdir konpaktor-staging
+          Copy-Item tools\KonPaktor\build\Release\KonPaktor.exe konpaktor-staging\
+          Copy-Item tools\KonPaktor\build\Release\konpak.exe konpaktor-staging\
+          $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
+          & "$qtBin\windeployqt.exe" --release konpaktor-staging\KonPaktor.exe
+
+      - name: Package KonPaktor
+        run: Compress-Archive -Path konpaktor-staging\* -DestinationPath KonPaktor-windows-${{ github.ref_name }}.zip
+
+      - name: Upload KonPaktor release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KonPaktor-windows-${{ github.ref_name }}.zip

@@ -26,6 +26,8 @@ See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
 - Cross-platform (Linux + Windows)
 - `DebugMode(true)` -- FPS overlay, mouse crosshair, auto collider visualization
 - **KonScript** -- scripting language that compiles to C++ and links against KonEngine
+- **KonPaktor** -- asset packer, bundles and encrypts assets into `.konpak` files
+- **konpak** -- CLI tool for managing `.konpak` archives
 - **KonAnimator** -- standalone Qt animation editor
 - **anim_compiler** -- CLI + Qt GUI tool, compiles `.anim` to `.konani`
 - Test suite (`./build-test.sh`)
@@ -95,8 +97,21 @@ sudo pacman -S qt5-base
 build.bat
 ```
 
-### 5. Build KonAnimator and anim_compiler (optional)
+### 5. Build tools (optional)
 
+**KonAnimator + anim_compiler** (animation editor):
+```bash
+cmake -B build -DKON_BUILD_TOOLS=ON
+cmake --build build --target KonAnimator
+cmake --build build --target anim_compiler
+```
+
+**KonPaktor + konpak** (asset packer):
+```bash
+cd tools/KonPaktor && ./build.sh
+```
+
+Or build everything at once:
 ```bash
 ./build-tools.sh
 ```
