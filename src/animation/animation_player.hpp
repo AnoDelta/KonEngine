@@ -61,6 +61,11 @@ public:
             file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
             anim.loop = loop != 0;
 
+            // Display metadata (written by new anim_compiler / KonAnimator)
+            file.read(reinterpret_cast<char*>(&anim.displayW),     sizeof(float));
+            file.read(reinterpret_cast<char*>(&anim.displayH),     sizeof(float));
+            file.read(reinterpret_cast<char*>(&anim.displayScale), sizeof(float));
+
             // Sprite frames
             uint32_t frameCount = 0;
             file.read(reinterpret_cast<char*>(&frameCount), sizeof(frameCount));
@@ -112,6 +117,18 @@ public:
             std::cerr << "[AnimationPlayer] Not found: " << animName << "\n";
             return;
         }
+
+        // Auto-detect target/node from parent Sprite2D if not explicitly set
+        if (!target || !node) {
+            if (auto* p = dynamic_cast<Sprite2D*>(parent)) {
+                if (!target) target = p;
+                if (!node)   node   = p;
+            }
+        }
+        if (!target && !node) {
+            std::cerr << "[AnimationPlayer] No target — add as child of a Sprite2D\n";
+        }
+
         if (current == animName && playing) return;
 
         current      = animName;
@@ -119,6 +136,10 @@ public:
         elapsed      = 0.0f;
         playing      = true;
         finished     = false;
+
+        // Enable source rect on target automatically
+        if (target)
+            target->useSourceRect = true;
 
         ApplySpriteFrame();
     }
@@ -199,18 +220,27 @@ private:
         }
     }
 
-	void ApplySpriteFrame() {
-		if (!target || current.empty()) return;
-		auto it = animations.find(current);
-		if (it == animations.end() || it->second.frames.empty()) return;
+    void ApplySpriteFrame() {
+        if (!target || current.empty()) return;
+        auto it = animations.find(current);
+        if (it == animations.end() || it->second.frames.empty()) return;
 
-		const AnimationFrame& f = it->second.frames[currentFrame];
-		target->srcX      = f.srcX;
-		target->srcY      = f.srcY;
-		target->srcWidth  = f.srcWidth;
-		target->srcHeight = f.srcHeight;
-		target->useSourceRect = true;
-	}
+        const Animation&      anim = it->second;
+        const AnimationFrame& f    = anim.frames[currentFrame];
+
+        target->srcX          = f.srcX;
+        target->srcY          = f.srcY;
+        target->srcWidth      = f.srcWidth;
+        target->srcHeight     = f.srcHeight;
+        target->useSourceRect = true;
+
+        // Use displayW/H from the clip if set, otherwise fall back to frame size.
+        // displayScale lets artists author at 1x and scale up in-engine.
+        float dW = (anim.displayW > 0.0f ? anim.displayW : f.srcWidth)  * anim.displayScale;
+        float dH = (anim.displayH > 0.0f ? anim.displayH : f.srcHeight) * anim.displayScale;
+        target->width  = dW;
+        target->height = dH;
+    }
 
     // Sample all keyframe tracks and write to node properties
     void ApplyTracks(Animation& anim) {

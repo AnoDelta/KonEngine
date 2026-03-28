@@ -53,7 +53,7 @@ static const std::unordered_map<std::string, Ease> curveMap = {
 struct Frame { float srcX, srcY, srcW, srcH, dur; };
 struct Key   { float time, value; Ease curve; };
 struct Track { std::string name; std::vector<Key> keys; };
-struct Anim  { std::string name; bool loop = false; std::vector<Frame> frames; std::vector<Track> tracks; };
+struct Anim  { std::string name; bool loop = false; float displayW = 0, displayH = 0, displayScale = 1.0f; std::vector<Frame> frames; std::vector<Track> tracks; };
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -149,8 +149,7 @@ static CompileResult compile(const std::string& inputPath, const std::string& ou
             findOrAddTrack(*cur, prop)->keys.push_back({ time, value, curve });
 
         } else if (token == "display") {
-            // Accepted and ignored — display metadata is KonAnimator's concern
-            // (the anim_compiler binary format doesn't include it)
+            if (cur) ss >> cur->displayW >> cur->displayH >> cur->displayScale;
 
         } else if (token == "spritesheet") {
             // Accepted and ignored
@@ -174,6 +173,11 @@ static CompileResult compile(const std::string& inputPath, const std::string& ou
         writeStr(out, anim.name);
         uint8_t loop = anim.loop ? 1 : 0;
         out.write(reinterpret_cast<const char*>(&loop), 1);
+
+        // Display metadata — read by AnimationPlayer
+        writeF(out, anim.displayW);
+        writeF(out, anim.displayH);
+        writeF(out, anim.displayScale);
 
         writeU32(out, static_cast<uint32_t>(anim.frames.size()));
         for (auto& f : anim.frames) {

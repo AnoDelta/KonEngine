@@ -6,52 +6,163 @@ on:
       - 'v*'
 
 jobs:
+  # -----------------------------------------------------------------------
+  # Linux — engine library + headers
+  # -----------------------------------------------------------------------
   release-linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
+      - name: Install engine dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
 
-    - name: Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+      - name: Build engine
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
-    - name: Install into staging
-      run: cmake --install build --prefix staging
+      - name: Install into staging
+        run: cmake --install build --prefix staging
 
-    - name: Package
-      run: |
-        cd staging
-        zip -r ../KonEngine-linux-${{ github.ref_name }}.zip .
+      - name: Copy headers into staging
+        run: |
+          mkdir -p staging/include/KonEngine
+          cp src/KonEngine.hpp staging/include/
+          for dir in window renderer time camera collision input font audio animation node; do
+            if [ -d "src/$dir" ]; then
+              mkdir -p "staging/include/KonEngine/$dir"
+              find "src/$dir" -name "*.hpp" -exec cp {} "staging/include/KonEngine/$dir/" \;
+            fi
+          done
+          find src -maxdepth 1 -name "*.hpp" -exec cp {} staging/include/KonEngine/ \;
 
-    - name: Upload to release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: KonEngine-linux-${{ github.ref_name }}.zip
+      - name: Package engine
+        run: cd staging && zip -r ../KonEngine-linux-${{ github.ref_name }}.zip .
 
+      - name: Upload engine release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KonEngine-linux-${{ github.ref_name }}.zip
+
+  # -----------------------------------------------------------------------
+  # Linux — KonAnimator + anim_compiler tools
+  # -----------------------------------------------------------------------
+  release-linux-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install engine + Qt5 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            libxinerama-dev libxcursor-dev \
+            qtbase5-dev libqt5opengl5-dev
+
+      - name: Build tools
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON
+          cmake --build build --target KonAnimator
+          cmake --build build --target anim_compiler
+
+      - name: Package tools
+        run: |
+          mkdir -p tools-staging
+          cp build/tools/KonAnimator/KonAnimator tools-staging/
+          cp build/anim_compiler tools-staging/
+          zip -r KonAnimator-linux-${{ github.ref_name }}.zip tools-staging/
+
+      - name: Upload tools release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KonAnimator-linux-${{ github.ref_name }}.zip
+
+  # -----------------------------------------------------------------------
+  # Windows — engine library + headers
+  # -----------------------------------------------------------------------
   release-windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CONFIGURATION_TYPES=Release && cmake --build build --config Release
+      - name: Build engine
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CONFIGURATION_TYPES=Release
+          cmake --build build --config Release
 
-    - name: Install into staging
-      run: cmake --install build --prefix staging
+      - name: Install into staging
+        run: cmake --install build --prefix staging
 
-    - name: Package
-      run: Compress-Archive -Path staging\* -DestinationPath KonEngine-windows-${{ github.ref_name }}.zip
+      - name: Copy headers into staging
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging/include/KonEngine | Out-Null
+          Copy-Item src/KonEngine.hpp staging/include/
 
-    - name: Upload to release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: KonEngine-windows-${{ github.ref_name }}.zip
+          $dirs = @("window","renderer","time","camera","collision","input","font","audio","animation","node")
+          foreach ($dir in $dirs) {
+            if (Test-Path "src/$dir") {
+              New-Item -ItemType Directory -Force -Path "staging/include/KonEngine/$dir" | Out-Null
+              Get-ChildItem "src/$dir" -Filter "*.hpp" | Copy-Item -Destination "staging/include/KonEngine/$dir/"
+            }
+          }
+
+          Get-ChildItem src -MaxDepth 1 -Filter "*.hpp" | Copy-Item -Destination staging/include/KonEngine/
+
+      - name: Package engine
+        run: Compress-Archive -Path staging\* -DestinationPath KonEngine-windows-${{ github.ref_name }}.zip
+
+      - name: Upload engine release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KonEngine-windows-${{ github.ref_name }}.zip
+
+  # -----------------------------------------------------------------------
+  # Windows — KonAnimator + anim_compiler tools
+  # -----------------------------------------------------------------------
+  release-windows-tools:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt5
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Build tools
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON
+          cmake --build build --config Release --target KonAnimator
+          cmake --build build --config Release --target anim_compiler
+
+      - name: Deploy Qt DLLs
+        shell: pwsh
+        run: |
+          mkdir tools-staging
+          Copy-Item build\tools\KonAnimator\Release\KonAnimator.exe tools-staging\
+          Copy-Item build\Release\anim_compiler.exe tools-staging\
+          & "$env:Qt5_DIR\..\..\..\bin\windeployqt.exe" tools-staging\KonAnimator.exe
+          & "$env:Qt5_DIR\..\..\..\bin\windeployqt.exe" tools-staging\anim_compiler.exe
+
+      - name: Package tools
+        run: Compress-Archive -Path tools-staging\* -DestinationPath KonAnimator-windows-${{ github.ref_name }}.zip
+
+      - name: Upload tools release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KonAnimator-windows-${{ github.ref_name }}.zip

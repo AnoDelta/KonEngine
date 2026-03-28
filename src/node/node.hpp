@@ -10,6 +10,7 @@ class Node {
 public:
     std::string name;
     bool active = true;
+    Node* parent = nullptr;
 
     Node(const std::string& name = "Node") : name(name) {}
     virtual ~Node() = default;
@@ -21,7 +22,8 @@ public:
     template<typename T, typename... Args>
     T* AddChild(const std::string& childName, Args&&... args) {
         auto node = std::make_unique<T>(std::forward<Args>(args)...);
-        node->name = childName;
+        node->name   = childName;
+        node->parent = this;
         T* ptr = node.get();
         children.push_back(std::move(node));
         return ptr;
@@ -37,6 +39,14 @@ public:
         );
     }
 
+    // Walk entire subtree — calls fn(node) for every descendant
+    void ForEachDescendant(std::function<void(Node*)> fn) {
+        for (auto& child : children) {
+            fn(child.get());
+            child->ForEachDescendant(fn);
+        }
+    }
+
     Node* GetNode(const std::string& childName) {
         for (auto& child : children) {
             if (child->name == childName) return child.get();
@@ -44,14 +54,6 @@ public:
             if (found) return found;
         }
         return nullptr;
-    }
-
-    // Walk every child (and their children) — used by Scene to find colliders etc.
-    void ForEachDescendant(const std::function<void(Node*)>& cb) {
-        for (auto& child : children) {
-            cb(child.get());
-            child->ForEachDescendant(cb);
-        }
     }
 
     // Signals
@@ -67,7 +69,7 @@ public:
     }
 
     // Update and draw all children
-    virtual void UpdateChildren(float dt) {
+    void UpdateChildren(float dt) {
         for (auto& child : children)
             if (child->active) {
                 child->Update(dt);

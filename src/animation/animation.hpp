@@ -75,8 +75,11 @@ struct KeyframeTrack {
 
 struct Animation {
     std::string name;
-    float       duration = 0.0f;
-    bool        loop     = false;
+    float       duration     = 0.0f;
+    bool        loop         = false;
+    float       displayW     = 0.0f;  // from .anim display field (0 = use srcW)
+    float       displayH     = 0.0f;  // from .anim display field (0 = use srcH)
+    float       displayScale = 1.0f;
 
     std::vector<AnimationFrame> frames; // sprite sheet frames
     std::vector<KeyframeTrack>  tracks; // property keyframe tracks
