@@ -194,23 +194,31 @@ jobs:
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows zlib:x64-windows
-          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT"
+          Write-Host "vcpkg root: $vcpkg"
+          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build KonPaktor
         shell: pwsh
         run: |
-          Set-Location tools/KonPaktor
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-          cmake --build build --config Release --target KonPaktor
-          cmake --build build --config Release --target konpak
+          $toolchain = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          Write-Host "toolchain: $toolchain"
+          Write-Host "Qt5_DIR: $env:Qt5_DIR"
+          cmake -B tools/KonPaktor/build `
+            -S tools/KonPaktor `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain"
+          cmake --build tools/KonPaktor/build --config Release --target KonPaktor
+          cmake --build tools/KonPaktor/build --config Release --target konpak
       - name: List executables
         shell: pwsh
-        run: Get-ChildItem -Recurse tools/KonPaktor/build -Filter "*.exe" | Select-Object FullName
+        run: Get-ChildItem -Recurse tools/KonPaktor -Filter "*.exe" | Select-Object FullName
       - name: Package KonPaktor
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path konpaktor-staging | Out-Null
-          $kp = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "KonPaktor.exe" | Select-Object -First 1
-          $kc = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "konpak.exe" | Select-Object -First 1
+          $kp = Get-ChildItem -Recurse tools/KonPaktor -Filter "KonPaktor.exe" | Select-Object -First 1
+          $kc = Get-ChildItem -Recurse tools/KonPaktor -Filter "konpak.exe" | Select-Object -First 1
           if (-not $kp) { throw "KonPaktor.exe not found" }
           if (-not $kc) { throw "konpak.exe not found" }
           Copy-Item $kp.FullName konpaktor-staging/
