@@ -190,24 +190,10 @@ jobs:
           version: '5.15.2'
           arch: win64_msvc2019_64
           cache: true
-      - name: Install OpenSSL + zlib via vcpkg
-        shell: pwsh
-        run: |
-          vcpkg install openssl:x64-windows zlib:x64-windows
-          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT"
-          Write-Host "vcpkg root: $vcpkg"
-          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build KonPaktor
         shell: pwsh
         run: |
-          $toolchain = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-          Write-Host "toolchain: $toolchain"
-          Write-Host "Qt5_DIR: $env:Qt5_DIR"
-          cmake -B tools/KonPaktor/build `
-            -S tools/KonPaktor `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" `
-            -DCMAKE_TOOLCHAIN_FILE="$toolchain"
+          cmake -B tools/KonPaktor/build -S tools/KonPaktor -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
           cmake --build tools/KonPaktor/build --config Release --target KonPaktor
           cmake --build tools/KonPaktor/build --config Release --target konpak
       - name: List executables
