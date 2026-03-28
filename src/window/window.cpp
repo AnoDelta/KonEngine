@@ -185,6 +185,18 @@ void Present() {
             float cs = 8.0f;
             window->drawLine(mx-cs, my,    mx+cs, my,    1,0,0,1);
             window->drawLine(mx,    my-cs, mx,    my+cs, 1,0,0,1);
+
+
+			// Log mouse clicks
+			if (IsMouseButtonPressed(Mouse::Left))
+				std::cout << "[KonEngine DEBUG] Mouse: LEFT clicked at ("
+					<< (int)mx << ", " << (int)my << ")\n";
+			if (IsMouseButtonPressed(Mouse::Right))
+				std::cout << "[KonEngine DEBUG] Mouse: RIGHT clicked at ("
+					<< (int)mx << ", " << (int)my << ")\n";
+			if (IsMouseButtonPressed(Mouse::Middle))
+				std::cout << "[KonEngine DEBUG] Mouse: MIDDLE clicked at ("
+					<< (int)mx << ", " << (int)my << ")\n";
         }
 
         window->swapBuffers();
