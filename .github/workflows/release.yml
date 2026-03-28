@@ -99,7 +99,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            qtbase5-dev libqt5multimedia5-dev \
+            qtbase5-dev qtmultimedia5-dev \
             libssl-dev zlib1g-dev
 
       - name: Build KonPaktor
