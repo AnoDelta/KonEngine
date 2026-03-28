@@ -59,6 +59,15 @@ target_link_libraries(KonTest PRIVATE KonEngine)
 set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # -----------------------------------------------------------------------
+# KonEngine test suite
+# cmake -DKON_BUILD_TESTS=ON .. && cmake --build . --target KonEngineTest
+# -----------------------------------------------------------------------
+option(KON_BUILD_TESTS "Build the KonEngine test suite" OFF)
+if(KON_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
+
+# -----------------------------------------------------------------------
 # Qt tools — anim_compiler and KonAnimator
 # These are NOT built by default. Use the dedicated scripts:
 #   Linux:   ./build-tools.sh

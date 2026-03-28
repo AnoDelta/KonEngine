@@ -3,6 +3,9 @@
 #include "collider2d.hpp"
 #include "../collision/collision_world.hpp"
 
+// Forward declaration — defined in window.cpp
+bool IsDebugMode();
+
 class Scene {
 public:
     CollisionWorld collisionWorld; // accessible if you want manual queries too
@@ -75,6 +78,22 @@ public:
                 node->Draw();
                 node->DrawChildren();
             }
+
+        // Debug: auto-draw all collider shapes without needing debugDraw=true
+        if (IsDebugMode()) {
+            auto drawIfCollider = [](Node* n) {
+                if (auto* col = dynamic_cast<Collider2D*>(n)) {
+                    bool wasDraw = col->debugDraw;
+                    col->debugDraw = true;
+                    col->Draw();
+                    col->debugDraw = wasDraw;
+                }
+            };
+            for (auto& node : nodes) {
+                drawIfCollider(node.get());
+                node->ForEachDescendant(drawIfCollider);
+            }
+        }
     }
 
 private:
