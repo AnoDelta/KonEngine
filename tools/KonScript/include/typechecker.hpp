@@ -217,7 +217,14 @@ public:
             global.define(sym);
 
         for (auto& stmt : prog.stmts) {
-            // Reset recursion guard before each top-level declaration
+            // Skip func/node decls -- bodies are checked in checkFuncDecl
+            // called from collectDeclarations context. Re-checking here
+            // causes infinite recursion via mutual calls.
+            if (stmt->kind == Stmt::Kind::FuncDecl ||
+                stmt->kind == Stmt::Kind::NodeDecl  ||
+                stmt->kind == Stmt::Kind::ClassDecl ||
+                stmt->kind == Stmt::Kind::Include)
+                continue;
             m_checking.clear();
             checkStmt(stmt.get(), &global, Type::void_());
         }
@@ -405,12 +412,14 @@ private:
 
         // Output -- Print is variadic, register with empty params to skip arg checking
         reg("Print",         {}, Void);
+        reg("ToString",      {}, Str);  // ToString(any) -> str
 
         // Drawing
         reg("DrawRectangle", {}, Void);
         reg("DrawCircle",    {}, Void);
         reg("DrawLine",      {}, Void);
         reg("DrawTexture",   {}, Void);
+        reg("DrawText",      {}, Void);
 
         // Camera
         reg("BeginCamera2D", {}, Void);
@@ -683,6 +692,12 @@ private:
 
             case Expr::Kind::Ident: {
                 auto* id = static_cast<const IdentExpr*>(e);
+                // Engine namespaces -- Key.A, Mouse.Left, Gamepad.A etc.
+                static const std::unordered_set<std::string> engineNamespaces = {
+                    "Key", "Mouse", "Gamepad"
+                };
+                if (engineNamespaces.count(id->name))
+                    return Type::unknown();
                 // Check enum variants first
                 for (auto& [enumName, info] : m_enums) {
                     if (info.findVariant(id->name))

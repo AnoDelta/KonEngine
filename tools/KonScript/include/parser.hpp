@@ -689,7 +689,8 @@ private:
         auto expr = parsePrimary();
 
         while (true) {
-            if (check(TokenType::Dot) || check(TokenType::SafeDot)) {
+            if (check(TokenType::Dot) || check(TokenType::SafeDot) ||
+                check(TokenType::ColonColon)) {
                 bool safe = check(TokenType::SafeDot);
                 advance();
                 std::string member = expect(TokenType::Ident,

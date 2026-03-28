@@ -661,9 +661,7 @@ private:
         // Map KonScript built-in functions to KonEngine C++ functions
         static const std::unordered_map<std::string, std::string> builtins = {
             {"Print",           "std::cout <<"},
-            {"KeyDown",         "IsKeyDown"},
-            {"KeyPressed",      "IsKeyPressed"},
-            {"KeyReleased",     "IsKeyReleased"},
+            // KeyDown/KeyPressed/KeyReleased handled in genCall with Key::Code cast
             {"MouseDown",       "IsMouseButtonDown"},
             {"MousePressed",    "IsMouseButtonPressed"},
             {"GetMouseX",       "GetMouseX"},
@@ -706,52 +704,111 @@ private:
         genExpr(e->value.get());
     }
 
-void genCall(const CallExpr* e) {
-    if (e->callee->kind == Expr::Kind::Ident) {
-        auto* id = static_cast<const IdentExpr*>(e->callee.get());
-
-        // Print -> std::cout
-        if (id->name == "Print") {
-            write("std::cout");
-            for (auto& arg : e->args) {
-                write(" << ");
-                genExpr(arg.get());
+    void genCall(const CallExpr* e) {
+        // Special case: Print maps to std::cout
+        if (e->callee->kind == Expr::Kind::Ident) {
+            auto* id = static_cast<const IdentExpr*>(e->callee.get());
+            if (id->name == "Print") {
+                write("std::cout");
+                for (auto& arg : e->args) {
+                    write(" << ");
+                    genExpr(arg.get());
+                }
+                write(" << \"\\n\"");
+                return;
             }
-            write(" << \"\\n\"");
-            return;
+            // ToString(x) -> std::to_string(x).c_str()
+            if (id->name == "ToString" && e->args.size() == 1) {
+                write("std::to_string(");
+                genExpr(e->args[0].get());
+                write(").c_str()");
+                return;
+            }
+
+            // DrawText(text, x, y, r, g, b, a) -> DrawText(text, x, y, Color{r,g,b,a})
+            if (id->name == "DrawText" && e->args.size() == 7) {
+                write("DrawText(");
+                genExpr(e->args[0].get()); write(", ");
+                write("(float)"); genExpr(e->args[1].get()); write(", ");
+                write("(float)"); genExpr(e->args[2].get()); write(", ");
+                write("Color{(float)");
+                genExpr(e->args[3].get()); write(", (float)");
+                genExpr(e->args[4].get()); write(", (float)");
+                genExpr(e->args[5].get()); write(", (float)");
+                genExpr(e->args[6].get());
+                write("})");
+                return;
+            }
+
+            // Key functions: cast int arg to Key::Code
+            static const std::unordered_map<std::string,std::string> keyFuncs = {
+                {"KeyDown",      "IsKeyDown"},
+                {"KeyPressed",   "IsKeyPressed"},
+                {"KeyReleased",  "IsKeyReleased"},
+                {"IsKeyDown",    "IsKeyDown"},
+                {"IsKeyPressed", "IsKeyPressed"},
+                {"IsKeyReleased","IsKeyReleased"},
+            };
+            auto kfit = keyFuncs.find(id->name);
+            if (kfit != keyFuncs.end() && e->args.size() == 1) {
+                // Check if arg is already a Key::Code (Key.X member access)
+                bool alreadyKeyCode = false;
+                if (e->args[0]->kind == Expr::Kind::Member) {
+                    auto* m = static_cast<const MemberExpr*>(e->args[0].get());
+                    if (m->object->kind == Expr::Kind::Ident) {
+                        auto* mid = static_cast<const IdentExpr*>(m->object.get());
+                        if (mid->name == "Key") alreadyKeyCode = true;
+                    }
+                }
+                write(kfit->second + "(");
+                if (!alreadyKeyCode) write("(Key::Code)");
+                genExpr(e->args[0].get());
+                write(")");
+                return;
+            }
         }
 
-        // KeyDown/KeyPressed/KeyReleased -> cast arg to Key::Code
-        static const std::unordered_map<std::string,std::string> keyFuncs = {
-            {"KeyDown",      "IsKeyDown"},
-            {"KeyPressed",   "IsKeyPressed"},
-            {"KeyReleased",  "IsKeyReleased"},
-            {"IsKeyDown",    "IsKeyDown"},
-            {"IsKeyPressed", "IsKeyPressed"},
-            {"IsKeyReleased","IsKeyReleased"},
-        };
-        auto kfit = keyFuncs.find(id->name);
-        if (kfit != keyFuncs.end() && e->args.size() == 1) {
-            write(kfit->second + "((Key::Code)");
-            genExpr(e->args[0].get());
-            write(")");
-            return;
+        genExpr(e->callee.get());
+        write("(");
+        for (size_t i = 0; i < e->args.size(); i++) {
+            if (i > 0) write(", ");
+            genExpr(e->args[i].get());
         }
+        write(")");
     }
-
-    genExpr(e->callee.get());
-    write("(");
-    for (size_t i = 0; i < e->args.size(); i++) {
-        if (i > 0) write(", ");
-        genExpr(e->args[i].get());
-    }
-    write(")");
-}
 
     void genMember(const MemberExpr* e) {
+        // Key.A -> Key::A, Mouse.Left -> Mouse::Left, Gamepad.A -> Gamepad::A
+        if (e->object->kind == Expr::Kind::Ident) {
+            auto* id = static_cast<const IdentExpr*>(e->object.get());
+            static const std::unordered_set<std::string> cppNamespaces = {
+                "Key", "Mouse", "Gamepad"
+            };
+            if (cppNamespaces.count(id->name)) {
+                // Friendly aliases
+                static const std::unordered_map<std::string,std::string> keyAliases = {
+                    {"Esc",       "Escape"},
+                    {"ESC",       "Escape"},
+                    {"Return",    "Enter"},
+                    {"Del",       "Delete"},
+                    {"Ins",       "Insert"},
+                    {"LShift",    "Shift"},
+                    {"RShift",    "Shift"},
+                    {"LCtrl",     "Ctrl"},
+                    {"RCtrl",     "Ctrl"},
+                };
+                std::string member = e->member;
+                if (id->name == "Key") {
+                    auto it = keyAliases.find(member);
+                    if (it != keyAliases.end()) member = it->second;
+                }
+                write(id->name + "::" + member);
+                return;
+            }
+        }
         genExpr(e->object.get());
         if (e->safe)
-            write(".");  // safe access -- simplified
+            write(".");
         else
             write(".");
         write(e->member);

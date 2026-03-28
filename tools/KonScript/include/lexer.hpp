@@ -72,6 +72,7 @@ enum class TokenType {
     RBracket,   // ]
     Semicolon,  // ;
     Colon,      // :
+    ColonColon, // ::
     Comma,      // ,
     Dot,        // .
     DotDot,     // ..
@@ -280,7 +281,10 @@ public:
                 case ',': emit(TokenType::Comma,     ",", startLine, startCol); break;
                 case '%': emit(TokenType::Percent,   "%", startLine, startCol); break;
 
-                case ':': emit(TokenType::Colon, ":", startLine, startCol); break;
+                case ':':
+                    if (match(':')) emit(TokenType::ColonColon, "::", startLine, startCol);
+                    else            emit(TokenType::Colon,      ":",  startLine, startCol);
+                    break;
 
                 case '.':
                     if (match('.')) {
