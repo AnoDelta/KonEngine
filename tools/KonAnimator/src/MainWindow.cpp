@@ -31,9 +31,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 void MainWindow::openFile(const QString& path) {
     std::string err;
-    if (!AnimIO::load(path.toStdString(), m_proj, err)) {
+    bool ok = false;
+    QString ext = QFileInfo(path).suffix().toLower();
+    if (ext == "konani")
+        ok = AnimIO::loadKonani(path.toStdString(), m_proj, err);
+    else
+        ok = AnimIO::load(path.toStdString(), m_proj, err);
+
+    if (!ok) {
         QMessageBox::critical(this, "Load Error", QString::fromStdString(err));
         return;
+    }
+
+    if (ext == "konani") {
+        m_proj.dirty = true;
+        statusBar()->showMessage(
+            "Opened (decompiled): " + path +
+            "  --  Save as .anim to keep an editable copy.");
     }
     m_clipIdx = m_frameIdx = m_trackIdx = m_keyIdx = -1;
     refreshClipList();
@@ -432,8 +446,11 @@ void MainWindow::onNew() {
 
 void MainWindow::onOpen() {
     if (!confirmDiscard()) return;
-    QString path = QFileDialog::getOpenFileName(this, "Open .anim", {},
-        "Anim files (*.anim);;All files (*)");
+    QString path = QFileDialog::getOpenFileName(this, "Open Animation", {},
+        "Animation Files (*.anim *.konani);;"
+        "Anim Source (*.anim);;"
+        "Compiled Anim (*.konani);;"
+        "All Files (*)");
     if (path.isEmpty()) return;
     openFile(path);
 }
