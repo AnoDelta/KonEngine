@@ -32,28 +32,30 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - Keyframe animation for nodes (position, rotation, scale, alpha)
 - Animation player node
 - `.anim` text format + `anim_compiler` tool → `.konani` binary
-- GUI compiler tool (cross-platform, ImGui)
+- `anim_compiler` Qt GUI tool (cross-platform)
+
+### v0.8.0 — KonAnimator
+- Standalone Qt-based animation editor
+- Visual spritesheet frame editor (click+drag to define frames)
+- Live OpenGL preview with zoom, pan, fullscreen
+- Keyframe track editor with timeline
+- Direct `.anim` save/load and one-click `.konani` compile
+- Cross-platform (Linux + Windows, including cross-compile from Linux)
 
 ---
 
 ## Upcoming
 
-### v0.8.0 — Asset Pipeline
+### v0.9.0 — Asset Pipeline
 - AES-256 asset encryption
 - `.pak` file bundler (pack + encrypt all assets into one file)
 - Asset manager (load from `.pak` or loose files)
 
-### v0.9.0 — Editor MVP
-- ImGui integration
+### v0.10.0 — Editor MVP
 - Viewport panel
 - Hierarchy + properties panels
 - Scene open/save
 - Asset browser
-
-### v0.10.0 — Editor Animator
-- Timeline UI in editor
-- Visual keyframe editing
-- MP4 export (for cutscenes and sharing with artists)
 
 ### v0.11.0 — Editor Scripting
 - Built-in code editor
@@ -69,7 +71,6 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 
 ## Far Future
 - 3D rendering
-- GUI editor polish
 - Networking
 
 ## No Guarantees

@@ -23,7 +23,8 @@ See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
 - Node/scene system (Godot-style hierarchy, signals)
 - Sprite2D with pivot/origin support
 - Animation system (sprite sheet + keyframe, 16 easing curves)
-- `anim_compiler` tool with GUI — compiles `.anim` → `.konani`
+- **KonAnimator** — standalone Qt animation editor
+- **anim_compiler** — CLI + Qt GUI tool, compiles `.anim` → `.konani`
 
 ## Getting Started
 
@@ -46,15 +47,36 @@ sudo dnf install -y mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
   wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
 ```
 
-**Linux (Arch):**
+**Linux (Arch/Gentoo):**
 ```bash
-sudo pacman -S mesa libx11 libxrandr libxi \
-  wayland wayland-protocols libxkbcommon libxinerama libxcursor
+# Arch
+sudo pacman -S mesa libx11 libxrandr libxi wayland wayland-protocols libxkbcommon libxinerama libxcursor
+# Gentoo
+emerge --ask x11-libs/libX11 x11-libs/libXrandr x11-libs/libXi media-libs/mesa
 ```
 
 **Windows:** No extra dependencies needed.
 
-### 3. Build
+### 3. Install Qt5 (only needed for KonAnimator and anim_compiler)
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get install -y qtbase5-dev libqt5opengl5-dev
+```
+
+**Linux (Fedora):**
+```bash
+sudo dnf install -y qt5-qtbase-devel
+```
+
+**Linux (Arch):**
+```bash
+sudo pacman -S qt5-base
+```
+
+**Windows:** Download from https://www.qt.io/download-open-source
+
+### 4. Build the engine
 
 **Linux:**
 ```bash
@@ -66,7 +88,24 @@ sudo pacman -S mesa libx11 libxrandr libxi \
 build.bat
 ```
 
-### 4. Install (optional)
+### 5. Build KonAnimator and anim_compiler (optional)
+
+From the KonEngine root:
+```bash
+cmake --build build --target KonAnimator
+cmake --build build --target anim_compiler
+```
+
+Or use the dedicated scripts:
+```bash
+# KonAnimator
+cd tools/KonAnimator && ./build.sh
+
+# anim_compiler
+./build-anim_compiler.sh
+```
+
+### 6. Install (optional)
 Installing makes KonEngine available system-wide so you can use it in your own projects without copying files manually.
 
 **Linux:**
@@ -217,26 +256,46 @@ int main() {
 }
 ```
 
+## KonAnimator
+
+KonAnimator is the visual animation editor for KonEngine. Open a spritesheet, draw frame
+rectangles, set durations, add keyframe tracks, preview the animation live, and export
+directly to `.konani`.
+
+```bash
+# Build and run
+cmake --build build --target KonAnimator
+./build/tools/KonAnimator/KonAnimator
+
+# Or from the tools directory
+cd tools/KonAnimator && ./build.sh && ./build/KonAnimator
+```
+
+**Controls in the preview panel:**
+- Drag → pan
+- Scroll → zoom
+- Double-click → reset view
+- F → fullscreen
+
 ## Anim Compiler
 
-The `anim_compiler` tool is how you create animations for KonEngine. You describe your
-animation in a simple `.anim` text file, then compile it into a `.konani` binary that
-the engine loads at runtime.
+The `anim_compiler` tool compiles `.anim` text files into `.konani` binaries.
+It can be used as a GUI tool or as a CLI tool for build pipeline automation.
 
-**Build the tool:**
+**Build:**
 ```bash
-cmake --build build --target=anim_compiler
+cmake --build build --target anim_compiler
 ```
 
-**Run with no arguments to open the GUI:**
+**GUI mode** (no arguments):
 ```bash
-./anim_compiler
+./build/anim_compiler
 ```
 
-**Or use the command line:**
+**CLI mode:**
 ```bash
-./anim_compiler player.anim        # outputs player.konani automatically
-./anim_compiler player.anim out.konani
+./build/anim_compiler player.anim             # outputs player.konani
+./build/anim_compiler player.anim out.konani  # explicit output path
 ```
 
 ---
@@ -250,9 +309,6 @@ There are two types of animation: **sprite sheet** and **keyframe**.
 
 #### Sprite sheet animations
 
-Use this when your character has a sprite sheet — a single image where each frame
-of the animation is laid out in a row.
-
 ```
 anim idle loop
   frame 0 0 32 32 0.15
@@ -261,36 +317,13 @@ anim idle loop
 end
 ```
 
-**Breaking it down:**
-
-- `anim idle loop` — start an animation called `idle`. The word `loop` makes it repeat.
-  Leave it out if you only want it to play once (e.g. a death animation).
-- `frame 0 0 32 32 0.15` — one frame of the animation. The numbers are:
-  - `0 0` — where on the sprite sheet this frame starts (X, Y in pixels from the top-left)
-  - `32 32` — the size of the frame (width, height in pixels)
-  - `0.15` — how long to show this frame (in seconds). `0.15` is about 6-7 frames per second.
-- `end` — closes the animation block.
-
-So for a sprite sheet where your frames are 32×32 pixels and laid out in a horizontal row,
-the first frame starts at X=0, the second at X=32, the third at X=64, and so on.
+- `anim idle loop` — animation named `idle`, loops. Remove `loop` for one-shot.
+- `frame x y w h duration` — one frame: position on the sheet, size, display time in seconds.
+- `end` — closes the block.
 
 ---
 
-#### Keyframe animations (tweening)
-
-Use this when you want to animate a property of a node over time — like making a sprite
-pop into view, slide across the screen, or fade out. This is also how you do tweening:
-interpolating a value from A to B over time with an easing curve.
-
-For example, sliding a node in from offscreen is a tween:
-```
-anim slide_in
-  track x 0.0 -100.0 easeout
-  track x 0.4  400.0 easeout
-end
-```
-That moves the node from x=-100 to x=400 over 0.4 seconds. Any property can be tweened
-the same way — position, scale, rotation, alpha.
+#### Keyframe animations
 
 ```
 anim pop_in
@@ -303,65 +336,43 @@ anim pop_in
 end
 ```
 
-**Breaking it down:**
-
-- `anim pop_in` — start an animation called `pop_in`. No `loop` so it plays once.
-- `track scaleX 0.0 0.0 easeinoutback` — a keyframe on the `scaleX` track. The numbers are:
-  - `scaleX` — which property to animate. Options: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `alpha`
-  - `0.0` — the time this keyframe is at (in seconds)
-  - `0.0` — the value at this time (`scaleX` of 0 = invisible, 1 = normal size)
-  - `easeinoutback` — the easing curve (how it moves from this keyframe to the next)
-- You need at least two keyframes per track — a start and an end.
-
-**What the example does:** at time 0 the sprite is scaled to 0 (invisible), and by time 0.4
-seconds it scales up to full size with a slight overshoot (the `back` in `easeinoutback`).
-The alpha does the same thing but finishes a bit earlier at 0.3 seconds.
+- `track property time value curve` — a keyframe. Properties: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `alpha`.
+- You need at least two keyframes per track (start and end).
 
 ---
 
 #### Easing curves
 
-The curve controls how a value moves from one keyframe to the next.
-
-| Curve | What it feels like |
+| Curve | Feel |
 |---|---|
-| `linear` | Constant speed, robotic |
+| `linear` | Constant speed |
 | `easein` | Starts slow, ends fast |
 | `easeout` | Starts fast, ends slow |
-| `easeinout` | Slow → fast → slow, smooth |
-| `easeincubic` / `easeoutcubic` / `easeinoutcubic` | Same as above but stronger |
-| `easeinelastic` / `easeoutelastic` / `easeinoutelastic` | Springy, bounces past the target |
-| `easeinbounce` / `easeoutbounce` / `easeinoutbounce` | Bounces like a ball hitting the floor |
-| `easeinback` / `easeoutback` / `easeinoutback` | Slight overshoot past the target |
-
-When in doubt, `easeinout` or `easeinoutback` look good for most UI animations.
-`easeout` is good for things sliding into place. `linear` is good for looping things
-like a spinning object.
+| `easeinout` | Smooth slow → fast → slow |
+| `easeincubic` / `easeoutcubic` / `easeinoutcubic` | Stronger versions of the above |
+| `easeinelastic` / `easeoutelastic` / `easeinoutelastic` | Springy overshoot |
+| `easeinbounce` / `easeoutbounce` / `easeinoutbounce` | Bouncing |
+| `easeinback` / `easeoutback` / `easeinoutback` | Slight overshoot |
 
 ---
 
 #### Combining both types
 
-One `.anim` file can have both sprite sheet and keyframe animations:
-
 ```
 anim idle loop
   frame 0 0 32 32 0.12
   frame 32 0 32 32 0.12
-  frame 64 0 32 32 0.12
-  frame 96 0 32 32 0.12
 end
 
 anim die
   frame 128 0 32 32 0.1
-  frame 160 0 32 32 0.1
-  frame 192 0 32 32 0.2
+  frame 160 0 32 32 0.2
   track alpha 0.0 1.0 linear
   track alpha 0.5 0.0 linear
 end
 ```
 
-Lines starting with `#` are comments and are ignored by the compiler.
+Lines starting with `#` are comments.
 
 ## License
 MIT — free to use in commercial and open source projects.

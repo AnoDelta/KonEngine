@@ -59,32 +59,51 @@ target_link_libraries(KonTest PRIVATE KonEngine)
 set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # -----------------------------------------------------------------------
-# anim_compiler — standalone GUI tool
+# Qt tools — anim_compiler and KonAnimator
+# Both are optional; skipped gracefully if Qt5 is not installed.
 # -----------------------------------------------------------------------
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
-set(IMGUI_SRCS
-        ${IMGUI_DIR}/imgui.cpp
-        ${IMGUI_DIR}/imgui_draw.cpp
-        ${IMGUI_DIR}/imgui_tables.cpp
-        ${IMGUI_DIR}/imgui_widgets.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-)
+find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
 
-add_executable(anim_compiler
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp
-        ${IMGUI_SRCS}
-)
-target_include_directories(anim_compiler PRIVATE
-        ${IMGUI_DIR}
-        ${IMGUI_DIR}/backends
-        ${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/glad/include
-)
-target_link_libraries(anim_compiler PRIVATE glfw)
-if(WIN32)
-    target_link_libraries(anim_compiler PRIVATE opengl32)
+if(Qt5_FOUND)
+    set(CMAKE_AUTOMOC ON)
+
+    # anim_compiler — CLI + Qt GUI compiler tool
+    if(WIN32)
+        add_executable(anim_compiler WIN32
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
+    else()
+        add_executable(anim_compiler
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
+    endif()
+    target_include_directories(anim_compiler PRIVATE src)
+    target_link_libraries(anim_compiler PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets)
+    set_target_properties(anim_compiler PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+    # KonAnimator — full animation editor
+    add_subdirectory(tools/KonAnimator)
+
+    # Windows: copy Qt DLLs next to each tool
+    if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
+        foreach(_tool anim_compiler KonAnimator)
+            add_custom_command(TARGET ${_tool} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:Qt5::Core>
+                    $<TARGET_FILE:Qt5::Gui>
+                    $<TARGET_FILE:Qt5::Widgets>
+                    $<TARGET_FILE_DIR:${_tool}>
+                COMMENT "Copying Qt DLLs for ${_tool}...")
+        endforeach()
+    endif()
 else()
-    target_link_libraries(anim_compiler PRIVATE GL)
+    message(STATUS "Qt5 not found — anim_compiler and KonAnimator targets skipped")
 endif()
-set_target_properties(anim_compiler PROPERTIES EXCLUDE_FROM_ALL TRUE)
+# -----------------------------------------------------------------------
+# KonAnimator — animation editor tool
+# -----------------------------------------------------------------------
+find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
+
+if(Qt5_FOUND)
+    add_subdirectory(tools/KonAnimator)
+else()
+    message(STATUS "Qt5 not found — KonAnimator and anim_compiler targets skipped")
+endif()

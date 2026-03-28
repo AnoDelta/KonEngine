@@ -6,35 +6,8 @@
 //   anim_compiler <input.anim> <output.konani>
 //
 // GUI usage:
-//   anim_compiler                           (opens GUI window)
-//
-// -----------------------------------------------------------------------
-// .anim text format
-// -----------------------------------------------------------------------
-//
-// # Sprite sheet animation
-// anim idle loop
-//   frame 0 0 32 32 0.15
-//   frame 32 0 32 32 0.15
-// end
-//
-// # Keyframe animation (property tracks)
-// # track <property> <time> <value> [curve]
-// # Properties: x  y  scaleX  scaleY  rotation  alpha
-// # Curves: linear easein easeout easeinout
-// #         easeincubic easeoutcubic easeinoutcubic
-// #         easeinelastic easeoutelastic easeinoutelastic
-// #         easeinbounce easeoutbounce easeinoutbounce
-// #         easeinback easeoutback easeinoutback
-//
-// anim pop_in
-//   track scaleX 0.0 0.0 easeinoutback
-//   track scaleX 0.4 1.0 easeinoutback
-//   track scaleY 0.0 0.0 easeinoutback
-//   track scaleY 0.4 1.0 easeinoutback
-//   track alpha  0.0 0.0 easeout
-//   track alpha  0.3 1.0 easeout
-// end
+//   anim_compiler                           (opens Qt window)
+//   anim_compiler <input.anim>              (CLI compile, no window)
 
 #include <iostream>
 #include <fstream>
@@ -105,7 +78,6 @@ static void writeStr(std::ofstream& o, const std::string& s) {
 static void writeF  (std::ofstream& o, float v)    { o.write(reinterpret_cast<const char*>(&v), sizeof(v)); }
 static void writeU32(std::ofstream& o, uint32_t v) { o.write(reinterpret_cast<const char*>(&v), sizeof(v)); }
 
-// Strip extension and replace with .konani
 static std::string toOutputPath(const std::string& input) {
     auto dot = input.rfind('.');
     std::string base = (dot != std::string::npos) ? input.substr(0, dot) : input;
@@ -117,7 +89,7 @@ static std::string toOutputPath(const std::string& input) {
 // -----------------------------------------------------------------------
 
 struct CompileResult {
-    bool        success = false;
+    bool        success   = false;
     std::string log;
     int         animCount = 0;
 };
@@ -157,32 +129,31 @@ static CompileResult compile(const std::string& inputPath, const std::string& ou
             while (ss >> flag) if (flag == "loop") cur->loop = true;
 
         } else if (token == "frame") {
-            if (!cur) {
-                result.log = "Error: Line " + std::to_string(lineNum) + ": frame outside anim";
-                return result;
-            }
+            if (!cur) { result.log = "Error: Line " + std::to_string(lineNum) + ": frame outside anim"; return result; }
             Frame f{};
             if (!(ss >> f.srcX >> f.srcY >> f.srcW >> f.srcH >> f.dur)) {
-                result.log = "Error: Line " + std::to_string(lineNum) + ": bad frame";
-                return result;
+                result.log = "Error: Line " + std::to_string(lineNum) + ": bad frame"; return result;
             }
             cur->frames.push_back(f);
 
         } else if (token == "track") {
-            if (!cur) {
-                result.log = "Error: Line " + std::to_string(lineNum) + ": track outside anim";
-                return result;
-            }
+            if (!cur) { result.log = "Error: Line " + std::to_string(lineNum) + ": track outside anim"; return result; }
             std::string prop, curveStr = "easeinout";
             float time, value;
             if (!(ss >> prop >> time >> value)) {
-                result.log = "Error: Line " + std::to_string(lineNum) + ": bad track";
-                return result;
+                result.log = "Error: Line " + std::to_string(lineNum) + ": bad track"; return result;
             }
             ss >> curveStr;
             auto it = curveMap.find(toLower(curveStr));
             Ease curve = (it != curveMap.end()) ? it->second : Ease::EaseInOut;
             findOrAddTrack(*cur, prop)->keys.push_back({ time, value, curve });
+
+        } else if (token == "display") {
+            // Accepted and ignored — display metadata is KonAnimator's concern
+            // (the anim_compiler binary format doesn't include it)
+
+        } else if (token == "spritesheet") {
+            // Accepted and ignored
 
         } else if (token == "end") {
             cur = nullptr;
@@ -199,7 +170,6 @@ static CompileResult compile(const std::string& inputPath, const std::string& ou
     }
 
     writeU32(out, static_cast<uint32_t>(anims.size()));
-
     for (auto& anim : anims) {
         writeStr(out, anim.name);
         uint8_t loop = anim.loop ? 1 : 0;
@@ -250,122 +220,178 @@ static int runCLI(int argc, char** argv) {
 }
 
 // -----------------------------------------------------------------------
-// GUI entry point (ImGui + GLFW + OpenGL)
+// Qt GUI
 // -----------------------------------------------------------------------
 
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include <GLFW/glfw3.h>
+#include <QApplication>
+#include <QMainWindow>
+#include <QWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QTextEdit>
+#include <QFileDialog>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QStyleFactory>
+#include <QPalette>
+#include <QSizePolicy>
 
-static int runGUI() {
-    if (!glfwInit()) return 1;
+class CompilerWindow : public QMainWindow {
+    Q_OBJECT
+public:
+    CompilerWindow() {
+        setWindowTitle("KonEngine — Anim Compiler");
+        setMinimumSize(560, 300);
+        resize(600, 320);
+        setAcceptDrops(true);
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        auto* central = new QWidget(this);
+        setCentralWidget(central);
+        auto* vl = new QVBoxLayout(central);
+        vl->setContentsMargins(12, 12, 12, 12);
+        vl->setSpacing(8);
 
-    GLFWwindow* window = glfwCreateWindow(600, 340, "KonEngine — Anim Compiler", nullptr, nullptr);
-    if (!window) { glfwTerminate(); return 1; }
+        // Input row
+        {
+            auto* row = new QHBoxLayout;
+            row->addWidget(new QLabel("Input (.anim):"));
+            m_inputEdit = new QLineEdit;
+            m_inputEdit->setPlaceholderText("path/to/animation.anim");
+            row->addWidget(m_inputEdit, 1);
+            auto* browse = new QPushButton("Browse…");
+            browse->setFixedWidth(80);
+            connect(browse, &QPushButton::clicked, this, &CompilerWindow::browseInput);
+            row->addWidget(browse);
+            vl->addLayout(row);
+        }
 
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr; // don't write imgui.ini next to the tool
-
-    ImGui::StyleColorsDark();
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
-
-    // State
-    char inputBuf[512]  = "";
-    char outputBuf[512] = "";
-    std::string logText;
-    bool        logSuccess = false;
-
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
-
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
-        ImGui::SetNextWindowPos({0, 0});
-        ImGui::SetNextWindowSize({600, 340});
-        ImGui::Begin("##main", nullptr,
-            ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoResize   |
-            ImGuiWindowFlags_NoMove);
-
-        ImGui::Text("KonEngine Anim Compiler");
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Input file
-        ImGui::Text("Input (.anim)");
-        ImGui::SetNextItemWidth(520);
-        ImGui::InputText("##input", inputBuf, sizeof(inputBuf));
-        ImGui::Spacing();
-
-        // Output file
-        ImGui::Text("Output (.konani)  —  leave blank to auto-name");
-        ImGui::SetNextItemWidth(520);
-        ImGui::InputText("##output", outputBuf, sizeof(outputBuf));
-        ImGui::Spacing();
+        // Output row
+        {
+            auto* row = new QHBoxLayout;
+            row->addWidget(new QLabel("Output (.konani):"));
+            m_outputEdit = new QLineEdit;
+            m_outputEdit->setPlaceholderText("leave blank to auto-name");
+            row->addWidget(m_outputEdit, 1);
+            auto* browse = new QPushButton("Browse…");
+            browse->setFixedWidth(80);
+            connect(browse, &QPushButton::clicked, this, &CompilerWindow::browseOutput);
+            row->addWidget(browse);
+            vl->addLayout(row);
+        }
 
         // Compile button
-        bool canCompile = inputBuf[0] != '\0';
-        if (!canCompile) ImGui::BeginDisabled();
-        if (ImGui::Button("Compile", {120, 32})) {
-            std::string inp = inputBuf;
-            std::string out = (outputBuf[0] != '\0') ? outputBuf : toOutputPath(inp);
-
-            // Auto-fill output field so user can see what was written
-            if (outputBuf[0] == '\0') {
-                snprintf(outputBuf, sizeof(outputBuf), "%s", out.c_str());
-            }
-
-            CompileResult r = compile(inp, out);
-            logText    = r.log;
-            logSuccess = r.success;
+        {
+            auto* row = new QHBoxLayout;
+            m_compileBtn = new QPushButton("Compile");
+            m_compileBtn->setFixedHeight(32);
+            m_compileBtn->setEnabled(false);
+            connect(m_compileBtn, &QPushButton::clicked, this, &CompilerWindow::doCompile);
+            row->addWidget(m_compileBtn);
+            row->addStretch();
+            auto* hint = new QLabel("Tip: drag and drop a .anim file onto this window");
+            hint->setStyleSheet("color: gray; font-size: 9pt;");
+            row->addWidget(hint);
+            vl->addLayout(row);
         }
-        if (!canCompile) ImGui::EndDisabled();
-
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
 
         // Log output
-        if (!logText.empty()) {
-            ImVec4 col = logSuccess
-                ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f)   // green
-                : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);   // red
-            ImGui::TextColored(col, "%s", logText.c_str());
-        }
+        m_log = new QTextEdit;
+        m_log->setReadOnly(true);
+        m_log->setFont(QFont("monospace", 9));
+        m_log->setMinimumHeight(80);
+        vl->addWidget(m_log, 1);
 
-        // Hint at bottom
-        ImGui::SetCursorPosY(300);
-        ImGui::TextDisabled("Tip: you can also drag-and-drop a .anim file onto the executable.");
-
-        ImGui::End();
-
-        ImGui::Render();
-        glClearColor(0.12f, 0.12f, 0.12f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        glfwSwapBuffers(window);
+        connect(m_inputEdit, &QLineEdit::textChanged, this, [this](const QString& t) {
+            m_compileBtn->setEnabled(!t.trimmed().isEmpty());
+        });
     }
 
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    return 0;
+    void setInputPath(const QString& path) {
+        m_inputEdit->setText(path);
+    }
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* e) override {
+        if (e->mimeData()->hasUrls()) e->acceptProposedAction();
+    }
+    void dropEvent(QDropEvent* e) override {
+        const auto urls = e->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            QString path = urls.first().toLocalFile();
+            if (path.endsWith(".anim", Qt::CaseInsensitive))
+                m_inputEdit->setText(path);
+        }
+    }
+
+private slots:
+    void browseInput() {
+        QString path = QFileDialog::getOpenFileName(this,
+            "Open .anim file", QString(), "Animation files (*.anim);;All files (*)");
+        if (!path.isEmpty()) m_inputEdit->setText(path);
+    }
+
+    void browseOutput() {
+        QString path = QFileDialog::getSaveFileName(this,
+            "Save .konani file", QString(), "Compiled animation (*.konani);;All files (*)");
+        if (!path.isEmpty()) m_outputEdit->setText(path);
+    }
+
+    void doCompile() {
+        QString inp = m_inputEdit->text().trimmed();
+        QString out = m_outputEdit->text().trimmed();
+        if (out.isEmpty()) {
+            out = QString::fromStdString(toOutputPath(inp.toStdString()));
+            m_outputEdit->setText(out);
+        }
+
+        CompileResult r = compile(inp.toStdString(), out.toStdString());
+
+        m_log->clear();
+        if (r.success) {
+            m_log->setTextColor(QColor(80, 220, 80));
+        } else {
+            m_log->setTextColor(QColor(220, 80, 80));
+        }
+        m_log->setText(QString::fromStdString(r.log));
+    }
+
+private:
+    QLineEdit*  m_inputEdit  = nullptr;
+    QLineEdit*  m_outputEdit = nullptr;
+    QPushButton* m_compileBtn = nullptr;
+    QTextEdit*  m_log        = nullptr;
+};
+
+static int runGUI(int argc, char** argv) {
+    QApplication app(argc, argv);
+    app.setApplicationName("KonAnimator — Anim Compiler");
+    app.setOrganizationName("KonEngine");
+
+    // Match KonAnimator's dark Fusion theme
+    app.setStyle(QStyleFactory::create("Fusion"));
+    QPalette pal;
+    pal.setColor(QPalette::Window,          QColor(45,45,45));
+    pal.setColor(QPalette::WindowText,      QColor(220,220,220));
+    pal.setColor(QPalette::Base,            QColor(30,30,30));
+    pal.setColor(QPalette::AlternateBase,   QColor(40,40,40));
+    pal.setColor(QPalette::ToolTipBase,     QColor(55,55,55));
+    pal.setColor(QPalette::ToolTipText,     QColor(220,220,220));
+    pal.setColor(QPalette::Text,            QColor(220,220,220));
+    pal.setColor(QPalette::Button,          QColor(55,55,55));
+    pal.setColor(QPalette::ButtonText,      QColor(220,220,220));
+    pal.setColor(QPalette::BrightText,      Qt::red);
+    pal.setColor(QPalette::Highlight,       QColor(0,150,220));
+    pal.setColor(QPalette::HighlightedText, Qt::white);
+    app.setPalette(pal);
+
+    CompilerWindow win;
+    win.show();
+
+    return app.exec();
 }
 
 // -----------------------------------------------------------------------
@@ -376,5 +402,7 @@ int main(int argc, char** argv) {
     if (argc >= 2)
         return runCLI(argc, argv);
     else
-        return runGUI();
+        return runGUI(argc, argv);
 }
+
+#include "anim_compiler.moc"

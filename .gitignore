@@ -1,23 +1,140 @@
-# Build
+# -----------------------------------------------------------------------
+# Build output directories
+# -----------------------------------------------------------------------
 build/
-build-windows/
-build-clion/
+build-*/
+dist/
+dist-*/
+out/
+.cache/
 
-# external libs
-#libs/
+# -----------------------------------------------------------------------
+# CMake
+# -----------------------------------------------------------------------
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
 
-# Compiled objects
-*.o
-*.a
+# -----------------------------------------------------------------------
+# Make / Ninja
+# -----------------------------------------------------------------------
+Makefile
+*.make
+*.ninja
+.ninja_deps
+.ninja_log
+
+# -----------------------------------------------------------------------
+# Compiled binaries
+# -----------------------------------------------------------------------
+*.exe
+*.out
+*.app
 *.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
 
-# Editor
-.cache/          
-compile_commands.json  
-.vscode/
+# Specific engine/tool binaries
+/KonEngine
+/tools/KonAnimator/build/KonAnimator
+/build/anim_compiler
+
+# -----------------------------------------------------------------------
+# Qt build artifacts
+# -----------------------------------------------------------------------
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*_autogen/
+.qt/
+
+# -----------------------------------------------------------------------
+# Object files
+# -----------------------------------------------------------------------
+*.o
+*.obj
+
+# -----------------------------------------------------------------------
+# IDE and editor files
+# -----------------------------------------------------------------------
+
+# CLion / JetBrains
 .idea/
+cmake-build-*/
+*.iml
 
-# OS
-.DS_Store        
+# VS Code
+.vscode/
+*.code-workspace
 
-*.bak
+# Visual Studio
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
+*.user
+*.aps
+*.ncb
+*.sdf
+ipch/
+
+# Kate / KDevelop
+*.kate-swp
+*.kdev4
+.kdev4/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+\#*\#
+.\#*
+
+# -----------------------------------------------------------------------
+# OS generated
+# -----------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# -----------------------------------------------------------------------
+# Compiled animation files (always generated, never source)
+# -----------------------------------------------------------------------
+*.konani
+
+# -----------------------------------------------------------------------
+# Logs and temp files
+# -----------------------------------------------------------------------
+*.log
+*.tmp
+*.temp
