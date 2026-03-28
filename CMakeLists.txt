@@ -100,17 +100,16 @@ if(KON_BUILD_TOOLS)
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/KonAnimator
             ${CMAKE_CURRENT_BINARY_DIR}/tools/KonAnimator)
 
-        # Windows: copy Qt DLLs next to each tool
+        # Windows: copy Qt DLLs next to anim_compiler
+        # (KonAnimator handles its own DLL copy in tools/KonAnimator/CMakeLists.txt)
         if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
-            foreach(_tool anim_compiler KonAnimator)
-                add_custom_command(TARGET ${_tool} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        $<TARGET_FILE:Qt5::Core>
-                        $<TARGET_FILE:Qt5::Gui>
-                        $<TARGET_FILE:Qt5::Widgets>
-                        $<TARGET_FILE_DIR:${_tool}>
-                    COMMENT "Copying Qt DLLs for ${_tool}...")
-            endforeach()
+            add_custom_command(TARGET anim_compiler POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:Qt5::Core>
+                    $<TARGET_FILE:Qt5::Gui>
+                    $<TARGET_FILE:Qt5::Widgets>
+                    $<TARGET_FILE_DIR:anim_compiler>
+                COMMENT "Copying Qt DLLs for anim_compiler...")
         endif()
 
         message(STATUS "KonAnimator and anim_compiler targets enabled")

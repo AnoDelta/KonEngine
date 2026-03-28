@@ -64,8 +64,8 @@ else()
     target_link_libraries(KonAnimator PRIVATE OpenGL::GL)
 endif()
 
-# When built standalone on Windows, copy Qt DLLs
-if(WIN32 AND NOT CMAKE_CROSSCOMPILING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+# Windows: copy Qt DLLs next to KonAnimator (both standalone and subdirectory builds)
+if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
     add_custom_command(TARGET KonAnimator POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:Qt5::Core>
