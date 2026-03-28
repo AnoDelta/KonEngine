@@ -9,6 +9,13 @@
 #include "../input/input.hpp"
 #include "../camera/camera.hpp"
 
+// -----------------------------------------------------------------------
+// Debug mode state — declared before Present() uses it
+// -----------------------------------------------------------------------
+static bool s_debugMode = false;
+void DebugMode(bool enabled) { s_debugMode = enabled; }
+bool IsDebugMode()           { return s_debugMode; }
+
 struct Window::Impl {
         struct WindowCallbackData {
                 OpenGLRenderer* renderer;
@@ -143,7 +150,44 @@ bool WindowShouldClose() {
 }
 
 void Present() {
-        if (window) window->swapBuffers();
+        if (!window) return;
+
+        if (s_debugMode) {
+            // FPS counter
+            static float s_dbgTimer  = 0.0f;
+            static int   s_dbgFPS    = 0;
+            static int   s_dbgFrames = 0;
+            s_dbgFrames++;
+            s_dbgTimer += GetDeltaTime();
+            if (s_dbgTimer >= 1.0f) {
+                s_dbgFPS    = s_dbgFrames;
+                s_dbgFrames = 0;
+                s_dbgTimer  = 0.0f;
+                std::cout << "[KonEngine DEBUG]"
+                          << "  FPS: "    << s_dbgFPS
+                          << "  Mouse: (" << (int)GetMouseX()
+                          << ", "         << (int)GetMouseY() << ")"
+                          << "  dt: "     << GetDeltaTime()
+                          << "\n";
+            }
+
+            // Red border
+            int W = window->getWidth();
+            int H = window->getHeight();
+            float t = 2.0f;
+            window->drawRectangle(0,       0,       (float)W, t,        1,0,0,1);
+            window->drawRectangle(0,       (float)H-t, (float)W, t,     1,0,0,1);
+            window->drawRectangle(0,       0,       t, (float)H,        1,0,0,1);
+            window->drawRectangle((float)W-t, 0,   t, (float)H,        1,0,0,1);
+
+            // Mouse crosshair
+            float mx = GetMouseX(), my = GetMouseY();
+            float cs = 8.0f;
+            window->drawLine(mx-cs, my,    mx+cs, my,    1,0,0,1);
+            window->drawLine(mx,    my-cs, mx,    my+cs, 1,0,0,1);
+        }
+
+        window->swapBuffers();
 }
 
 void PollEvents() {

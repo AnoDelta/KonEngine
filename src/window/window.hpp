@@ -79,3 +79,9 @@ void DrawGlyph(unsigned int atlasID, float x, float y, float w, float h,
 
 void BeginCamera2D(const Camera2D& cam);
 void EndCamera2D();
+
+// -----------------------------------------------------------------------
+// Debug mode — draws FPS, mouse crosshair, red border overlay
+// -----------------------------------------------------------------------
+void DebugMode(bool enabled);
+bool IsDebugMode();
