@@ -1,85 +1,78 @@
 # KonEngine
-A lightweight 2D game engine written in C++, built for old and low-end machines.
-Made primarily for personal use and for friends — I wanted something simple and fast
-that fits my workflow when making games, without the overhead of larger engines.
-Heavily inspired by Raylib's simplicity and API style, with plans for a full Godot-style editor.
 
-## Roadmap
-See [ROADMAP.md](ROADMAP.md) — project is still in early stages.
+A lightweight 2D game engine written in C++, built for old and low-end machines.
+Made primarily for personal use and for friends — simple, fast, and fits the workflow
+of making games without the overhead of larger engines.
+
+Heavily inspired by Raylib's simplicity and API style, with a Godot-style node system
+and plans for a full editor.
+
+---
 
 ## Features
-- Simple Raylib-style API
-- OpenGL 2D rendering (rectangles, circles, lines, textures)
-- Texture loading + sprite sheet support
-- Text rendering with custom fonts or built-in default font
-- Camera system (pan, zoom, rotation)
-- Collision detection (AABB, circle, circle vs rectangle, SAT)
+
+- Simple Raylib-style API — `InitWindow`, `DrawRectangle`, `PlaySound`, done
+- OpenGL 2D rendering — rectangles, circles, lines, textures
+- Sprite sheet support
+- Text rendering — custom TTF fonts or built-in Inconsolata
+- Camera system — pan, zoom, rotation
+- Collision detection — AABB, circle, circle vs rectangle, SAT (convex polygons)
 - CollisionWorld with enter/exit signals and layer/mask filtering
-- Input system (keyboard, mouse, gamepad)
-- Color system with presets (RED, GREEN, BLUE, WHITE...)
-- Audio (sound effects + music streaming via miniaudio)
-- Delta time + FPS capping
-- VSync toggle
-- Cross-platform (Linux + Windows)
-- Node/scene system (Godot-style hierarchy, signals, parent pointers)
-- Sprite2D with pivot/origin support
-- Animation system (sprite sheet + keyframe, 16 easing curves)
-- `DebugMode(true)` -- FPS overlay, mouse crosshair, auto collider visualization
-- **KonAnimator** -- standalone Qt animation editor
-- **anim_compiler** -- CLI + Qt GUI tool, compiles `.anim` to `.konani`
+- Input — keyboard, mouse, gamepad
+- Color system with presets (`RED`, `WHITE`, `TRANSPARENT`...)
+- Audio — sound effects + music streaming (miniaudio)
+- Delta time + FPS cap + VSync toggle
+- Cross-platform — Linux and Windows
+- Node/scene system — Godot-style hierarchy, signals, parent pointers
+- Node2D with pivot/origin support
+- Sprite2D with texture and tint
+- Animation — sprite sheet frame-by-frame + keyframe tracks, 16 easing curves
+- `DebugMode(true)` — FPS overlay, mouse crosshair, auto collider outlines
+- **KonAnimator** — standalone Qt animation editor
+- **anim_compiler** — CLI + Qt GUI tool, compiles `.anim` → `.konani`
+- **KonPaktor / konpak** — AES-256 asset encryption and `.konpak` archive tool
+- **KonScript** — statically-typed scripting language that compiles to C++
 - Test suite (`./build-test.sh`)
+
+---
 
 ## Getting Started
 
-### 1. Clone the repository
+### 1. Clone
+
 ```bash
 git clone --recurse-submodules https://github.com/AnoDelta/KonEngine.git
+cd KonEngine
 ```
 
 ### 2. Install system dependencies
 
-**Linux (Ubuntu/Debian):**
+**Linux — Ubuntu/Debian:**
 ```bash
 sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
   libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
 ```
 
-**Linux (Fedora):**
+**Linux — Fedora:**
 ```bash
 sudo dnf install -y mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
   wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
 ```
 
-**Linux (Arch/Gentoo):**
+**Linux — Arch:**
 ```bash
-# Arch
-sudo pacman -S mesa libx11 libxrandr libxi wayland wayland-protocols libxkbcommon libxinerama libxcursor
-# Gentoo
+sudo pacman -S mesa libx11 libxrandr libxi wayland wayland-protocols \
+  libxkbcommon libxinerama libxcursor
+```
+
+**Linux — Gentoo:**
+```bash
 emerge --ask x11-libs/libX11 x11-libs/libXrandr x11-libs/libXi media-libs/mesa
 ```
 
 **Windows:** No extra dependencies needed.
 
-### 3. Install Qt5 (only needed for KonAnimator and anim_compiler)
-
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt-get install -y qtbase5-dev libqt5opengl5-dev
-```
-
-**Linux (Fedora):**
-```bash
-sudo dnf install -y qt5-qtbase-devel
-```
-
-**Linux (Arch):**
-```bash
-sudo pacman -S qt5-base
-```
-
-**Windows:** Download from https://www.qt.io/download-open-source
-
-### 4. Build the engine
+### 3. Build
 
 **Linux:**
 ```bash
@@ -91,260 +84,170 @@ sudo pacman -S qt5-base
 build.bat
 ```
 
-### 5. Build KonAnimator and anim_compiler (optional)
+This builds the engine static library and the test executable.
 
+### 4. Link against the engine
+
+In your game's `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(MyGame)
+
+find_package(KonEngine REQUIRED)
+
+add_executable(MyGame src/main.cpp)
+target_link_libraries(MyGame PRIVATE KonEngine)
+```
+
+### 5. Write your first game
+
+```cpp
+#include "KonEngine.hpp"
+
+int main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    float x = 400, y = 300;
+
+    while (!WindowShouldClose()) {
+        float dt = GetDeltaTime();
+
+        if (IsKeyDown(Key::D)) x += 200.0f * dt;
+        if (IsKeyDown(Key::A)) x -= 200.0f * dt;
+        if (IsKeyDown(Key::W)) y -= 200.0f * dt;
+        if (IsKeyDown(Key::S)) y += 200.0f * dt;
+
+        ClearBackground(0.1f, 0.1f, 0.1f);
+        DrawRectangle(x - 16, y - 24, 32, 48, BLUE);
+        DrawText("WASD to move", 10, 10, WHITE);
+
+        Present();
+        PollEvents();
+    }
+}
+```
+
+---
+
+## Tools
+
+### KonAnimator & anim_compiler
+
+Visual animation editor and CLI compiler for `.anim` → `.konani` files.
+
+Requires Qt5. Install it first:
+
+**Ubuntu/Debian:** `sudo apt-get install -y qtbase5-dev libqt5opengl5-dev`
+**Fedora:** `sudo dnf install -y qt5-qtbase-devel`
+**Arch:** `sudo pacman -S qt5-base`
+**Windows:** https://www.qt.io/download-open-source
+
+Then build:
 ```bash
 ./build-tools.sh
 ```
 
-Or build individually:
+Or individually:
 ```bash
 cmake --build build --target KonAnimator
 cmake --build build --target anim_compiler
 ```
 
-### 6. Run the test suite (optional)
+See [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) for full usage.
+
+### KonPaktor / konpak
+
+Asset encryption and bundling. Packs your game's assets into AES-256 encrypted
+`.konpak` archives for distribution.
+
+```bash
+# Pack all assets with a password
+konpak create game.konpak assets/ --pass mykey
+
+# Bake the key into your release binary (CMakeLists.txt)
+target_compile_definitions(MyGame PRIVATE KON_PACK_KEY="mykey")
+```
+
+See [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) for full usage.
+
+### KonScript
+
+A statically-typed scripting language that compiles `.ks` files to C++.
+Write game logic without touching C++ directly.
+
+```ks
+#include <engine>
+
+node Player : Node2D {
+    let speed: F64 = 200.0;
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x += speed * dt; }
+        if KeyDown(Key.A) { x -= speed * dt; }
+    }
+
+    func Draw() {
+        DrawRectangle(x, y, 32.0, 48.0, 0.2, 0.6, 1.0, 1.0);
+    }
+}
+```
+
+```bash
+# Install
+cd tools/KonScript && ./build.sh && ./install.sh
+
+# Compile and run a .ks file
+ksc player.ks
+```
+
+See [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) for full usage.
+
+---
+
+## Running Tests
+
 ```bash
 ./build-test.sh
 ```
 
-### 7. Install (optional)
-Installing makes KonEngine available system-wide.
-
-**Linux:**
-```bash
-./install.sh
-```
-
-**Windows:**
-```bat
-install.bat
-```
-
-## Using KonEngine in your project
-
-### With CMake (recommended)
-After installing, add this to your `CMakeLists.txt`:
-```cmake
-find_package(KonEngine REQUIRED)
-target_link_libraries(YourGame PRIVATE KonEngine)
-```
-
-### Without installing (manual)
-Copy or submodule the repo into your project:
-```cmake
-add_subdirectory(KonEngine)
-target_link_libraries(YourGame PRIVATE KonEngine)
-```
-
-## Usage
-
-### Basic template
-```cpp
-#include "KonEngine.hpp"
-
-int main() {
-    InitWindow(800, 600, "My Game");
-    SetTargetFPS(60);
-
-    while (!WindowShouldClose()) {
-        ClearBackground(0.1f, 0.1f, 0.1f);
-
-        // Your game code here
-
-        Present();
-        PollEvents();
-    }
-
-    return 0;
-}
-```
-
-### Node/scene system
-```cpp
-#include "KonEngine.hpp"
-
-int main() {
-    InitWindow(800, 600, "My Game");
-    SetTargetFPS(60);
-
-    Scene scene;
-
-    auto* player = scene.Add<Sprite2D>("player");
-    player->x = 400;
-    player->y = 300;
-
-    Texture sheet = LoadTexture("player.png");
-    player->SetTexture(sheet);
-
-    while (!WindowShouldClose()) {
-        ClearBackground(0.1f, 0.1f, 0.1f);
-        scene.Update(GetDeltaTime());
-        scene.Draw();
-        Present();
-        PollEvents();
-    }
-
-    return 0;
-}
-```
-
-### Animation
-```cpp
-#include "KonEngine.hpp"
-
-int main() {
-    InitWindow(800, 600, "My Game");
-    SetTargetFPS(60);
-
-    Scene scene;
-
-    auto* player = scene.Add<Sprite2D>("player");
-    player->x = 400;
-    player->y = 300;
-
-    Texture sheet = LoadTexture("player.png");
-    player->SetTexture(sheet);
-
-    // AnimationPlayer auto-detects the parent Sprite2D -- no manual setup needed
-    auto* anim = player->AddChild<AnimationPlayer>("anim");
-    anim->LoadFromFile("player.konani");
-    anim->Play("idle");
-
-    while (!WindowShouldClose()) {
-        ClearBackground(0.1f, 0.1f, 0.1f);
-        scene.Update(GetDeltaTime());
-        scene.Draw();
-        Present();
-        PollEvents();
-    }
-
-    return 0;
-}
-```
-
-### Collision with signals
-```cpp
-#include "KonEngine.hpp"
-
-int main() {
-    InitWindow(800, 600, "My Game");
-    SetTargetFPS(60);
-
-    Scene scene;
-
-    auto* player = scene.Add<Collider2D>("player");
-    player->x = 100; player->y = 300;
-    player->width = 32; player->height = 64;
-
-    auto* wall = scene.Add<Collider2D>("wall");
-    wall->x = 400; wall->y = 300;
-    wall->width = 32; wall->height = 200;
-
-    player->Connect("on_collision_enter", [](Collider2D* other) {
-        std::cout << "Hit: " << other->name << "\n";
-    });
-    player->Connect("on_collision_exit", [](Collider2D* other) {
-        std::cout << "Left: " << other->name << "\n";
-    });
-
-    Camera2D cam(400, 300, 1.0f, 0.0f);
-
-    while (!WindowShouldClose()) {
-        ClearBackground(0.1f, 0.1f, 0.1f);
-
-        if (IsKeyDown(Key::Right)) player->x += 200.0f * GetDeltaTime();
-        if (IsKeyDown(Key::Left))  player->x -= 200.0f * GetDeltaTime();
-
-        BeginCamera2D(cam);
-        scene.Update(GetDeltaTime());
-        scene.Draw();
-        EndCamera2D();
-
-        Present();
-        PollEvents();
-    }
-
-    return 0;
-}
-```
-
-### Debug mode
-```cpp
-DebugMode(true); // call before or after InitWindow
-```
-
-Enables a red border around the window, mouse crosshair, FPS printed to stdout
-every second, and automatic collider outline drawing for every `Collider2D` in
-the active scene.
-
-## KonAnimator
-
-KonAnimator is the visual animation editor for KonEngine. Open a spritesheet,
-draw frame rectangles, set durations, add keyframe tracks, preview live, and
-export directly to `.konani`.
-
-```bash
-./build/tools/KonAnimator/KonAnimator
-```
-
-**Controls in the preview panel:**
-- Drag -- pan
-- Scroll -- zoom
-- Double-click -- reset view
-- F -- fullscreen
-
-## Anim Compiler
-
-The `anim_compiler` tool compiles `.anim` text files into `.konani` binaries.
-
-**GUI mode:**
-```bash
-./build/anim_compiler
-```
-
-**CLI mode:**
-```bash
-./build/anim_compiler player.anim             # outputs player.konani
-./build/anim_compiler player.anim out.konani
-```
+Runs headless unit tests and opens a visual test window with a checklist printed to stdout.
 
 ---
 
-### Writing .anim files
+## Documentation
 
-```
-anim idle loop
-  display 32 32 1.0        # display width, height, scale
-  frame 0 0 32 32 0.15     # srcX srcY srcW srcH duration
-  frame 32 0 32 32 0.15
-  frame 64 0 32 32 0.15
-end
-
-anim pop_in
-  track scaleX 0.0 0.0 easeinoutback
-  track scaleX 0.4 1.0 easeinoutback
-  track scaleY 0.0 0.0 easeinoutback
-  track scaleY 0.4 1.0 easeinoutback
-  track alpha  0.0 0.0 easeout
-  track alpha  0.3 1.0 easeout
-end
-```
-
-**Animatable properties:** `x`, `y`, `scaleX`, `scaleY`, `rotation`, `alpha`
-
-**Easing curves:**
-
-| Curve | Feel |
+| Document | Contents |
 |---|---|
-| `linear` | Constant speed |
-| `easein` / `easeout` / `easeinout` | Smooth acceleration |
-| `easeincubic` / `easeoutcubic` / `easeinoutcubic` | Stronger |
-| `easeinelastic` / `easeoutelastic` / `easeinoutelastic` | Springy |
-| `easeinbounce` / `easeoutbounce` / `easeinoutbounce` | Bouncy |
-| `easeinback` / `easeoutback` / `easeinoutback` | Slight overshoot |
+| [DOCS.md](DOCS.md) | Full engine API reference |
+| [ROADMAP.md](ROADMAP.md) | What's done, what's next |
+| [DEPENDENCIES.md](DEPENDENCIES.md) | All libraries and system deps |
+| [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) | KonAnimator usage |
+| [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) | KonPaktor / konpak usage |
+| [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) | KonScript language reference |
 
-Lines starting with `#` are comments.
+---
+
+## Dependencies
+
+All bundled as submodules — no manual installs needed beyond system GL/X11 libs.
+
+| Library | Purpose |
+|---|---|
+| GLFW | Window creation and input |
+| GLM | Math library |
+| GLAD | OpenGL function loader |
+| stb_image | Texture loading |
+| stb_truetype | Font rendering |
+| miniaudio | Audio playback and streaming |
+| ImGui | GUI for anim_compiler |
+| Qt5 | KonAnimator and anim_compiler GUI (optional) |
+| zlib | Compression for .konpak |
+| OpenSSL / BCrypt | AES-256 encryption for .konpak |
+
+---
 
 ## License
-MIT -- free to use in commercial and open source projects.
+
+MIT — free to use in personal, commercial, and open source projects.

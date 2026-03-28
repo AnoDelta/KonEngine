@@ -32,7 +32,7 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - Keyframe animation for nodes (position, rotation, scale, alpha)
 - AnimationPlayer node (auto-detects parent Sprite2D)
 - 16 easing curves
-- `.anim` text format + `anim_compiler` tool -> `.konani` binary
+- `.anim` text format + `anim_compiler` tool → `.konani` binary
 - `anim_compiler` Qt GUI tool (cross-platform)
 
 ### v0.8.0 -- KonAnimator & Polish
@@ -50,10 +50,40 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 
 ## Upcoming
 
-### v0.9.0 -- Asset Pipeline
-- AES-256 asset encryption
-- `.pak` file bundler (pack + encrypt all assets into one file)
-- Asset manager (load from `.pak` or loose files)
+### v0.9.0 -- Asset Pipeline & KonScript
+
+This version has two priorities: locking in the asset security pipeline and
+maturing the KonScript language to a point where real game logic can be written
+entirely in it.
+
+#### Asset Pipeline (KonPaktor)
+- AES-256 asset encryption (implemented via `konpak.hpp` / KonPaktor)
+- `.konpak` file bundler — compress + encrypt all assets into one archive
+- Asset manager — transparent load from `.konpak` or loose files
+- Compile-time key baking (`KON_PACK_KEY` CMake define)
+- CMake Release/Debug workflow: loose files in dev, packed on release
+
+#### KonScript Language
+- Stabilize the full lexer → parser → typechecker → codegen pipeline
+- Complete node lifecycle bindings (`Ready`, `Update`, `Draw`, `OnCollisionEnter`, `OnCollisionExit`)
+- Full type system: `I8`–`I64`, `U8`–`U64`, `F32`, `F64`, `Bool`, `str`, `String`, `Vec2`
+- Nullable types (`T?`), null coalescing (`??`), safe access (`?.`), force unwrap (`!`)
+- Arrays (`[T]`, `[T; N]`) and tuples (`(T, T)`)
+- Enums with optional payloads
+- Structs as value types
+- `pub` visibility modifier for exported symbols
+- `spawn` keyword for node instantiation
+- `konscript_sources()` CMake helper — compile `.ks` files at build time
+- `ksc` frontend runner — compile + build + run in one command
+- Debug modes: `--lex`, `--parse`, `--check` flags
+- KonScript DOCS written and shipped with the engine
+
+#### Stretch Goals for v0.9.0
+- `wait` keyword for simple coroutine-style delays inside nodes
+- String interpolation
+- Better error messages with source locations and suggestions
+
+---
 
 ### v0.10.0 -- Editor MVP
 - Viewport panel
@@ -62,13 +92,13 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - Asset browser
 
 ### v0.11.0 -- Editor Scripting
-- Built-in code editor
+- Built-in code editor with KonScript support
 - Project management (new/open project)
 - In-editor compile + run games
 
 ### v1.0.0 -- Stable Release
 - Polish
-- Full documentation
+- Full documentation for engine, KonScript, KonAnimator, and KonPaktor
 - Ready for serious use
 
 ---
