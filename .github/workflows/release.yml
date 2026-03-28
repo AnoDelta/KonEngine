@@ -77,7 +77,7 @@ jobs:
           cmake --build build --target anim_compiler
 
       - name: Find tool binaries
-        run: find build -type f -name "KonAnimator" -o -name "anim_compiler" | sort
+        run: find build -type f \( -name "KonAnimator" -o -name "anim_compiler" \) | sort
 
       - name: Package tools
         run: |
@@ -116,7 +116,7 @@ jobs:
           cmake --build build --target konpak
 
       - name: Find KonPaktor binaries
-        run: find tools/KonPaktor/build -type f -name "KonPaktor" -o -name "konpak" | sort
+        run: find tools/KonPaktor/build -type f \( -name "KonPaktor" -o -name "konpak" \) | sort
 
       - name: Package KonPaktor
         run: |
@@ -153,7 +153,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path staging/include/KonEngine | Out-Null
           Copy-Item src/KonEngine.hpp staging/include/
-
           $dirs = @("window","renderer","time","camera","collision","input","font","audio","animation","node")
           foreach ($dir in $dirs) {
             if (Test-Path "src/$dir") {
@@ -196,17 +195,20 @@ jobs:
 
       - name: Find tool binaries
         shell: pwsh
-        run: Get-ChildItem -Recurse build -Include "KonAnimator.exe","anim_compiler.exe" | Select-Object FullName
+        run: |
+          Get-ChildItem -Recurse build -Include "KonAnimator.exe","anim_compiler.exe" | Select-Object FullName
 
       - name: Deploy Qt DLLs
         shell: pwsh
         run: |
-          mkdir tools-staging
+          New-Item -ItemType Directory -Force -Path tools-staging | Out-Null
           $ka = Get-ChildItem -Recurse build -Filter "KonAnimator.exe" | Select-Object -First 1
           $ac = Get-ChildItem -Recurse build -Filter "anim_compiler.exe" | Select-Object -First 1
-          Copy-Item $ka.FullName tools-staging          Copy-Item $ac.FullName tools-staging          $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
+          Copy-Item $ka.FullName tools-staging\
+          Copy-Item $ac.FullName tools-staging\
+          $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
           & "$qtBin\windeployqt.exe" --release tools-staging\KonAnimator.exe
-          & "$qtBin\windeployqt.exe" --release tools-stagingnim_compiler.exe
+          & "$qtBin\windeployqt.exe" --release tools-staging\anim_compiler.exe
 
       - name: Package tools
         run: Compress-Archive -Path tools-staging\* -DestinationPath KonAnimator-windows-${{ github.ref_name }}.zip
@@ -234,13 +236,15 @@ jobs:
           cache: true
 
       - name: Install OpenSSL + zlib via vcpkg
+        shell: pwsh
         run: |
           vcpkg install openssl:x64-windows zlib:x64-windows
-          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build KonPaktor
+        shell: pwsh
         run: |
-          cd tools/KonPaktor
+          Set-Location tools/KonPaktor
           cmake -B build -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
           cmake --build build --config Release --target KonPaktor
@@ -248,15 +252,18 @@ jobs:
 
       - name: Find KonPaktor binaries
         shell: pwsh
-        run: Get-ChildItem -Recurse tools\KonPaktoruild -Include "KonPaktor.exe","konpak.exe" | Select-Object FullName
+        run: |
+          Get-ChildItem -Recurse tools/KonPaktor/build -Include "KonPaktor.exe","konpak.exe" | Select-Object FullName
 
       - name: Deploy Qt DLLs
         shell: pwsh
         run: |
-          mkdir konpaktor-staging
-          $kp = Get-ChildItem -Recurse tools\KonPaktoruild -Filter "KonPaktor.exe" | Select-Object -First 1
-          $kc = Get-ChildItem -Recurse tools\KonPaktoruild -Filter "konpak.exe" | Select-Object -First 1
-          Copy-Item $kp.FullName konpaktor-staging          Copy-Item $kc.FullName konpaktor-staging          $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
+          New-Item -ItemType Directory -Force -Path konpaktor-staging | Out-Null
+          $kp = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "KonPaktor.exe" | Select-Object -First 1
+          $kc = Get-ChildItem -Recurse tools/KonPaktor/build -Filter "konpak.exe" | Select-Object -First 1
+          Copy-Item $kp.FullName konpaktor-staging\
+          Copy-Item $kc.FullName konpaktor-staging\
+          $qtBin = (Get-ChildItem "$env:RUNNER_WORKSPACE\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
           & "$qtBin\windeployqt.exe" --release konpaktor-staging\KonPaktor.exe
 
       - name: Package KonPaktor
