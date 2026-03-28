@@ -60,50 +60,52 @@ set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # -----------------------------------------------------------------------
 # Qt tools — anim_compiler and KonAnimator
-# Both are optional; skipped gracefully if Qt5 is not installed.
+# These are NOT built by default. Use the dedicated scripts:
+#   Linux:   ./build-tools.sh
+#   Windows: build-tools.bat
+# Or build manually:
+#   cmake --build build --target anim_compiler
+#   cmake --build build --target KonAnimator
 # -----------------------------------------------------------------------
-find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
+option(KON_BUILD_TOOLS "Build KonAnimator and anim_compiler Qt tools" OFF)
 
-if(Qt5_FOUND)
-    set(CMAKE_AUTOMOC ON)
+if(KON_BUILD_TOOLS)
+    find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
 
-    # anim_compiler — CLI + Qt GUI compiler tool
-    if(WIN32)
-        add_executable(anim_compiler WIN32
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
+    if(Qt5_FOUND)
+        set(CMAKE_AUTOMOC ON)
+
+        # anim_compiler
+        if(WIN32)
+            add_executable(anim_compiler WIN32
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
+        else()
+            add_executable(anim_compiler
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
+        endif()
+        target_include_directories(anim_compiler PRIVATE src)
+        target_link_libraries(anim_compiler PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets)
+
+        # KonAnimator
+        add_subdirectory(
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/KonAnimator
+            ${CMAKE_CURRENT_BINARY_DIR}/tools/KonAnimator)
+
+        # Windows: copy Qt DLLs next to each tool
+        if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
+            foreach(_tool anim_compiler KonAnimator)
+                add_custom_command(TARGET ${_tool} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        $<TARGET_FILE:Qt5::Core>
+                        $<TARGET_FILE:Qt5::Gui>
+                        $<TARGET_FILE:Qt5::Widgets>
+                        $<TARGET_FILE_DIR:${_tool}>
+                    COMMENT "Copying Qt DLLs for ${_tool}...")
+            endforeach()
+        endif()
+
+        message(STATUS "KonAnimator and anim_compiler targets enabled")
     else()
-        add_executable(anim_compiler
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp)
+        message(WARNING "KON_BUILD_TOOLS=ON but Qt5 not found — tools skipped")
     endif()
-    target_include_directories(anim_compiler PRIVATE src)
-    target_link_libraries(anim_compiler PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets)
-    set_target_properties(anim_compiler PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-    # KonAnimator — full animation editor
-    add_subdirectory(tools/KonAnimator)
-
-    # Windows: copy Qt DLLs next to each tool
-    if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
-        foreach(_tool anim_compiler KonAnimator)
-            add_custom_command(TARGET ${_tool} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:Qt5::Core>
-                    $<TARGET_FILE:Qt5::Gui>
-                    $<TARGET_FILE:Qt5::Widgets>
-                    $<TARGET_FILE_DIR:${_tool}>
-                COMMENT "Copying Qt DLLs for ${_tool}...")
-        endforeach()
-    endif()
-else()
-    message(STATUS "Qt5 not found — anim_compiler and KonAnimator targets skipped")
-endif()
-# -----------------------------------------------------------------------
-# KonAnimator — animation editor tool
-# -----------------------------------------------------------------------
-find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
-
-if(Qt5_FOUND)
-    add_subdirectory(tools/KonAnimator)
-else()
-    message(STATUS "Qt5 not found — KonAnimator and anim_compiler targets skipped")
 endif()
