@@ -156,8 +156,9 @@ jobs:
           mkdir tools-staging
           Copy-Item build\tools\KonAnimator\Release\KonAnimator.exe tools-staging\
           Copy-Item build\Release\anim_compiler.exe tools-staging\
-          & "$env:Qt5_DIR\..\..\..\bin\windeployqt.exe" tools-staging\KonAnimator.exe
-          & "$env:Qt5_DIR\..\..\..\bin\windeployqt.exe" tools-staging\anim_compiler.exe
+          $qtBin = (Get-ChildItem "D:\a\KonEngine\Qt" -Recurse -Filter "windeployqt.exe" | Select-Object -First 1).DirectoryName
+          & "$qtBin\windeployqt.exe" --release tools-staging\KonAnimator.exe
+          & "$qtBin\windeployqt.exe" --release tools-staging\anim_compiler.exe
 
       - name: Package tools
         run: Compress-Archive -Path tools-staging\* -DestinationPath KonAnimator-windows-${{ github.ref_name }}.zip
