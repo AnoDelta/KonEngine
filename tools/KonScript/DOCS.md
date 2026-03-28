@@ -1,11 +1,9 @@
-# KonScript Documentation
+# KonScript Language Reference
 
-> Version 0.1.0 — Companion language for KonEngine
+> Version 0.1.0 — Compiles to C++ and links against KonEngine.
 
-KonScript is a statically-typed scripting language that compiles to C++. It is designed
-to write KonEngine game logic without touching C++ directly. The compiler (`konscript`)
-takes `.ks` source files, runs them through a lexer → parser → typechecker → codegen
-pipeline, and outputs `.cpp` files that you compile and link against the engine.
+KonScript is a statically typed scripting language designed for KonEngine.
+It compiles to C++ via `konscript` and is fully interoperable with the engine.
 
 ---
 
@@ -14,217 +12,231 @@ pipeline, and outputs `.cpp` files that you compile and link against the engine.
 1. [Getting Started](#1-getting-started)
 2. [Types](#2-types)
 3. [Variables](#3-variables)
-4. [Functions](#4-functions)
-5. [Control Flow](#5-control-flow)
-6. [Nodes](#6-nodes)
-7. [Structs](#7-structs)
-8. [Enums](#8-enums)
-9. [Arrays & Tuples](#9-arrays--tuples)
-10. [Nullable Types](#10-nullable-types)
-11. [Operators](#11-operators)
-12. [Built-in Engine Functions](#12-built-in-engine-functions)
-13. [Compiler Modes](#13-compiler-modes)
-14. [Using ksc](#14-using-ksc)
-15. [CMake Integration](#15-cmake-integration)
+4. [Constants](#4-constants)
+5. [Functions](#5-functions)
+6. [Control Flow](#6-control-flow)
+7. [Loops](#7-loops)
+8. [Nodes](#8-nodes)
+9. [Scene](#9-scene)
+10. [Operators](#10-operators)
+11. [Enums](#11-enums)
+12. [Structs](#12-structs)
+13. [Arrays & Tuples](#13-arrays--tuples)
+14. [Nullable Types](#14-nullable-types)
+15. [Comments](#15-comments)
+16. [Engine Functions](#16-engine-functions)
+17. [CMake Integration](#17-cmake-integration)
+18. [Known Limitations](#18-known-limitations)
 
 ---
 
 ## 1. Getting Started
 
-### Install
-
+**Install the compiler:**
 ```bash
 cd tools/KonScript
 ./build.sh
-./install.sh          # installs to /usr/local/bin
+./install.sh   # installs konscript and ksc to /usr/local/bin
 ```
 
-Or with a custom prefix:
-```bash
-./install.sh --prefix=/opt/konscript
-```
-
-This installs two binaries:
-- `konscript` — the backend compiler (lex, parse, typecheck, codegen)
-- `ksc` — the frontend runner (compile + build + run in one command)
-
-### Hello World (standalone)
-
-```ks
-func main() {
-    Print("Hello, world!\n");
-}
-```
-
-```bash
-ksc hello.ks
-```
-
-### Hello World (engine mode)
-
-Include `<engine>` to enable KonEngine bindings. The compiler detects this and
-switches to engine target mode, which maps node lifecycle methods to C++ overrides.
-
+**Write a game:**
 ```ks
 #include <engine>
 
-node Game : Node {
-    func Ready() {
-        InitWindow(800, 600, "Hello KonScript");
-        SetTargetFPS(60);
-    }
+node Player : Node2D {
+    let mut speed: F64 = 200.0;
 
     func Update(dt: F64) {
-        ClearBackground(0.1, 0.1, 0.1);
-        DrawText("Hello from KonScript!", 100.0, 100.0, 24, WHITE);
+        if KeyDown(Key.D) { x += speed * dt; }
+        if KeyDown(Key.A) { x -= speed * dt; }
     }
 }
+
+func main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, "player");
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.update(dt);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+}
+```
+
+**Compile and run:**
+```bash
+ksc main.ks            # compile and run
+ksc main.ks --keep     # keep the generated .cpp
+ksc --compile main.ks  # compile only, no run
+ksc --check main.ks    # typecheck only
+ksc --parse main.ks    # dump AST
+ksc --lex main.ks      # dump tokens
 ```
 
 ---
 
 ## 2. Types
 
-### Primitive Types
-
-| Type | Description | C++ equivalent |
+| KonScript | C++ | Notes |
 |---|---|---|
-| `I8` | 8-bit signed integer | `int8_t` |
-| `I16` | 16-bit signed integer | `int16_t` |
-| `I32` | 32-bit signed integer | `int32_t` |
-| `I64` | 64-bit signed integer | `int64_t` |
-| `U8` | 8-bit unsigned integer | `uint8_t` |
-| `U16` | 16-bit unsigned integer | `uint16_t` |
-| `U32` | 32-bit unsigned integer | `uint32_t` |
-| `U64` | 64-bit unsigned integer | `uint64_t` |
-| `F32` | 32-bit float | `float` |
-| `F64` | 64-bit float | `double` |
-| `Bool` | boolean | `bool` |
-| `str` | string literal | `const char*` |
-| `String` | heap string | `std::string` |
-| `Vec2` | 2D vector | `Vector2` |
+| `I8` | `int8_t` | |
+| `I16` | `int16_t` | |
+| `I32` | `int32_t` | default integer |
+| `I64` | `int64_t` | |
+| `U8` | `uint8_t` | |
+| `U16` | `uint16_t` | |
+| `U32` | `uint32_t` | |
+| `U64` | `uint64_t` | |
+| `F32` | `float` | |
+| `F64` | `double` | default float |
+| `Bool` | `bool` | |
+| `str` | `const char*` | string literals |
+| `String` | `std::string` | |
+| `Vec2` | `Vector2` | |
+| `[T]` | `std::vector<T>` | dynamic array |
+| `[T; N]` | `std::array<T, N>` | fixed array |
+| `(T, T)` | `std::tuple<T, T>` | tuple |
+| `T?` | `std::optional<T>` | nullable |
+| `Node2D` | `Node2D*` | engine node types are always pointers |
+| `Collider2D` | `Collider2D*` | |
+| `Scene` | `Scene` | value type, not a pointer |
 
-### Type Modifiers
-
-```ks
-I32?          // nullable I32
-[I32]         // dynamic array of I32
-[I32; 8]      // fixed array of I32 with 8 elements
-(F64, F64)    // tuple of two F64 values
-```
-
-### Casting
-
-```ks
-let x: I32 = 10;
-let y: F64 = x as F64;
-```
+Node types declared with `node` are also treated as pointers when used in `let` declarations.
 
 ---
 
 ## 3. Variables
 
-Variables are declared with `let`. They are immutable by default. Add `mut` to allow
-reassignment.
-
 ```ks
-let speed: F64 = 200.0;        // immutable
-let mut health: I32 = 100;     // mutable
-
-health -= 10;                  // OK
-// speed = 100.0;              // error: not mutable
+let x: I32 = 10;          # immutable
+let mut y: F64 = 3.14;    # mutable
 ```
 
-### Constants
+Variables must be initialized. Immutable variables cannot be reassigned.
 
-Top-level constants are declared with `const`. They must have a type annotation and
-a literal initializer.
-
+Node pointer types are always mutable regardless of `mut`:
 ```ks
-const GRAVITY: F64 = 980.0;
-const MAX_ENEMIES: I32 = 32;
-```
-
-### Increment / Decrement
-
-```ks
-i++;
-i--;
+let player: Player = scene.add(Player, "player");  # always mutable
 ```
 
 ---
 
-## 4. Functions
+## 4. Constants
+
+```ks
+const MAX_SPEED: F64 = 500.0;
+const TILE_SIZE: I32 = 32;
+```
+
+Top-level constants compile to `constexpr`. Constants inside functions compile to `const`.
+
+---
+
+## 5. Functions
 
 ```ks
 func Add(a: I32, b: I32) -> I32 {
     return a + b;
 }
-```
 
-Functions with no return value omit the `->` annotation:
-
-```ks
 func Greet(name: str) {
     Print("Hello, %s!\n", name);
 }
 ```
 
-### Visibility
-
-Mark a function `pub` to export it (makes it `public` in generated C++):
-
+The entry point is always `func main()`:
 ```ks
-pub func GetScore() -> I32 {
-    return score;
+func main() {
+    InitWindow(800, 600, "My Game");
+    # ...
 }
 ```
 
-### Recursive Functions
-
+**Public functions** (exported from a node):
 ```ks
-func Factorial(n: I32) -> I32 {
-    if n <= 1 { return 1; }
-    return n * Factorial(n - 1);
+node Player : Node2D {
+    pub func GetHealth() -> I32 { return health; }
 }
 ```
 
 ---
 
-## 5. Control Flow
+## 6. Control Flow
 
-### If / Else
+### if / else
 
 ```ks
-if health <= 0 {
-    Die();
-} else if health < 20 {
-    Flash();
+if x > 0 {
+    Print("positive\n");
+} else if x < 0 {
+    Print("negative\n");
 } else {
-    Recover();
+    Print("zero\n");
 }
 ```
 
-### While
+### switch
 
 ```ks
-let mut i: I32 = 0;
-while i < 10 {
-    Print("%d\n", i);
-    i++;
+switch state {
+    case 0: { Print("idle\n"); }
+    case 1: { Print("running\n"); }
+    default: { Print("unknown\n"); }
 }
 ```
 
-### Loop (infinite)
+---
+
+## 7. Loops
+
+### while
+
+```ks
+while !WindowShouldClose() && running {
+    # game loop
+}
+```
+
+### loop (infinite)
 
 ```ks
 loop {
-    if ShouldStop() { break; }
-    DoWork();
+    if done { break; }
 }
 ```
 
-### For (C-style)
+### for-in (range, exclusive)
+
+```ks
+for i: I32 in 0..10 {
+    Print("%d\n", i);  # 0 through 9
+}
+```
+
+### for-in (range, inclusive)
+
+```ks
+for i: I32 in 1..=3 {
+    Print("%d\n", i);  # 1, 2, 3
+}
+```
+
+### for-in (collection)
+
+```ks
+for item: I32 in myArray {
+    Print("%d\n", item);
+}
+```
+
+### for (C-style)
 
 ```ks
 for i: I32 = 0; i < 10; i++ {
@@ -232,37 +244,10 @@ for i: I32 = 0; i < 10; i++ {
 }
 ```
 
-### For-In (range)
+### break / continue
 
 ```ks
-for item: I32 in 0..10 {   // exclusive: 0 to 9
-    Print("%d\n", item);
-}
-
-for item: I32 in 0..=10 {  // inclusive: 0 to 10
-    Print("%d\n", item);
-}
-```
-
-### Switch
-
-```ks
-switch state {
-    case Idle:
-        Print("standing\n");
-        break;
-    case Running:
-        x += speed * dt;
-        break;
-    default:
-        break;
-}
-```
-
-### Break / Continue
-
-```ks
-for i: I32 = 0; i < 100; i++ {
+for i: I32 in 0..100 {
     if i == 50 { break; }
     if i % 2 == 0 { continue; }
     Print("%d\n", i);
@@ -271,354 +256,309 @@ for i: I32 = 0; i < 100; i++ {
 
 ---
 
-## 6. Nodes
+## 8. Nodes
 
-Nodes are the primary way to define game objects in KonScript. A `node` declaration
-compiles to a C++ class inheriting from a KonEngine node type.
+Nodes are the primary way to define game objects. They inherit from a KonEngine node type.
 
 ```ks
-#include <engine>
-
 node Player : Node2D {
-    let speed: F64 = 200.0;
-    let mut health: I32 = 100;
+    # fields
+    let mut health: I32    = 3;
+    let mut speed:  F64    = 200.0;
+    let mut grounded: Bool = false;
 
+    # lifecycle methods
     func Ready() {
-        x = 400.0;
-        y = 300.0;
+        x = 100.0;
+        y = 400.0;
     }
 
     func Update(dt: F64) {
         if KeyDown(Key.D) { x += speed * dt; }
         if KeyDown(Key.A) { x -= speed * dt; }
-        if KeyDown(Key.W) { y -= speed * dt; }
-        if KeyDown(Key.S) { y += speed * dt; }
     }
 
     func Draw() {
-        DrawRectangle(x, y, 32.0, 32.0, RED);
+        DrawRectangle(x - 16.0, y - 24.0, 32.0, 48.0, 0.2, 0.5, 1.0, 1.0);
     }
 
-    func OnCollisionEnter(other: Node2D) {
-        if other.name == "Enemy" {
-            health -= 10;
-            Emit("player_hurt", health);
+    func OnCollisionEnter(other: Collider2D) {
+        if other.name == "enemy" {
+            health -= 1;
+            Print("Hit! HP: %d\n", health);
         }
     }
 
-    func OnCollisionExit(other: Node2D) {
-        // called when collision ends
+    func OnCollisionExit(other: Collider2D) {
+        Print("Stopped touching: %s\n", other.name);
     }
 
-    pub func GetHealth() -> I32 {
-        return health;
+    pub func GetHealth() -> I32 { return health; }
+}
+```
+
+### Lifecycle methods
+
+| Method | When called |
+|---|---|
+| `Ready()` | Once, when the node is added to the scene |
+| `Update(dt: F64)` | Every frame |
+| `Draw()` | Every frame after Update |
+| `OnCollisionEnter(other: Collider2D)` | When a child collider first overlaps another |
+| `OnCollisionExit(other: Collider2D)` | When they stop overlapping |
+
+### Inherited Node2D fields
+
+Inside a `node : Node2D` body these are available directly:
+
+```ks
+x, y          # position (F64)
+scaleX, scaleY
+rotation
+originX, originY  # pivot (0.5 = center)
+active        # Bool
+name          # str
+```
+
+### Adding child nodes inside a node
+
+Use `this.add()` to add children from within a node method:
+
+```ks
+node Player : Node2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, "hitbox");
+        col.width  = 32.0;
+        col.height = 48.0;
     }
 }
 ```
 
-### Lifecycle Methods
+---
 
-These method names are automatically mapped to KonEngine's virtual overrides:
-
-| KonScript name | C++ override | When it runs |
-|---|---|---|
-| `Ready()` | `Ready()` | Once, when added to the scene |
-| `Update(dt: F64)` | `Update(float dt)` | Every frame before draw |
-| `Draw()` | `Draw()` | Every frame during render |
-| `OnCollisionEnter(other: Node2D)` | `OnCollisionEnter(Collider2D*)` | When collision starts |
-| `OnCollisionExit(other: Node2D)` | `OnCollisionExit(Collider2D*)` | When collision ends |
-
-### Built-in Node2D Fields
-
-These fields are available inside any node that inherits from `Node2D`:
-
-| Field | Type | Description |
-|---|---|---|
-| `x` | `F64` | World X position |
-| `y` | `F64` | World Y position |
-| `scaleX` | `F64` | Horizontal scale |
-| `scaleY` | `F64` | Vertical scale |
-| `rotation` | `F64` | Rotation in degrees |
-| `originX` | `F64` | Pivot X (0.0–1.0) |
-| `originY` | `F64` | Pivot Y (0.0–1.0) |
-| `alpha` | `F64` | Opacity (0.0–1.0) |
-| `active` | `Bool` | Whether the node updates and draws |
-| `name` | `str` | The node's name in the scene tree |
-
-### Base Types
-
-The `node` declaration's base type controls what C++ class it inherits from:
+## 9. Scene
 
 ```ks
-node MyNode : Node    { ... }    // base Node (no 2D transform)
-node MyNode : Node2D  { ... }    // 2D transform, part of scene
-node MyNode : Sprite2D{ ... }    // Sprite2D with texture support
+let scene: Scene = Scene();
 ```
 
-### Signals
-
-Use `Emit` inside a node to fire a signal to listeners:
+### Adding nodes
 
 ```ks
-Emit("player_hurt", health);
-Emit("game_over");
+let player: Player    = scene.add(Player, "player");
+let enemy:  Enemy     = scene.add(Enemy, "enemy");
+```
+
+`scene.add()` calls `Ready()` on the node after adding it.
+
+### Adding colliders
+
+Colliders are added as children of nodes:
+```ks
+let col: Collider2D = player.add(Collider2D, "hitbox");
+col.width  = 32.0;
+col.height = 48.0;
+```
+
+After adding colliders outside of `Ready()`, call `scene.scan()` to register them:
+```ks
+scene.scan();
+```
+
+### Scene methods
+
+```ks
+scene.update(dt);         # update all nodes + run collision
+scene.draw();             # draw all nodes
+scene.remove("name");     # remove a node by name
+scene.get("name");        # get a node by name
+scene.scan();             # register late-added colliders
 ```
 
 ---
 
-## 7. Structs
+## 10. Operators
 
-Structs are value types — simple data containers with no methods.
-
+### Arithmetic
 ```ks
-struct Bullet {
-    x: F64,
-    y: F64,
-    speed: F64,
-    active: Bool,
-}
+x + y   x - y   x * y   x / y   x % y
+x += y  x -= y  x *= y  x /= y
+x++     x--
 ```
 
-### Struct Initialization
-
+### Comparison
 ```ks
-let b: Bullet = Bullet { x: 100.0, y: 200.0, speed: 400.0, active: true };
+x == y   x != y
+x < y    x > y
+x <= y   x >= y
 ```
 
-### Field Access
-
+### Logic
 ```ks
-b.x += b.speed * dt;
+x && y   x || y   !x
+```
+
+### Cast
+```ks
+let f: F64 = 10 as F64;
+```
+
+### Null coalescing
+```ks
+let val: I32 = maybeNull ?? 0;
+```
+
+### Safe member access
+```ks
+let name: str = node?.name ?? "unknown";
+```
+
+### Force unwrap
+```ks
+let val: I32 = maybeVal!;  # panics if null
 ```
 
 ---
 
-## 8. Enums
+## 11. Enums
 
+Simple enums:
 ```ks
 enum State {
     Idle,
     Running,
     Jumping,
-    Dead,
 }
+
+let s: State = State.Idle;
 ```
 
-### Enums with Payloads
-
-Variants can carry a value:
-
+Enums with payloads (sum types):
 ```ks
-enum Pickup {
-    Coin(I32),      // carries a point value
-    Health(I32),    // carries heal amount
-    Key,            // no payload
-}
-```
-
-### Matching Enum Values
-
-Use `switch` to branch on enum variants:
-
-```ks
-switch pickup {
-    case Coin:
-        score += 10;
-        break;
-    case Health:
-        health += 25;
-        break;
-    case Key:
-        hasKey = true;
-        break;
-    default:
-        break;
+enum Event {
+    Damage(I32),
+    Heal(I32),
+    Die,
 }
 ```
 
 ---
 
-## 9. Arrays & Tuples
-
-### Dynamic Arrays
+## 12. Structs
 
 ```ks
-let items: [I32] = [1, 2, 3, 4, 5];
-let first: I32 = items[0];
-```
-
-### Fixed Arrays
-
-```ks
-let grid: [I32; 16] = [0, 0, 0, 0,
-                       0, 0, 0, 0,
-                       0, 0, 0, 0,
-                       0, 0, 0, 0];
-```
-
-### Tuples
-
-```ks
-func GetPosition() -> (F64, F64) {
-    return (x, y);
+struct Point {
+    let x: F64;
+    let y: F64;
 }
 
-let pos: (F64, F64) = GetPosition();
+let p: Point = Point { x: 10.0, y: 20.0 };
 ```
 
 ---
 
-## 10. Nullable Types
+## 13. Arrays & Tuples
 
-Append `?` to any type to make it nullable. The value can be `null` or `None`.
-
+### Dynamic array
 ```ks
-let enemy: Node2D? = FindEnemy();
+let items: [I32] = [1, 2, 3];
 ```
 
-### Safe Access
-
-Use `?.` to access a member only if the value is non-null:
-
+### Fixed array
 ```ks
-let name: str? = enemy?.name;
+let grid: [I32; 4] = [0, 0, 0, 0];
 ```
 
-### Null Coalescing
-
-Use `??` to provide a fallback if the value is null:
-
+### Tuple
 ```ks
-let hp: I32 = enemy?.health ?? 0;
-```
-
-### Force Unwrap
-
-Use `!` (postfix) to assert the value is non-null. Crashes if it is null.
-
-```ks
-let e: Node2D = enemy!;
+let pos: (F64, F64) = (10.0, 20.0);
 ```
 
 ---
 
-## 11. Operators
-
-### Arithmetic
-
-| Operator | Meaning |
-|---|---|
-| `+` `-` `*` `/` `%` | standard math |
-| `+=` `-=` `*=` `/=` | compound assignment |
-| `++` `--` | increment/decrement (postfix) |
-| `-x` | unary negation |
-
-### Comparison
-
-`==` `!=` `<` `>` `<=` `>=`
-
-### Logic
-
-`&&` (and), `||` (or), `!` (not)
-
-### Ranges
+## 14. Nullable Types
 
 ```ks
-0..10    // exclusive range: 0 to 9
-0..=10   // inclusive range: 0 to 10
-```
+let maybe: I32? = None;
+maybe = 42;
 
-### Cast
+if maybe != None {
+    Print("has value\n");
+}
 
-```ks
-x as F64
+let val: I32 = maybe ?? 0;   # default if null
+let val2: I32 = maybe!;      # force unwrap (unsafe)
 ```
 
 ---
 
-## 12. Built-in Engine Functions
+## 15. Comments
 
-These are available when `#include <engine>` is at the top of the file.
+```ks
+# This is a line comment
+# Everything after # is ignored unless it is #include
+```
+
+---
+
+## 16. Engine Functions
+
+These are available when `#include <engine>` is at the top of your file.
 
 ### Window
-
 ```ks
-InitWindow(width: I32, height: I32, title: str)
+InitWindow(width: I32, height: I32, title: str);
 WindowShouldClose() -> Bool
 Present()
 PollEvents()
 ClearBackground(r: F64, g: F64, b: F64)
 SetTargetFPS(fps: I32)
-GetDeltaTime() -> F64
-GetFPS() -> I32
-GetTime() -> F64
-SetTimeScale(scale: F64)
-DebugMode(enabled: Bool)
-IsDebugMode() -> Bool
 GetWindowWidth() -> I32
 GetWindowHeight() -> I32
-SetVsync(enabled: Bool)
 ```
 
-### Drawing
-
+### Time
 ```ks
-DrawRectangle(x: F64, y: F64, w: F64, h: F64, r: F64, g: F64, b: F64, a: F64)
-DrawCircle(x: F64, y: F64, radius: F64, r: F64, g: F64, b: F64, a: F64)
-DrawLine(x1: F64, y1: F64, x2: F64, y2: F64, r: F64, g: F64, b: F64, a: F64)
-DrawText(text: str, x: F64, y: F64, size: F64, color)
+GetDeltaTime() -> F64
+GetTime()      -> F64
+GetFPS()       -> I32
 ```
 
 ### Input
-
 ```ks
-// Keyboard
-KeyDown(key: I32) -> Bool        // also accepts Key.X notation
-KeyPressed(key: I32) -> Bool
-KeyReleased(key: I32) -> Bool
+KeyDown(key: Key)     -> Bool
+KeyPressed(key: Key)  -> Bool
+KeyReleased(key: Key) -> Bool
 
-// Mouse
-MouseDown(button: I32) -> Bool
-MousePressed(button: I32) -> Bool
-MouseReleased(button: I32) -> Bool
+MouseDown(btn: Mouse)     -> Bool
+MousePressed(btn: Mouse)  -> Bool
+MouseReleased(btn: Mouse) -> Bool
 GetMouseX() -> F64
 GetMouseY() -> F64
 GetMouseDeltaX() -> F64
 GetMouseDeltaY() -> F64
 GetMouseScroll() -> F64
-
-// Gamepad
-IsGamepadConnected(player: I32) -> Bool
-GamepadButtonDown(player: I32, button: I32) -> Bool
-GetGamepadAxis(player: I32, axis: I32) -> F64
 ```
 
-#### Key Codes
+**Key constants:** `Key.A`–`Key.Z`, `Key.Num0`–`Key.Num9`, `Key.Space`, `Key.Enter`,
+`Key.Esc`, `Key.Tab`, `Key.Backspace`, `Key.Shift`, `Key.Ctrl`, `Key.Alt`,
+`Key.Up`, `Key.Down`, `Key.Left`, `Key.Right`, `Key.F1`–`Key.F12`
 
-Access via the `Key` namespace:
+**Mouse constants:** `Mouse.Left`, `Mouse.Right`, `Mouse.Middle`
 
+### Rendering
 ```ks
-if KeyDown(Key.D) { ... }
-if KeyPressed(Key.Space) { ... }
+DrawRectangle(x: F64, y: F64, w: F64, h: F64, r: F64, g: F64, b: F64, a: F64)
+DrawCircle(x: F64, y: F64, radius: F64, r: F64, g: F64, b: F64, a: F64)
+DrawLine(x1: F64, y1: F64, x2: F64, y2: F64, r: F64, g: F64, b: F64, a: F64)
+DrawText(text: str, x: F64, y: F64, size: I32, color: Color)
 ```
-
-Available keys: `A`–`Z`, `Num0`–`Num9`, `Up`, `Down`, `Left`, `Right`,
-`Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Shift`, `Ctrl`, `Alt`, `F1`–`F12`
-
-#### Mouse Buttons
-
-```ks
-if MouseDown(Mouse.Left) { ... }
-```
-
-Available: `Mouse.Left`, `Mouse.Right`, `Mouse.Middle`
 
 ### Audio
-
 ```ks
 PlaySound(path: str)
 StopSound(path: str)
-PlayMusic(path: str, loop: Bool)
+PlayMusic(path: str)
 StopMusic()
 PauseMusic()
 ResumeMusic()
@@ -626,144 +566,44 @@ SetMusicVolume(volume: F64)
 SetSoundVolume(volume: F64)
 ```
 
-### Output
-
+### Debug
 ```ks
-Print(fmt: str, ...)    // printf-style
+DebugMode(enabled: Bool)
+IsDebugMode() -> Bool
+```
+
+### Output
+```ks
+Print(fmt: str, ...)   # printf-style format string
+ToString(val) -> str
 ```
 
 ---
 
-## 13. Compiler Modes
+## 17. CMake Integration
 
-The `konscript` backend supports several debug/inspection modes:
-
-```bash
-konscript --lex   file.ks     # dump all tokens and exit
-konscript --parse file.ks     # dump the AST and exit
-konscript --check file.ks     # typecheck only, no codegen
-konscript file.ks -o out.cpp  # compile to C++
-```
-
-This is useful for debugging the language or inspecting what the compiler sees.
-
----
-
-## 14. Using ksc
-
-`ksc` is the high-level frontend that wraps compile → build → run into one step.
-
-```bash
-ksc hello.ks              # compile, build, run, then clean up
-ksc hello.ks --keep       # same but keep the .cpp and binary
-ksc hello.ks --clean      # remove generated .cpp and binary
-ksc --compile hello.ks    # compile to .cpp only, don't run
-ksc --compile hello.ks -o out.cpp
-ksc --lex   hello.ks      # pass-through to konscript --lex
-ksc --parse hello.ks      # pass-through to konscript --parse
-ksc --check hello.ks      # pass-through to konscript --check
-```
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `CXX` | `g++` | C++ compiler to use |
-| `CXXFLAGS` | `-std=c++17` | Compiler flags |
-
----
-
-## 15. CMake Integration
-
-For engine-mode `.ks` files (those that `#include <engine>`), use the
-`konscript_sources()` helper in your game's `CMakeLists.txt`. It compiles each
-`.ks` file to `.cpp` at build time and adds it to the target automatically.
+For larger projects, use `konscript_sources()` in your CMakeLists.txt:
 
 ```cmake
 cmake_minimum_required(VERSION 3.16)
-project(MyGame)
+project(MyGame LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
 
-find_package(KonEngine REQUIRED)
+add_subdirectory(KonEngine)
 
-add_executable(MyGame src/main.cpp)
-
-# Compile KonScript files and add to target
-konscript_sources(MyGame
-    src/Player.ks
-    src/Enemy.ks
-    src/GameManager.ks
-)
-
+add_executable(MyGame)
 target_link_libraries(MyGame PRIVATE KonEngine)
+konscript_sources(MyGame src/main.ks src/player.ks)
 ```
 
-The `.ks` → `.cpp` step runs automatically during `cmake --build`. No manual
-`ksc` invocations needed.
+`konscript_sources` compiles each `.ks` file to a `.ks.cpp` and adds it to the target automatically.
 
 ---
 
-## Full Example
+## 18. Known Limitations
 
-```ks
-#include <engine>
-
-const GRAVITY: F64 = 980.0;
-const JUMP_FORCE: F64 = 450.0;
-
-node Player : Node2D {
-    let speed: F64 = 220.0;
-    let mut vy: F64 = 0.0;
-    let mut grounded: Bool = false;
-    let mut health: I32 = 3;
-
-    func Ready() {
-        x = 100.0;
-        y = 400.0;
-    }
-
-    func Update(dt: F64) {
-        // Horizontal movement
-        if KeyDown(Key.D) { x += speed * dt; }
-        if KeyDown(Key.A) { x -= speed * dt; }
-
-        // Jump
-        if KeyPressed(Key.Space) && grounded {
-            vy = -JUMP_FORCE;
-            grounded = false;
-        }
-
-        // Gravity
-        vy += GRAVITY * dt;
-        y  += vy * dt;
-
-        // Floor clamp
-        if y >= 400.0 {
-            y       = 400.0;
-            vy      = 0.0;
-            grounded = true;
-        }
-    }
-
-    func Draw() {
-        DrawRectangle(x, y, 32.0, 48.0, 0.2, 0.6, 1.0, 1.0);
-    }
-
-    func OnCollisionEnter(other: Node2D) {
-        if other.name == "Enemy" {
-            health -= 1;
-            Emit("player_hurt", health);
-            if health <= 0 {
-                Emit("game_over");
-            }
-        }
-    }
-
-    pub func GetHealth() -> I32 {
-        return health;
-    }
-}
-```
-
----
-
-*KonScript is part of KonEngine and is MIT licensed.*
+- **No pointer type annotations** — don't write `Player*` in `let` declarations. Node types are automatically pointers in generated C++.
+- **`Print` uses printf format strings** — `%d` for integers, `%f` for floats, `%s` for strings. `std::string` values need `.c_str()` which isn't yet available in KonScript — use `str` literals instead.
+- **`wait` and `spawn`** — compile to stub comments. Coroutine/async support requires a VM scheduler not yet implemented.
+- **`switch` on enums** — enum variant qualification in case values isn't yet handled by the typechecker.
+- **No modules** — all code in a project shares one namespace. Use unique names to avoid conflicts.

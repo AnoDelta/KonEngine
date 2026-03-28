@@ -1,6 +1,6 @@
 # KonEngine Documentation
 
-> Version 0.8.0 — API is stable but subject to change before v1.0.
+> Version 0.8.1 — Work in progress. API is stable but subject to change before v1.0.
 
 ---
 
@@ -8,24 +8,23 @@
 
 1. [Window & Application](#1-window--application)
 2. [Rendering](#2-rendering)
-3. [Text & Fonts](#3-text--fonts)
-4. [Input](#4-input)
-5. [Camera](#5-camera)
-6. [Textures](#6-textures)
-7. [Color](#7-color)
-8. [Time](#8-time)
-9. [Audio](#9-audio)
-10. [Node System](#10-node-system)
-11. [Scene](#11-scene)
-12. [Node2D](#12-node2d)
-13. [Sprite2D](#13-sprite2d)
-14. [Collider2D & CollisionWorld](#14-collider2d--collisionworld)
-15. [Animation](#15-animation)
-16. [AnimationPlayer](#16-animationplayer)
-17. [Easing Curves](#17-easing-curves)
-18. [Debug Mode](#18-debug-mode)
-19. [Math — Vector2](#19-math--vector2)
-20. [Tools](#20-tools)
+3. [Input](#3-input)
+4. [Camera](#4-camera)
+5. [Textures](#5-textures)
+6. [Color](#6-color)
+7. [Time](#7-time)
+8. [Audio](#8-audio)
+9. [Node System](#9-node-system)
+10. [Scene](#10-scene)
+11. [Node2D](#11-node2d)
+12. [Sprite2D](#12-sprite2d)
+13. [Collider2D & CollisionWorld](#13-collider2d--collisionworld)
+14. [Animation](#14-animation)
+15. [AnimationPlayer](#15-animationplayer)
+16. [Easing Curves](#16-easing-curves)
+17. [Debug Mode](#17-debug-mode)
+18. [Math — Vector2](#18-math--vector2)
+19. [Tools](#19-tools)
 
 ---
 
@@ -39,19 +38,18 @@ All engine functions are available through this single header.
 
 ```cpp
 void InitWindow(int width, int height, const std::string& title, bool canResize = false);
-```
-Creates the window and initializes OpenGL. Must be called before anything else.
-
-```cpp
 bool WindowShouldClose();
-void Present();       // swap back buffer to screen — call once per frame
-void PollEvents();    // process input and advance frame timer — call after Present()
-void ClearBackground(float r, float g, float b);  // RGB, values 0.0–1.0
-
+void Present();
+void PollEvents();
+void ClearBackground(float r, float g, float b);
 int  GetWindowWidth();
 int  GetWindowHeight();
 void SetVsync(bool enabled);
 ```
+
+`InitWindow` creates the window and initializes OpenGL. Must be called before anything else.
+`Present` swaps the back buffer to the screen — call once at the end of every frame.
+`PollEvents` processes input and advances the frame timer — call once per frame after `Present`.
 
 ### Typical game loop
 
@@ -62,8 +60,7 @@ SetTargetFPS(60);
 while (!WindowShouldClose()) {
     ClearBackground(0.1f, 0.1f, 0.1f);
 
-    // update logic
-    // draw calls
+    // update + draw
 
     Present();
     PollEvents();
@@ -74,7 +71,7 @@ while (!WindowShouldClose()) {
 
 ## 2. Rendering
 
-All draw calls use a **top-left origin** coordinate system. X increases right, Y increases down.
+All draw calls use a top-left origin coordinate system. X increases right, Y increases down.
 
 ### Rectangles
 
@@ -82,7 +79,7 @@ All draw calls use a **top-left origin** coordinate system. X increases right, Y
 void DrawRectangle(float x, float y, float w, float h, float r, float g, float b, float a = 1.0f);
 void DrawRectangle(float x, float y, float w, float h, Color color);
 ```
-`x, y` is the top-left corner. Draws a filled rectangle.
+`x, y` is the top-left corner.
 
 ### Circles
 
@@ -110,77 +107,28 @@ void DrawTextureRec(Texture& texture, float x, float y, float width, float heigh
 void DrawTextureRec(Texture& texture, float x, float y, float width, float height,
                     float srcX, float srcY, float srcWidth, float srcHeight, Color tint);
 ```
-
-`DrawTextureRec` draws a sub-region of a texture — useful for sprite sheets.
-`srcX`, `srcY`, `srcWidth`, `srcHeight` are UV coordinates in the range 0.0–1.0.
-
----
-
-## 3. Text & Fonts
-
-KonEngine uses TrueType fonts baked into a GPU atlas via `stb_truetype`. A built-in
-Inconsolata font is always available without loading anything.
-
-```cpp
-Font LoadFont(const char* path, int fontSize);
-Font LoadDefaultFont(int fontSize);
-Font& GetDefaultFont();
-void UnloadFont(Font& font);
-```
-
-`LoadFont` loads a `.ttf` file from disk. If the file can't be opened, it falls back
-to the default font silently. `GetDefaultFont()` returns the built-in Inconsolata at
-size 20, loading it on first call.
-
-```cpp
-// With an explicit font
-void DrawText(Font& font, const char* text, float x, float y, Color color);
-void DrawText(Font& font, const char* text, float x, float y, int fontSize, Color color);
-
-// Using the default font
-void DrawText(const char* text, float x, float y, Color color);
-void DrawText(const char* text, float x, float y, int fontSize, Color color);
-```
-
-```cpp
-// Quick usage — default font, no setup needed
-DrawText("Score: 100", 10.0f, 10.0f, WHITE);
-
-// Custom font
-Font myFont = LoadFont("assets/fonts/pixel.ttf", 16);
-DrawText(myFont, "Hello!", 100.0f, 100.0f, YELLOW);
-UnloadFont(myFont);
-```
-
-**Note:** The `fontSize` parameter in the `DrawText` overloads is currently unused —
-size is fixed at load time. This will be improved in a future version.
+`DrawTextureRec` draws a sub-region of a texture — used for sprite sheets.
+`srcX/srcY/srcWidth/srcHeight` are in UV coordinates (0.0–1.0).
 
 ---
 
-## 4. Input
+## 3. Input
 
 ### Keyboard
 
 ```cpp
 bool IsKeyDown(Key::Code key);      // held this frame
-bool IsKeyPressed(Key::Code key);   // became pressed this frame
-bool IsKeyReleased(Key::Code key);  // became released this frame
+bool IsKeyPressed(Key::Code key);   // pressed this frame only
+bool IsKeyReleased(Key::Code key);  // released this frame only
 ```
 
-**Key codes** (use the `Key::` namespace):
-
-| Group | Codes |
-|---|---|
-| Letters | `A`–`Z` |
-| Numbers | `Num0`–`Num9` |
-| Arrows | `Up`, `Down`, `Left`, `Right` |
-| Special | `Space`, `Enter`, `Escape`, `Tab`, `Backspace` |
-| Modifiers | `Shift`, `Ctrl`, `Alt` |
-| Function | `F1`–`F12` |
-
-```cpp
-if (IsKeyDown(Key::D))       x += speed * dt;
-if (IsKeyPressed(Key::Space)) Jump();
+**Key codes** (`Key::` namespace):
+```
+A–Z, Num0–Num9
+Right, Left, Down, Up
+Space, Enter, Esc, Tab, Backspace
+Shift, Ctrl, Alt
+F1–F12
 ```
 
 ### Mouse
@@ -189,12 +137,11 @@ if (IsKeyPressed(Key::Space)) Jump();
 bool  IsMouseButtonDown(Mouse::Button button);
 bool  IsMouseButtonPressed(Mouse::Button button);
 bool  IsMouseButtonReleased(Mouse::Button button);
-
 float GetMouseX();
 float GetMouseY();
-float GetMouseDeltaX();   // movement since last frame
+float GetMouseDeltaX();
 float GetMouseDeltaY();
-float GetMouseScroll();   // scroll wheel delta
+float GetMouseScroll();
 ```
 
 **Mouse buttons:** `Mouse::Left`, `Mouse::Right`, `Mouse::Middle`
@@ -209,127 +156,85 @@ bool  IsGamepadButtonReleased(int player, Gamepad::Button button);
 float GetGamepadAxis(int player, Gamepad::Axis axis);
 ```
 
-**Buttons:** `A`, `B`, `X`, `Y`, `LeftBumper`, `RightBumper`, `Back`, `Start`,
+**Gamepad buttons:** `A`, `B`, `X`, `Y`, `LeftBumper`, `RightBumper`, `Back`, `Start`,
 `LeftThumb`, `RightThumb`, `DPadUp`, `DPadRight`, `DPadDown`, `DPadLeft`
 
-**Axes:** `LeftX`, `LeftY`, `RightX`, `RightY`, `LeftTrigger`, `RightTrigger`
-
-```cpp
-float moveX = GetGamepadAxis(0, Gamepad::LeftX);
-x += moveX * speed * dt;
-```
+**Gamepad axes:** `LeftX`, `LeftY`, `RightX`, `RightY`, `LeftTrigger`, `RightTrigger`
 
 ---
 
-## 5. Camera
+## 4. Camera
 
 ```cpp
 Camera2D cam(float targetX, float targetY, float zoom, float rotation);
 ```
 
-Creates a 2D camera centered on `(targetX, targetY)`. `zoom` defaults to `1.0f`,
-`rotation` is in degrees.
+Creates a 2D camera centered on `(targetX, targetY)` with the given zoom and rotation.
 
 ```cpp
 void BeginCamera2D(const Camera2D& cam);
 void EndCamera2D();
 ```
 
-Everything drawn between these two calls is transformed by the camera. Anything
-drawn outside is in screen space and ignores the camera.
+Everything drawn between these two calls is transformed by the camera.
 
 ```cpp
-Camera2D cam(playerX, playerY, 2.0f, 0.0f);
-
 BeginCamera2D(cam);
-    scene.Draw();        // world space — affected by camera
+    scene.Draw();       // drawn in world space
 EndCamera2D();
-
-DrawText("HUD", 10, 10, WHITE);  // screen space — not affected
-```
-
-The camera centers on `(targetX, targetY)` in world space. Moving the camera's
-`x`/`y` pans the view; `zoom > 1` zooms in.
-
-```cpp
-// Smooth camera follow
-cam.x += (player->x - cam.x) * 5.0f * dt;
-cam.y += (player->y - cam.y) * 5.0f * dt;
+DrawRectangle(...);     // drawn in screen space, ignores camera
 ```
 
 ---
 
-## 6. Textures
+## 5. Textures
 
 ```cpp
 Texture LoadTexture(const char* path);
 void    UnloadTexture(Texture& texture);
 ```
 
-Supported formats: PNG, JPG, BMP, TGA. Always call `UnloadTexture` when done.
+Loads a PNG, JPG, BMP, or TGA image from disk. Always call `UnloadTexture` when done.
 
 ```cpp
 struct Texture {
-    unsigned int id;     // OpenGL texture ID
-    int          width;
-    int          height;
+    unsigned int id;
+    int width;
+    int height;
 };
-```
-
-```cpp
-Texture sheet = LoadTexture("sprites/player.png");
-DrawTexture(sheet, 100.0f, 200.0f, 64.0f, 64.0f);
-UnloadTexture(sheet);
 ```
 
 ---
 
-## 7. Color
+## 6. Color
 
 ```cpp
 struct Color { float r, g, b, a; };
 ```
 
-All components are in the range 0.0–1.0.
-
-**Presets:**
-
-| Name | | Name | |
-|---|---|---|---|
-| `RED` | | `CYAN` | |
-| `GREEN` | | `MAGENTA` | |
-| `BLUE` | | `ORANGE` | |
-| `WHITE` | | `PURPLE` | |
-| `BLACK` | | `GRAY` | |
-| `YELLOW` | | `DARKGRAY` | |
-| `TRANSPARENT` | (a=0) | | |
-
-```cpp
-DrawRectangle(x, y, w, h, RED);
-DrawCircle(cx, cy, r, Color{0.5f, 0.2f, 0.8f, 1.0f});
-```
+**Presets:** `RED`, `GREEN`, `BLUE`, `WHITE`, `BLACK`, `YELLOW`, `CYAN`, `MAGENTA`,
+`ORANGE`, `PURPLE`, `GRAY`, `DARKGRAY`, `TRANSPARENT`
 
 ---
 
-## 8. Time
+## 7. Time
 
 ```cpp
 void  SetTargetFPS(int fps);
-float GetDeltaTime();    // seconds since last frame
-int   GetFPS();
-float GetTime();         // total elapsed time in seconds
-void  SetTimeScale(float scale);  // 1.0 = normal, 0.5 = half speed
+float GetDeltaTime();  // seconds since last frame
+float GetTime();       // total elapsed time in seconds
+float GetFPS();        // current frames per second
 ```
 
-Always multiply movement by `GetDeltaTime()` to keep things frame-rate independent:
+Always use `GetDeltaTime()` for movement to keep things frame-rate independent:
 
 ```cpp
-x += speed * GetDeltaTime();
+player->x += speed * GetDeltaTime();
 ```
 
 ---
 
-## 9. Audio
+## 8. Audio
 
 ```cpp
 void PlaySound(const std::string& path);
@@ -339,28 +244,20 @@ void PlayMusic(const std::string& path, bool loop = true);
 void StopMusic();
 void PauseMusic();
 void ResumeMusic();
-void SetMusicVolume(float volume);   // 0.0–1.0
-void SetSoundVolume(float volume);   // 0.0–1.0
+void SetMusicVolume(float volume);  // 0.0 to 1.0
+void SetSoundVolume(float volume);  // 0.0 to 1.0
 ```
 
 Supported formats: `.wav`, `.ogg`, `.mp3`
 
-Sound effects are loaded and played immediately. Music streams from disk.
-
-```cpp
-PlaySound("sfx/jump.wav");
-PlayMusic("music/level1.ogg", true);
-SetMusicVolume(0.6f);
-```
-
 ---
 
-## 10. Node System
+## 9. Node System
 
-The node system is the foundation of KonEngine's scene architecture. Every object
-in a scene is a `Node` or a subclass of it.
+The node system is the foundation of KonEngine's scene architecture.
+Every object in a scene is a `Node` or a subclass of it.
 
-### Node (base class)
+### Node
 
 ```cpp
 class Node {
@@ -369,62 +266,71 @@ public:
     bool        active = true;
     Node*       parent = nullptr;
 
-    template<typename T, typename... Args>
-    T* AddChild(const std::string& name, Args&&... args);
-
-    Node* GetNode(const std::string& name);            // search full subtree
-    void  ForEachDescendant(std::function<void(Node*)> fn);
-    void  RemoveChild(const std::string& name);
-
+    virtual void Ready() {}
     virtual void Update(float dt) {}
     virtual void Draw() {}
-    virtual void Ready() {}
+    virtual void OnCollisionEnter(Collider2D* other) {}
+    virtual void OnCollisionExit(Collider2D* other) {}
 };
 ```
 
-`Ready()` is called once when the node is first added to the scene. `Update()` and
-`Draw()` are called every frame by the scene.
+**Lifecycle methods** — override these in subclasses:
+
+- `Ready()` — called once when the node is added to the scene via `scene.Add()`
+- `Update(dt)` — called every frame
+- `Draw()` — called every frame after Update
+- `OnCollisionEnter(other)` — called when a child `Collider2D` first overlaps another collider
+- `OnCollisionExit(other)` — called when they stop overlapping
+
+Collision signals bubble up automatically from child `Collider2D` nodes to the parent node's `OnCollisionEnter/Exit`. The `other` parameter is the `Collider2D*` that was hit, not the parent node — use `other->name` to identify what was hit.
+
+### Adding children
+
+```cpp
+template<typename T, typename... Args>
+T* AddChild(const std::string& name, Args&&... args);
+```
+
+```cpp
+auto* player = scene.Add<Player>("player");
+auto* col    = player->AddChild<Collider2D>("hitbox");
+// col->parent == player
+```
+
+`parent` is set automatically.
+
+### Traversal
+
+```cpp
+Node* GetNode(const std::string& name);
+void  ForEachDescendant(std::function<void(Node*)> fn);
+void  RemoveChild(const std::string& name);
+```
 
 ### Signals
 
-Nodes support a lightweight signal/slot system:
-
 ```cpp
-// Connect a listener (lambda, function pointer, or std::function)
-node->Connect("signal_name", [&]() {
-    std::cout << "fired!\n";
-});
-
-// Emit with no arguments
-node->Emit("signal_name");
+node->Connect("my_signal", [&]() { /* ... */ });
+node->Emit("my_signal");
 ```
 
-`Collider2D` signals pass the other collider as an argument:
-
+For `Collider2D`, signals pass a `Collider2D*`:
 ```cpp
 collider->Connect("on_collision_enter", [](Collider2D* other) {
-    std::cout << "Hit: " << other->name << "\n";
+    // other->name, other->parent, etc.
 });
 ```
 
-`AnimationPlayer` signals:
-
-```cpp
-anim->Connect("animation_finished", [&]() {
-    anim->Play("idle");
-});
-```
-
-### Custom node subclasses (C++)
+### Custom nodes
 
 ```cpp
 class Player : public Node2D {
 public:
     float speed = 200.0f;
-    int   health = 3;
 
     void Ready() override {
-        x = 100.0f; y = 300.0f;
+        x = 100.0f;
+        y = 400.0f;
     }
 
     void Update(float dt) override {
@@ -432,15 +338,15 @@ public:
         if (IsKeyDown(Key::A)) x -= speed * dt;
     }
 
-    void Draw() override {
-        DrawRectangle(x - 16, y - 24, 32.0f, 48.0f, BLUE);
+    void OnCollisionEnter(Collider2D* other) override {
+        if (other->name == "enemy") TakeDamage();
     }
 };
 ```
 
 ---
 
-## 11. Scene
+## 10. Scene
 
 ```cpp
 class Scene {
@@ -450,70 +356,70 @@ public:
     template<typename T, typename... Args>
     T* Add(const std::string& name, Args&&... args);
 
-    void   Remove(const std::string& name);
-    Node*  GetNode(const std::string& name);
+    void ScanColliders();
+    void Remove(const std::string& name);
+    Node* GetNode(const std::string& name);
 
     void Update(float dt);
     void Draw();
 };
 ```
 
-`Scene::Add` registers `Collider2D` nodes with the `CollisionWorld` automatically.
-`Scene::Update` runs collision detection before calling `Update` on all nodes.
-`Scene::Draw` calls `Draw` on all active nodes, and draws collider outlines
-when `DebugMode(true)` is active.
+`Scene::Add` creates the node, adds it to the scene, calls `Ready()`, then registers
+any `Collider2D` descendants with the `CollisionWorld`.
+
+If you add `Collider2D` children **after** `scene.Add()` returns, call
+`scene.ScanColliders()` once to register them:
 
 ```cpp
-Scene scene;
-
 auto* player = scene.Add<Player>("player");
-auto* enemy  = scene.Add<Enemy>("enemy");
-
-while (!WindowShouldClose()) {
-    ClearBackground(0.1f, 0.1f, 0.1f);
-    scene.Update(GetDeltaTime());
-    scene.Draw();
-    Present();
-    PollEvents();
-}
+auto* col    = player->AddChild<Collider2D>("hitbox");
+col->width   = 32.0f;
+scene.ScanColliders();
 ```
+
+`Scene::Update` each frame:
+1. Updates all nodes (moves parents)
+2. Propagates world transforms down to all `Node2D` children
+3. Runs collision checks — colliders now have correct world positions
+4. Restores children to local space
+
+`Scene::Draw` draws collider outlines automatically when `DebugMode(true)` is active.
 
 ---
 
-## 12. Node2D
+## 11. Node2D
 
-Extends `Node` with a 2D transform.
+Extends `Node` with 2D transform properties.
 
 ```cpp
 class Node2D : public Node {
 public:
     float x = 0, y = 0;
-    float scaleX = 1.0f, scaleY = 1.0f;
-    float rotation = 0.0f;          // degrees
-    float originX  = 0.5f;          // pivot: 0 = left, 0.5 = center, 1 = right
-    float originY  = 0.5f;
-    float alpha    = 1.0f;          // opacity, 0.0–1.0
+    float scaleX = 1, scaleY = 1;
+    float rotation = 0;
+    float originX = 0.5f;  // pivot: 0 = left, 0.5 = center, 1 = right
+    float originY = 0.5f;
 
     void  Move(float dx, float dy);
-
-    float DrawX(float width)  const;  // top-left X after applying origin
-    float DrawY(float height) const;  // top-left Y after applying origin
+    float DrawX(float width)  const;  // top-left X accounting for origin
+    float DrawY(float height) const;  // top-left Y accounting for origin
 };
 ```
 
-Children inherit their parent's transform — a child at `(0, 0)` will appear at
-the parent's position.
+Child nodes are stored in **local space** relative to their parent. Before each
+collision check, `Scene::Update` propagates parent world positions down to all
+`Node2D` children, so `Collider2D` nodes always reflect the correct world position.
 
 ---
 
-## 13. Sprite2D
+## 12. Sprite2D
 
 ```cpp
 class Sprite2D : public Node2D {
 public:
     Texture texture  = {0, 0, 0};
-    float   width    = 64.0f;
-    float   height   = 64.0f;
+    float   width    = 64, height = 64;
     Color   tint     = WHITE;
 
     bool  useSourceRect = false;
@@ -523,23 +429,13 @@ public:
 };
 ```
 
-`SetTexture` sets the texture and updates `width`/`height` to match the texture's
-pixel size, unless `useSourceRect` is already enabled.
-
-`useSourceRect`, `srcX/srcY/srcWidth/srcHeight` are managed automatically by
+`SetTexture` sets the texture and updates `width`/`height` to match.
+`useSourceRect` and `srcX/srcY/srcWidth/srcHeight` are set automatically by
 `AnimationPlayer` — you don't need to set them manually when using animation.
-
-```cpp
-auto* sprite = scene.Add<Sprite2D>("player");
-sprite->x = 400; sprite->y = 300;
-
-Texture sheet = LoadTexture("sprites/player.png");
-sprite->SetTexture(sheet);
-```
 
 ---
 
-## 14. Collider2D & CollisionWorld
+## 13. Collider2D & CollisionWorld
 
 ### Collider2D
 
@@ -547,194 +443,145 @@ sprite->SetTexture(sheet);
 class Collider2D : public Node2D {
 public:
     ColliderShape shape  = ColliderShape::Rectangle;
-    float width   = 32.0f;
-    float height  = 32.0f;
-    float radius  = 16.0f;                   // used when shape == Circle
-    std::vector<glm::vec2> points;           // used when shape == Custom (SAT)
+    float width  = 32.0f;
+    float height = 32.0f;
+    float radius = 16.0f;
+    std::vector<glm::vec2> points;  // used when shape == Custom
 
     uint32_t layer = 1;
     uint32_t mask  = 1;
 
     bool  debugDraw  = false;
-    Color debugColor = {0.0f, 1.0f, 0.0f, 0.8f};
+    Color debugColor = { 0, 1, 0, 0.8f };
 };
 ```
 
 **Shapes:** `ColliderShape::Rectangle`, `ColliderShape::Circle`, `ColliderShape::Custom`
 
-**Layer / mask filtering** (Godot-style): a collision only fires if
-`(a.layer & b.mask) || (b.layer & a.mask)`.
+**Layer/mask filtering** — a collision only fires if `(a.layer & b.mask) || (b.layer & a.mask)`.
 
 **Signals:**
+- `on_collision_enter` — fired once when two colliders first overlap
+- `on_collision_exit` — fired once when they stop overlapping
 
-| Signal | Argument | When |
-|---|---|---|
-| `on_collision_enter` | `Collider2D* other` | First frame of overlap |
-| `on_collision_exit` | `Collider2D* other` | First frame after overlap ends |
-
-```cpp
-auto* col = scene.Add<Collider2D>("playerCol");
-col->x = 400; col->y = 300;
-col->width = 32; col->height = 48;
-
-col->Connect("on_collision_enter", [](Collider2D* other) {
-    if (other->name == "enemy") { /* take damage */ }
-});
-```
-
-### CollisionWorld
-
-`Scene` manages a `CollisionWorld` automatically. You can also use one manually:
-
-```cpp
-CollisionWorld world;
-world.Add(&colA);
-world.Add(&colB);
-world.Update();   // detects overlaps and fires signals
-
-// One-shot overlap test with no signals
-bool hit = CollisionWorld::Overlaps(&colA, &colB);
-```
-
----
-
-## 15. Animation
-
-### The .anim format
-
-`.anim` is a human-readable text format compiled to `.konani` binary at build time.
-Lines starting with `#` are comments.
-
-```
-# spritesheet path — loaded automatically in KonAnimator
-spritesheet sprites/player.png
-
-anim idle loop
-    display 32 32 1.0
-    frame 0 0 32 32 0.12
-    frame 32 0 32 32 0.12
-    frame 64 0 32 32 0.12
-end
-
-anim jump
-    display 32 32 1.0
-    frame 96 0 32 32 0.08
-    frame 128 0 32 32 0.08
-    track scaleY 0.0  1.0 easeout
-    track scaleY 0.15 1.4 easeout
-    track scaleY 0.35 1.0 easein
-end
-```
-
-**Syntax:**
-
-| Token | Format | Description |
-|---|---|---|
-| `spritesheet` | `spritesheet <path>` | Path to the image (KonAnimator only) |
-| `anim` | `anim <name> [loop]` | Start a clip; add `loop` to repeat |
-| `display` | `display <w> <h> <scale>` | Display size in pixels and scale |
-| `frame` | `frame <srcX> <srcY> <srcW> <srcH> <duration>` | One sprite sheet frame |
-| `track` | `track <prop> <time> <value> [curve]` | Keyframe on a property |
-| `end` | `end` | Close the current clip |
-
-**Animatable properties:** `x`, `y`, `scaleX`, `scaleY`, `rotation`, `alpha`
-
-### Compiling
-
-```bash
-# CLI
-./anim_compiler player.anim
-
-# GUI (Qt)
-./anim_compiler
-
-# Or use KonAnimator for the full visual editor
-```
-
----
-
-## 16. AnimationPlayer
-
-```cpp
-class AnimationPlayer : public Node {
-public:
-    Sprite2D* target = nullptr;  // set automatically from parent Sprite2D
-    Node2D*   node   = nullptr;  // set automatically from parent Node2D
-    float     speed  = 1.0f;
-
-    AnimationPlayer& Add(const Animation& anim);
-    bool LoadFromFile(const std::string& path);  // loads .konani binary
-
-    void Play(const std::string& name);
-    void Pause();
-    void Resume();
-    void Stop();
-
-    bool               IsPlaying()  const;
-    bool               IsFinished() const;
-    const std::string& GetCurrent() const;
-    int                GetCurrentFrame() const;
-    float              GetElapsed() const;
-};
-```
-
-When `Play()` is called, `AnimationPlayer` automatically:
-- Finds the parent `Sprite2D` or `Node2D` if `target`/`node` are not set
-- Enables `useSourceRect` on the target sprite
-- Sets `width`/`height` from the clip's `display` values
-
-**Signal:** `animation_finished` — emitted when a non-looping animation completes.
+Collision signals also bubble up to the parent node's `OnCollisionEnter/Exit` automatically.
 
 ### Typical setup
 
 ```cpp
-auto* sprite = scene.Add<Sprite2D>("player");
-sprite->SetTexture(LoadTexture("sprites/player.png"));
-
-auto* anim = sprite->AddChild<AnimationPlayer>("anim");
-anim->LoadFromFile("sprites/player.konani");
-anim->Play("idle");
-
-// Transition on landing
-anim->Connect("animation_finished", [&]() {
-    anim->Play("idle");
-});
+auto* player = scene.Add<Player>("player");
+auto* col    = player->AddChild<Collider2D>("hitbox");
+col->width   = 28.0f;
+col->height  = 44.0f;
+scene.ScanColliders();
 ```
 
-### Switching animations
+### CollisionWorld
+
+Managed automatically by `Scene`. Can also be used manually:
 
 ```cpp
-if (IsKeyPressed(Key::Space) && grounded) {
-    anim->Play("jump");
-    grounded = false;
-}
+CollisionWorld world;
+world.Add(&colliderA);
+world.Add(&colliderB);
+world.Update();  // checks all pairs, fires signals
 
-if (grounded && !anim->IsPlaying()) {
-    anim->Play("idle");
-}
+bool hit = CollisionWorld::Overlaps(&a, &b);  // direct test, no signals
 ```
 
 ---
 
-## 17. Easing Curves
+## 14. Animation
 
-Used in `.anim` keyframe tracks. All curves take `t ∈ [0, 1]`.
+```cpp
+struct AnimationFrame {
+    float srcX, srcY, srcWidth, srcHeight;
+    float duration;  // seconds
+};
+
+struct KeyframeTrack {
+    std::string name;  // "x", "y", "scaleX", "alpha", etc.
+    KeyframeTrack& AddKey(float time, float value, Ease curve = Ease::Linear);
+    float Sample(float time) const;
+};
+
+struct Animation {
+    std::string name;
+    float       duration = 0.0f;
+    bool        loop     = false;
+
+    Animation& AddFrame(float srcX, float srcY, float srcW, float srcH, float dur = 0.1f);
+    KeyframeTrack& Track(const std::string& name);
+    void AutoDuration();
+};
+```
+
+Animations are stored in `.anim` text files and compiled to `.konani` binary by
+`anim_compiler`. They can also be built in code:
+
+```cpp
+Animation run("run", true);
+run.AddFrame(0,  0, 32, 32, 0.1f);
+run.AddFrame(32, 0, 32, 32, 0.1f);
+
+Animation jump("jump", false);
+jump.Track("y").AddKey(0.0f, 400.0f).AddKey(0.3f, 300.0f, Ease::EaseOut)
+               .AddKey(0.6f, 400.0f, Ease::EaseIn);
+jump.AutoDuration();
+```
+
+---
+
+## 15. AnimationPlayer
+
+```cpp
+class AnimationPlayer : public Node {
+public:
+    float speed = 1.0f;
+
+    void Add(const Animation& anim);
+    void Play(const std::string& name);
+    void Stop();
+    void Pause();
+    void Resume();
+    void SetLoop(const std::string& name, bool loop);
+
+    bool        IsPlaying()  const;
+    bool        IsFinished() const;
+    std::string GetCurrent() const;
+};
+```
+
+`AnimationPlayer` auto-detects a `Sprite2D` parent and drives its source rect for
+sprite sheet animation. It also applies keyframe tracks to the parent node's properties.
+
+```cpp
+auto* sprite = scene.Add<Sprite2D>("player");
+auto* anim   = sprite->AddChild<AnimationPlayer>("anim");
+
+Animation run("run", true);
+run.AddFrame(0, 0, 32, 32, 0.1f);
+run.AddFrame(32, 0, 32, 32, 0.1f);
+anim->Add(run);
+anim->Play("run");
+```
+
+---
+
+## 16. Easing Curves
+
+Used in keyframe animation tracks. All curves take `t` in `[0, 1]`.
 
 | Name | Feel |
 |---|---|
-| `linear` | Constant speed |
-| `easein` | Starts slow, ends fast |
-| `easeout` | Starts fast, ends slow |
-| `easeinout` | Slow → fast → slow |
-| `easeincubic` / `easeoutcubic` / `easeinoutcubic` | Stronger cubic versions |
-| `easeinelastic` / `easeoutelastic` / `easeinoutelastic` | Springy overshoot |
-| `easeinbounce` / `easeoutbounce` / `easeinoutbounce` | Bouncing |
-| `easeinback` / `easeoutback` / `easeinoutback` | Slight pull-back then settle |
-
-**Quick guide:** use `easeout` for things sliding into place, `easeinoutback` for UI
-popups, `linear` for continuous loops like a spinning object.
-
-You can also apply curves directly in C++:
+| `Linear` | Constant speed |
+| `EaseIn` | Starts slow, ends fast |
+| `EaseOut` | Starts fast, ends slow |
+| `EaseInOut` | Slow-fast-slow |
+| `EaseInCubic` / `EaseOutCubic` / `EaseInOutCubic` | Stronger versions |
+| `EaseInElastic` / `EaseOutElastic` / `EaseInOutElastic` | Springy overshoot |
+| `EaseInBounce` / `EaseOutBounce` / `EaseInOutBounce` | Bouncing |
+| `EaseInBack` / `EaseOutBack` / `EaseInOutBack` | Slight overshoot then settle |
 
 ```cpp
 float t = Curves::Apply(Ease::EaseOutBack, rawT);
@@ -742,48 +589,36 @@ float t = Curves::Apply(Ease::EaseOutBack, rawT);
 
 ---
 
-## 18. Debug Mode
+## 17. Debug Mode
 
 ```cpp
 void DebugMode(bool enabled);
 bool IsDebugMode();
 ```
 
-Call before or after `InitWindow`. When enabled:
-
-- Red border drawn around the window edge
-- Red crosshair follows the mouse cursor
+When enabled:
+- Red border drawn around the window
+- Red crosshair drawn at the mouse cursor position
 - FPS, mouse position, and delta time printed to stdout every second
-- All `Collider2D` nodes in the active scene have their outlines drawn
-  automatically, regardless of their individual `debugDraw` flag
+- All `Collider2D` nodes in the active scene have their shapes drawn automatically
 
 ```cpp
-int main() {
-    DebugMode(true);
-    InitWindow(800, 600, "My Game");
-    // ...
-}
-```
-
-Disable before shipping:
-```cpp
-DebugMode(false);
+DebugMode(true);
+InitWindow(800, 600, "My Game");
 ```
 
 ---
 
-## 19. Math — Vector2
+## 18. Math — Vector2
 
 ```cpp
 struct Vector2 {
     float x, y;
 
     Vector2(float x = 0, float y = 0);
-    Vector2(const glm::vec2& v);
-    operator glm::vec2() const;
 
-    // Arithmetic: +  -  *  /  +=  -=  *=  /=  unary -
-    // Comparison:  ==  !=
+    // Arithmetic: +, -, *, /, +=, -=, *=, /=, unary -
+    // Comparison: ==, !=
 
     float   Length() const;
     float   LengthSq() const;
@@ -805,32 +640,106 @@ struct Vector2 {
 ```
 
 ```cpp
-Vector2 vel = Vector2::Right() * 300.0f;
+Vector2 vel = Vector2::Right() * 200.0f;
 vel = vel.Rotated(angle);
 pos += vel * GetDeltaTime();
 ```
 
 ---
 
-## 20. Tools
+## 19. Tools
 
-KonEngine ships with companion tools for animation and asset management.
-Each has its own documentation.
+KonEngine ships with companion tools.
 
-| Tool | Binary | Purpose | Docs |
-|---|---|---|---|
-| KonAnimator | `build/tools/KonAnimator/KonAnimator` | Visual animation editor | [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) |
-| anim_compiler | `build/anim_compiler` | Compile `.anim` → `.konani` (CLI + GUI) | — |
-| KonPaktor | `tools/KonPaktor/build/KonPaktor` | Manage `.konpak` archives (GUI) | [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) |
-| konpak | `tools/KonPaktor/build/konpak` | Manage `.konpak` archives (CLI) | [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) |
-| KonScript | `build/konscript` / `ksc` | Scripting language compiler | [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) |
+### KonScript
 
-Build all tools at once:
+A scripting language that compiles to C++ and links against KonEngine.
+Write games without touching C++ directly.
 
-```bash
-./build-tools.sh
+See **[tools/KonScript/DOCS.md](tools/KonScript/DOCS.md)** for the full language reference.
+
+```ks
+#include <engine>
+
+node Player : Node2D {
+    let mut speed: F64 = 200.0;
+
+    func Ready() {
+        x = 100.0;
+        y = 400.0;
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x += speed * dt; }
+        if KeyDown(Key.A) { x -= speed * dt; }
+    }
+
+    func OnCollisionEnter(other: Collider2D) {
+        if other.name == "enemy" {
+            Print("Hit!\n");
+        }
+    }
+}
+
+func main() {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, "player");
+    let col: Collider2D = player.add(Collider2D, "hitbox");
+    col.width  = 32.0;
+    col.height = 48.0;
+    scene.scan();
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.update(dt);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+}
 ```
 
----
+**Usage:**
+```bash
+ksc main.ks            # compile and run
+ksc main.ks --keep     # keep the generated .cpp
+ksc --compile main.ks  # compile only
+ksc --check main.ks    # typecheck only
+```
 
-*KonEngine is MIT licensed. Free to use in personal, commercial, and open source projects.*
+**CMake integration:**
+```cmake
+add_subdirectory(KonEngine)
+add_executable(MyGame)
+target_link_libraries(MyGame PRIVATE KonEngine)
+konscript_sources(MyGame src/main.ks)
+```
+
+See `tools/KonScript/DOCS.md` for the full KonScript language reference.
+
+### KonAnimator
+
+Standalone Qt animation editor. Visual spritesheet frame editor, keyframe timeline,
+live OpenGL preview. Saves `.anim` files and compiles to `.konani`.
+
+See **[tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md)** for the full reference.
+
+```bash
+./build-tools.sh  # builds KonAnimator and anim_compiler
+```
+
+### KonPaktor
+
+Asset packer — bundles and encrypts game assets into `.konpak` files for distribution.
+
+See **[tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md)** for the full reference.
+
+```bash
+konpak create game.konpak assets/ --pass mypassword
+konpak list   game.konpak
+konpak extract game.konpak --out ./out
+```
