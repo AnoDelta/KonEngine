@@ -44,9 +44,9 @@ Makefile
 *.ilk
 *.exp
 
-# Specific engine/tool binaries
-/KonEngine
-/tools/KonAnimator/build/KonAnimator
+# Specific engine/tool binaries (use paths to avoid matching directories)
+/build/KonEngine
+/build/KonAnimator
 /build/anim_compiler
 
 # -----------------------------------------------------------------------
@@ -138,3 +138,10 @@ $RECYCLE.BIN/
 *.log
 *.tmp
 *.temp
+
+# -----------------------------------------------------------------------
+# KonPaktor binaries and archives
+# -----------------------------------------------------------------------
+/tools/KonPaktor/build/konpak
+/tools/KonPaktor/build/KonPaktor
+*.konpak
