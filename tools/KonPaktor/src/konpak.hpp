@@ -20,6 +20,10 @@
 #include <algorithm>
 #include <stdexcept>
 #include <functional>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 // -----------------------------------------------------------------------
 // zlib for compression
@@ -53,6 +57,18 @@ static constexpr int      IV_SIZE    = 16;
 static constexpr int      KEY_SIZE   = 32;  // AES-256
 static constexpr int      PBKDF2_ITER = 100000;
 static constexpr int      BLOCK_SIZE = 16;  // AES block
+
+// -----------------------------------------------------------------------
+// Compile-time key support
+// Define KON_PACK_KEY in your CMakeLists to bake a password into the binary:
+//   target_compile_definitions(MyGame PRIVATE KON_PACK_KEY="mygamekey")
+// Then use Pack::openWithBuiltinKey() instead of setting password manually.
+// -----------------------------------------------------------------------
+#ifdef KON_PACK_KEY
+  static constexpr const char* BUILTIN_KEY = KON_PACK_KEY;
+#else
+  static constexpr const char* BUILTIN_KEY = nullptr;
+#endif
 
 // -----------------------------------------------------------------------
 // Entry — one file inside the pack
@@ -452,6 +468,49 @@ struct Pack {
             e.offset  = ie.offset;
             e.data    = std::move(raw);
             entries.push_back(std::move(e));
+        }
+    }
+
+    // ---- Open using the compile-time baked key (KON_PACK_KEY) ----
+    // Use this in release game builds so the player is never prompted.
+    void openWithBuiltinKey(const std::string& path) {
+        if (BUILTIN_KEY == nullptr)
+            throw std::runtime_error(
+                "KonPak: no builtin key -- compile with -DKON_PACK_KEY=...");
+        password = BUILTIN_KEY;
+        load(path);
+    }
+
+    // ---- Extract all files to a directory at startup ----
+    // Useful pattern: extract everything once on launch, then use loose files.
+    void extractAllTo(const std::string& outDir) const {
+        for (auto& e : entries) {
+            // Reconstruct directory structure
+            std::string fullPath = outDir + "/" + e.path;
+            // Create parent dirs
+            std::string dir = fullPath;
+            size_t pos = dir.rfind('/');
+            if (pos != std::string::npos) {
+                dir = dir.substr(0, pos);
+                // mkdir -p equivalent (portable C++17)
+                std::string tmp;
+                for (char c : dir) {
+                    tmp += c;
+                    if (c == '/') {
+                        #ifdef _WIN32
+                        _mkdir(tmp.c_str());
+                        #else
+                        mkdir(tmp.c_str(), 0755);
+                        #endif
+                    }
+                }
+                #ifdef _WIN32
+                _mkdir(dir.c_str());
+                #else
+                mkdir(dir.c_str(), 0755);
+                #endif
+            }
+            extractFile(e.path, fullPath);
         }
     }
 
