@@ -59,50 +59,47 @@ target_link_libraries(KonTest PRIVATE KonEngine)
 set_target_properties(KonTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # -----------------------------------------------------------------------
-# anim_compiler -- standalone animation compiler tool
+# KonAnimator + anim_compiler -- Qt tools (optional, -DKON_BUILD_TOOLS=ON)
 # -----------------------------------------------------------------------
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
-set(IMGUI_SRCS
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-)
-
-add_executable(anim_compiler
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp
-    ${IMGUI_SRCS}
-)
-target_include_directories(anim_compiler PRIVATE
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/glad/include
-)
-target_link_libraries(anim_compiler PRIVATE glfw)
-if(WIN32)
-    target_link_libraries(anim_compiler PRIVATE opengl32)
-else()
-    target_link_libraries(anim_compiler PRIVATE GL)
-endif()
-set_target_properties(anim_compiler PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-# -----------------------------------------------------------------------
-# KonAnimator -- Qt animation editor (optional, -DKON_BUILD_TOOLS=ON)
-# -----------------------------------------------------------------------
-option(KON_BUILD_TOOLS "Build KonAnimator Qt tool" OFF)
+option(KON_BUILD_TOOLS "Build KonAnimator and anim_compiler Qt tools" OFF)
 
 if(KON_BUILD_TOOLS)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
     find_package(Qt5 QUIET COMPONENTS Core Gui Widgets OpenGL)
     if(Qt5_FOUND)
+        # anim_compiler
+        set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
+        set(IMGUI_SRCS
+            ${IMGUI_DIR}/imgui.cpp
+            ${IMGUI_DIR}/imgui_draw.cpp
+            ${IMGUI_DIR}/imgui_tables.cpp
+            ${IMGUI_DIR}/imgui_widgets.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+        )
+        add_executable(anim_compiler
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp
+            ${IMGUI_SRCS}
+        )
+        target_include_directories(anim_compiler PRIVATE
+            ${IMGUI_DIR}
+            ${IMGUI_DIR}/backends
+            ${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/glad/include
+        )
+        target_link_libraries(anim_compiler PRIVATE glfw Qt5::Core Qt5::Gui Qt5::Widgets Qt5::OpenGL)
+        if(WIN32)
+            target_link_libraries(anim_compiler PRIVATE opengl32)
+        else()
+            target_link_libraries(anim_compiler PRIVATE GL)
+        endif()
+
+        # KonAnimator
         add_subdirectory(tools/KonAnimator)
-        message(STATUS "KonAnimator: enabled")
+        message(STATUS "KonAnimator + anim_compiler: enabled")
     else()
-        message(WARNING "KON_BUILD_TOOLS=ON but Qt5 not found -- KonAnimator skipped")
+        message(WARNING "KON_BUILD_TOOLS=ON but Qt5 not found -- tools skipped")
     endif()
 endif()
 
