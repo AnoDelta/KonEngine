@@ -73,11 +73,14 @@ jobs:
           cmake --build build --target KonAnimator
           cmake --build build --target anim_compiler
 
+      - name: Find tool binaries
+        run: find build -type f -name "KonAnimator" -o -name "anim_compiler" | sort
+
       - name: Package tools
         run: |
           mkdir -p tools-staging
-          cp build/KonAnimator tools-staging/
-          cp build/anim_compiler tools-staging/
+          find build -name "KonAnimator" -type f -exec cp {} tools-staging/ \;
+          find build -name "anim_compiler" -type f -exec cp {} tools-staging/ \;
           zip -r KonAnimator-linux-${{ github.ref_name }}.zip tools-staging/
 
       - name: Upload tools release
