@@ -173,6 +173,13 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
 }
 
 void TimelineWidget::mousePressEvent(QMouseEvent* e) {
+    if (e->button() == Qt::RightButton) {
+        m_panning    = true;
+        m_panStartX  = e->pos().x();
+        m_panScrollX = m_scrollX;
+        return;
+    }
+
     if (!m_clip) return;
 
     // Hit-test keyframes first
@@ -200,6 +207,12 @@ void TimelineWidget::mousePressEvent(QMouseEvent* e) {
 }
 
 void TimelineWidget::mouseMoveEvent(QMouseEvent* e) {
+    if (m_panning) {
+        float dx  = (e->pos().x() - m_panStartX) / m_zoom;
+        m_scrollX = std::max(0.0f, m_panScrollX - dx);
+        update();
+        return;
+    }
     if (m_dragging && m_selTrack >= 0 && m_selKey >= 0 && m_clip) {
         float t = std::max(0.0f, xToTime(e->pos().x()));
         m_clip->tracks[m_selTrack].keys[m_selKey].time = t;
@@ -213,7 +226,11 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* e) {
     }
 }
 
-void TimelineWidget::mouseReleaseEvent(QMouseEvent*) {
+void TimelineWidget::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() == Qt::RightButton && m_panning) {
+        m_panning = false;
+        return;
+    }
     if (m_dragging) {
         m_dragging = false;
         if (m_clip && m_selTrack >= 0)

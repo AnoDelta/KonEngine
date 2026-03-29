@@ -7,6 +7,8 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <cstdio>
+#include <cmath>
 #include <vector>
 #include <unordered_set>
 #include <unordered_map>
@@ -41,6 +43,8 @@ public:
         line("// Source: " + prog.filename);
         if (m_target == Target::Engine) {
             line("#include \"KonEngine.hpp\"");
+            line("#include <cstdio>");
+            line("#include <cmath>");
         }
         line("#include <string>");
         line("#include <vector>");
@@ -725,6 +729,20 @@ private:
             {"UpdateMusic",        "UpdateMusic"},
             {"LoadTexture",        "LoadTexture"},
             {"UnloadTexture",      "UnloadTexture"},
+            {"Distance",           "glm::distance"},
+            {"Sqrt",               "sqrtf"},
+            {"Abs",                "fabsf"},
+            {"Floor",              "floorf"},
+            {"Ceil",               "ceilf"},
+            {"Round",              "roundf"},
+            {"Sin",                "sinf"},
+            {"Cos",                "cosf"},
+            {"Tan",                "tanf"},
+            {"Atan2",              "atan2f"},
+            {"Clamp",              "glm::clamp"},
+            {"Lerp",               "glm::mix"},
+            {"Min",                "std::min"},
+            {"Max",                "std::max"},
         };
         auto it = builtins.find(e->name);
         write(it != builtins.end() ? it->second : e->name);
@@ -775,6 +793,42 @@ private:
                 genExpr(e->args[0].get());
                 write(").c_str()");
                 return;
+            }
+
+            // DrawText with format args:
+            // DrawText("FPS: %d", 10, 20, 16, GREEN, fps) -- format + args
+            // DrawText("text", x, y, size, color)          -- plain, pass through
+            // We detect: if first arg is a string with % and there are args after color
+            // Signature: DrawText(fmt, x, y, size, color [, fmtargs...])
+            if (id->name == "DrawText" && e->args.size() >= 5) {
+                // args: [0]=text, [1]=x, [2]=y, [3]=size, [4]=color, [5+]=format args
+                size_t fmtArgCount = e->args.size() - 5;
+                if (fmtArgCount > 0) {
+                    // Has format args -- wrap in snprintf
+                    write("{ char _ks_buf[512]; snprintf(_ks_buf, sizeof(_ks_buf), ");
+                    genExpr(e->args[0].get()); // format string
+                    for (size_t i = 5; i < e->args.size(); i++) {
+                        write(", ");
+                        genExpr(e->args[i].get());
+                    }
+                    write("); DrawText(_ks_buf, (float)");
+                    genExpr(e->args[1].get()); write(", (float)");
+                    genExpr(e->args[2].get()); write(", (int)");
+                    genExpr(e->args[3].get()); write(", ");
+                    genExpr(e->args[4].get());
+                    write("); }");
+                    return;
+                } else {
+                    // Plain DrawText(text, x, y, size, color)
+                    write("DrawText((const char*)");
+                    genExpr(e->args[0].get()); write(", (float)");
+                    genExpr(e->args[1].get()); write(", (float)");
+                    genExpr(e->args[2].get()); write(", (int)");
+                    genExpr(e->args[3].get()); write(", ");
+                    genExpr(e->args[4].get());
+                    write(")");
+                    return;
+                }
             }
 
             // Vec2(x, y) -> Vector2{x, y}

@@ -1,5 +1,7 @@
 #pragma once
 #include <QMainWindow>
+#include <QDockWidget>
+#include <QByteArray>
 #include <QTimer>
 #include <QLabel>
 #include <QListWidget>
@@ -64,6 +66,10 @@ private slots:
     void onFrameChanged(int idx);
     void onElapsedChanged(float t);
 
+    // Layout
+    void resetDockLayout();
+    void applyLayoutPreset(int preset); // 0=default, 1=animation, 2=spritesheet, 3=timeline-focus
+
 private:
     void buildMenuBar();
     void buildUI();
@@ -89,9 +95,23 @@ private:
     int m_trackIdx = -1;
     int m_keyIdx   = -1;
 
-    AnimClip* clip()  { return (m_clipIdx>=0 && m_clipIdx<(int)m_proj.clips.size()) ? &m_proj.clips[m_clipIdx] : nullptr; }
+    AnimClip* clip() {
+        return (m_clipIdx >= 0 && m_clipIdx < (int)m_proj.clips.size())
+            ? &m_proj.clips[m_clipIdx] : nullptr;
+    }
 
-    bool m_suppress = false; // block signal-triggered saves during refresh
+    bool m_suppress = false;
+
+    // ---- Dock widgets ----
+    QDockWidget* m_dockLeft     = nullptr;
+    QDockWidget* m_dockSheet    = nullptr;
+    QDockWidget* m_dockTimeline = nullptr;
+
+    // Saved layout states for presets
+    QByteArray m_layoutDefault;
+    QByteArray m_layoutAnimation;
+    QByteArray m_layoutSpritesheet;
+    QByteArray m_layoutTimelineFocus;
 
     // ---- Left panel ----
     QListWidget*    m_clipList    = nullptr;
@@ -107,18 +127,18 @@ private:
     QDoubleSpinBox* m_fSrcH       = nullptr;
     QDoubleSpinBox* m_fDur        = nullptr;
 
-    // ---- Center panel ----
+    // ---- Center panel (spritesheet) ----
     SpritesheetView* m_sheetView  = nullptr;
     QSlider*         m_zoomSlider = nullptr;
 
-    // ---- Right panel ----
+    // ---- Right panel (preview + tracks) ----
     PreviewWidget*  m_preview     = nullptr;
     QListWidget*    m_trackList   = nullptr;
     QDoubleSpinBox* m_kfTime      = nullptr;
     QDoubleSpinBox* m_kfValue     = nullptr;
     QComboBox*      m_kfCurve     = nullptr;
 
-    // ---- Bottom panel ----
+    // ---- Bottom panel (timeline) ----
     TimelineWidget* m_timeline    = nullptr;
     QPushButton*    m_playBtn     = nullptr;
     QLabel*         m_timeLabel   = nullptr;

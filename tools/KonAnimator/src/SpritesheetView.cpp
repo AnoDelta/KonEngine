@@ -2,7 +2,6 @@
 #include <QPainter>
 #include <QMouseEvent>
 #include <QWheelEvent>
-#include <QScrollArea>
 #include <algorithm>
 
 SpritesheetView::SpritesheetView(QWidget* parent) : QWidget(parent) {
@@ -12,17 +11,16 @@ SpritesheetView::SpritesheetView(QWidget* parent) : QWidget(parent) {
 }
 
 void SpritesheetView::setPixmap(const QPixmap& px) {
-    m_pixmap = px;
-    updateGeometry();
-    update();
+    m_pixmap = px; updateGeometry(); update();
 }
-void SpritesheetView::setFrames(const std::vector<AnimFrame>* f) { m_frames = f; update(); }
+void SpritesheetView::setFrames(std::vector<AnimFrame>* f) {
+    m_frames = f; update();
+}
 void SpritesheetView::setSelectedFrame(int i)  { m_selectedIdx  = i; update(); }
 void SpritesheetView::setHighlightFrame(int i) { m_highlightIdx = i; update(); }
 void SpritesheetView::setZoom(float z) {
     m_zoom = std::max(0.5f, std::min(z, 16.0f));
-    updateGeometry();
-    update();
+    updateGeometry(); update();
 }
 
 QSize SpritesheetView::sizeHint() const {
@@ -44,11 +42,49 @@ QRect SpritesheetView::frameToWidget(const AnimFrame& f) const {
     return QRect(x, y, w, h);
 }
 
+SpritesheetView::HitZone SpritesheetView::hitTest(const AnimFrame& f, QPoint p) const {
+    QRect r = frameToWidget(f);
+    if (!r.adjusted(-kHandle, -kHandle, kHandle, kHandle).contains(p))
+        return HitZone::None;
+
+    bool onL = p.x() <= r.left()  + kHandle;
+    bool onR = p.x() >= r.right() - kHandle;
+    bool onT = p.y() <= r.top()   + kHandle;
+    bool onB = p.y() >= r.bottom()- kHandle;
+
+    if (onT && onL) return HitZone::TopLeft;
+    if (onT && onR) return HitZone::TopRight;
+    if (onB && onL) return HitZone::BottomLeft;
+    if (onB && onR) return HitZone::BottomRight;
+    if (onL)        return HitZone::Left;
+    if (onR)        return HitZone::Right;
+    if (onT)        return HitZone::Top;
+    if (onB)        return HitZone::Bottom;
+
+    if (r.contains(p)) return HitZone::Body;
+    return HitZone::None;
+}
+
+QCursor SpritesheetView::cursorForZone(HitZone z) const {
+    switch (z) {
+        case HitZone::Body:        return Qt::SizeAllCursor;
+        case HitZone::Left:
+        case HitZone::Right:       return Qt::SizeHorCursor;
+        case HitZone::Top:
+        case HitZone::Bottom:      return Qt::SizeVerCursor;
+        case HitZone::TopLeft:
+        case HitZone::BottomRight: return Qt::SizeFDiagCursor;
+        case HitZone::TopRight:
+        case HitZone::BottomLeft:  return Qt::SizeBDiagCursor;
+        default:                   return Qt::CrossCursor;
+    }
+}
+
 void SpritesheetView::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::SmoothPixmapTransform, false);
 
-    // Checkerboard background
+    // Checkerboard
     const int cs = 8;
     for (int y = 0; y < height(); y += cs)
         for (int x = 0; x < width(); x += cs)
@@ -58,11 +94,10 @@ void SpritesheetView::paintEvent(QPaintEvent*) {
     if (m_pixmap.isNull()) {
         p.setPen(QColor(130,130,130));
         p.drawText(rect(), Qt::AlignCenter,
-            "No spritesheet loaded\n\nFile  \342\206\222  Load Spritesheet");
+            "No spritesheet loaded\n\nFile \342\206\222 Load Spritesheet");
         return;
     }
 
-    // Sheet image
     int ox = 4 + m_panOffset.x();
     int oy = 4 + m_panOffset.y();
     QRect dst(ox, oy,
@@ -70,10 +105,9 @@ void SpritesheetView::paintEvent(QPaintEvent*) {
               (int)(m_pixmap.height() * m_zoom));
     p.drawPixmap(dst, m_pixmap);
 
-    // Frame overlays
     if (m_frames) {
         for (int i = 0; i < (int)m_frames->size(); i++) {
-            QRect r = frameToWidget((*m_frames)[i]);
+            QRect r  = frameToWidget((*m_frames)[i]);
             bool sel  = (i == m_selectedIdx);
             bool play = (i == m_highlightIdx);
 
@@ -89,20 +123,35 @@ void SpritesheetView::paintEvent(QPaintEvent*) {
             p.setPen(QPen(border, bw));
             p.drawRect(r);
 
-            // Index label
             p.setPen(border);
             p.setFont(QFont("monospace", std::max(7, (int)(m_zoom * 3))));
             p.drawText(r.adjusted(2,1,0,0), QString::number(i));
+
+            // Draw resize handles on selected frame
+            if (sel && !play) {
+                p.setBrush(QColor(0,180,255));
+                p.setPen(QPen(Qt::white, 1));
+                auto drawHandle = [&](int hx, int hy) {
+                    p.drawRect(hx - kHandle/2, hy - kHandle/2, kHandle, kHandle);
+                };
+                drawHandle(r.left(),        r.top());
+                drawHandle(r.center().x(),  r.top());
+                drawHandle(r.right(),       r.top());
+                drawHandle(r.left(),        r.center().y());
+                drawHandle(r.right(),       r.center().y());
+                drawHandle(r.left(),        r.bottom());
+                drawHandle(r.center().x(),  r.bottom());
+                drawHandle(r.right(),       r.bottom());
+            }
         }
     }
 
-    // Drag preview (new frame being drawn)
+    // New frame drag preview
     if (m_dragging) {
         QRect drag = QRect(m_dragStart, m_dragCurrent).normalized();
         p.fillRect(drag, QColor(255,120,0,50));
         p.setPen(QPen(QColor(255,160,0), 1, Qt::DashLine));
         p.drawRect(drag);
-
         QPointF tl = widgetToSheet(drag.topLeft());
         QPointF br = widgetToSheet(drag.bottomRight());
         QString info = QString("%1\303\2272")
@@ -112,41 +161,46 @@ void SpritesheetView::paintEvent(QPaintEvent*) {
         p.setFont(QFont("monospace", 9));
         p.drawText(drag.bottomLeft() + QPoint(2,14), info);
     }
-
-    // Pan cursor hint
-    if (m_panning) {
-        p.setPen(QColor(255,255,255,80));
-        p.setFont(QFont("monospace", 8));
-        p.drawText(8, height()-8, "Panning...");
-    }
 }
 
 void SpritesheetView::mousePressEvent(QMouseEvent* e) {
+    // RMB: pan
     if (e->button() == Qt::RightButton) {
-        // Start pan
-        m_panning       = true;
-        m_panStart      = e->pos();
+        m_panning        = true;
+        m_panStart       = e->pos();
         m_panOffsetStart = m_panOffset;
         setCursor(Qt::ClosedHandCursor);
-        update();
         return;
     }
 
     if (e->button() != Qt::LeftButton) return;
 
-    // Hit-test existing frames -- selection persists until another is clicked
+    // Hit-test frames (selected frame first, then others)
     if (m_frames) {
-        for (int i = (int)m_frames->size() - 1; i >= 0; i--) {
-            if (frameToWidget((*m_frames)[i]).contains(e->pos())) {
-                m_selectedIdx = i;
-                emit frameClicked(i);
-                update();
-                return;  // don't start a drag if we clicked a frame
-            }
+        // Check selected frame first for better UX
+        auto tryFrame = [&](int i) -> bool {
+            HitZone z = hitTest((*m_frames)[i], e->pos());
+            if (z == HitZone::None) return false;
+            m_selectedIdx  = i;
+            m_editing      = true;
+            m_editZone     = z;
+            m_editStart    = e->pos();
+            m_editOriginal = (*m_frames)[i];
+            emit frameClicked(i);
+            update();
+            return true;
+        };
+
+        if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_frames->size())
+            if (tryFrame(m_selectedIdx)) return;
+
+        for (int i = (int)m_frames->size()-1; i >= 0; i--) {
+            if (i == m_selectedIdx) continue;
+            if (tryFrame(i)) return;
         }
     }
 
-    // Start drag for new frame (only if we didn't click an existing frame)
+    // No frame hit — start drawing a new frame
     m_dragging    = true;
     m_dragStart   = e->pos();
     m_dragCurrent = e->pos();
@@ -154,23 +208,100 @@ void SpritesheetView::mousePressEvent(QMouseEvent* e) {
 
 void SpritesheetView::mouseMoveEvent(QMouseEvent* e) {
     if (m_panning) {
-        QPoint delta  = e->pos() - m_panStart;
-        m_panOffset   = m_panOffsetStart + delta;
-        updateGeometry();
+        m_panOffset = m_panOffsetStart + (e->pos() - m_panStart);
+        updateGeometry(); update();
+        return;
+    }
+
+    if (m_editing && m_frames && m_selectedIdx >= 0) {
+        QPointF delta = QPointF(e->pos() - m_editStart) / m_zoom;
+        float dx = (float)delta.x();
+        float dy = (float)delta.y();
+        AnimFrame& fr = (*m_frames)[m_selectedIdx];
+        AnimFrame  o  = m_editOriginal;
+
+        switch (m_editZone) {
+            case HitZone::Body:
+                fr.srcX = o.srcX + dx;
+                fr.srcY = o.srcY + dy;
+                break;
+            case HitZone::Left:
+                fr.srcX = o.srcX + dx;
+                fr.srcW = std::max(1.0f, o.srcW - dx);
+                break;
+            case HitZone::Right:
+                fr.srcW = std::max(1.0f, o.srcW + dx);
+                break;
+            case HitZone::Top:
+                fr.srcY = o.srcY + dy;
+                fr.srcH = std::max(1.0f, o.srcH - dy);
+                break;
+            case HitZone::Bottom:
+                fr.srcH = std::max(1.0f, o.srcH + dy);
+                break;
+            case HitZone::TopLeft:
+                fr.srcX = o.srcX + dx; fr.srcW = std::max(1.0f, o.srcW - dx);
+                fr.srcY = o.srcY + dy; fr.srcH = std::max(1.0f, o.srcH - dy);
+                break;
+            case HitZone::TopRight:
+                fr.srcW = std::max(1.0f, o.srcW + dx);
+                fr.srcY = o.srcY + dy; fr.srcH = std::max(1.0f, o.srcH - dy);
+                break;
+            case HitZone::BottomLeft:
+                fr.srcX = o.srcX + dx; fr.srcW = std::max(1.0f, o.srcW - dx);
+                fr.srcH = std::max(1.0f, o.srcH + dy);
+                break;
+            case HitZone::BottomRight:
+                fr.srcW = std::max(1.0f, o.srcW + dx);
+                fr.srcH = std::max(1.0f, o.srcH + dy);
+                break;
+            default: break;
+        }
+
+        // Clamp position to sheet bounds
+        if (!m_pixmap.isNull()) {
+            fr.srcX = std::max(0.0f, fr.srcX);
+            fr.srcY = std::max(0.0f, fr.srcY);
+        }
+
+        emit frameModified(m_selectedIdx);
         update();
         return;
     }
+
     if (m_dragging) {
         m_dragCurrent = e->pos();
         update();
+        return;
     }
+
+    // Update cursor based on what's under the mouse
+    if (m_frames && m_selectedIdx >= 0 && m_selectedIdx < (int)m_frames->size()) {
+        HitZone z = hitTest((*m_frames)[m_selectedIdx], e->pos());
+        if (z != HitZone::None) { setCursor(cursorForZone(z)); return; }
+    }
+    // Check other frames for hover cursor
+    if (m_frames) {
+        for (int i = (int)m_frames->size()-1; i >= 0; i--) {
+            HitZone z = hitTest((*m_frames)[i], e->pos());
+            if (z != HitZone::None) {
+                setCursor(z == HitZone::Body ? Qt::SizeAllCursor : cursorForZone(z));
+                return;
+            }
+        }
+    }
+    setCursor(Qt::CrossCursor);
 }
 
 void SpritesheetView::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::RightButton && m_panning) {
         m_panning = false;
         setCursor(Qt::CrossCursor);
-        update();
+        return;
+    }
+
+    if (m_editing) {
+        m_editing = false;
         return;
     }
 

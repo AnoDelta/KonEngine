@@ -41,6 +41,11 @@ private:
     int m_selTrack = -1, m_selKey = -1;
     bool m_dragging = false;
 
+    // RMB pan state
+    bool  m_panning   = false;
+    int   m_panStartX = 0;
+    float m_panScrollX = 0.0f;
+
     static const int kHeaderH = 22;
     static const int kTrackH  = 26;
     static const int kLabelW  = 80;

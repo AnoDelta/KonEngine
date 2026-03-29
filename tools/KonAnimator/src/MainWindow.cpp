@@ -17,6 +17,128 @@
 #include <cmath>
 
 // -----------------------------------------------------------------------
+// Clip presets
+// -----------------------------------------------------------------------
+struct ClipPreset {
+    const char* name;
+    const char* clipName;
+    bool loop;
+    float displayW, displayH, displayScale;
+    // KF tracks to add: { property, time, value, curve }
+    struct KF { const char* prop; float time, value; int curve; };
+    std::vector<KF> tracks;
+};
+
+static const std::vector<ClipPreset> kPresets = {
+    {
+        "Idle (loop, no tracks)",
+        "idle", true, 32, 32, 1.0f, {}
+    },
+    {
+        "Walk (loop, no tracks)",
+        "walk", true, 32, 32, 1.0f, {}
+    },
+    {
+        "Jump (no loop, squash+stretch)",
+        "jump", false, 32, 32, 1.0f, {
+            {"scaleY", 0.00f, 1.0f, 2},   // easeout
+            {"scaleY", 0.10f, 1.4f, 2},
+            {"scaleY", 0.35f, 0.8f, 3},   // easein
+            {"scaleY", 0.50f, 1.0f, 2},
+            {"scaleX", 0.00f, 1.0f, 2},
+            {"scaleX", 0.10f, 0.7f, 2},
+            {"scaleX", 0.35f, 1.2f, 3},
+            {"scaleX", 0.50f, 1.0f, 2},
+        }
+    },
+    {
+        "Land (no loop, impact squash)",
+        "land", false, 32, 32, 1.0f, {
+            {"scaleY", 0.00f, 0.5f, 3},
+            {"scaleY", 0.15f, 1.2f, 2},
+            {"scaleY", 0.30f, 1.0f, 2},
+            {"scaleX", 0.00f, 1.5f, 3},
+            {"scaleX", 0.15f, 0.9f, 2},
+            {"scaleX", 0.30f, 1.0f, 2},
+        }
+    },
+    {
+        "Die (no loop, fade out + fall)",
+        "die", false, 32, 32, 1.0f, {
+            {"alpha",    0.00f, 1.0f, 0},  // linear
+            {"alpha",    0.60f, 0.0f, 0},
+            {"rotation", 0.00f, 0.0f, 2},
+            {"rotation", 0.40f, 90.f, 2},
+            {"y",        0.00f, 0.0f, 2},
+            {"y",        0.40f, 40.f, 2},
+        }
+    },
+    {
+        "Pop In (no loop, scale from 0)",
+        "pop_in", false, 32, 32, 1.0f, {
+            {"scaleX", 0.00f, 0.0f, 13}, // easeinoutback
+            {"scaleX", 0.35f, 1.0f, 13},
+            {"scaleY", 0.00f, 0.0f, 13},
+            {"scaleY", 0.35f, 1.0f, 13},
+            {"alpha",  0.00f, 0.0f, 2},
+            {"alpha",  0.20f, 1.0f, 2},
+        }
+    },
+    {
+        "Pop Out (no loop, scale to 0)",
+        "pop_out", false, 32, 32, 1.0f, {
+            {"scaleX", 0.00f, 1.0f, 14}, // easeoutback
+            {"scaleX", 0.30f, 0.0f, 14},
+            {"scaleY", 0.00f, 1.0f, 14},
+            {"scaleY", 0.30f, 0.0f, 14},
+            {"alpha",  0.10f, 1.0f, 0},
+            {"alpha",  0.30f, 0.0f, 0},
+        }
+    },
+    {
+        "Hurt (no loop, flash + knockback)",
+        "hurt", false, 32, 32, 1.0f, {
+            {"x",     0.00f,  0.0f, 0},
+            {"x",     0.05f, -8.0f, 0},
+            {"x",     0.10f,  8.0f, 0},
+            {"x",     0.15f, -4.0f, 0},
+            {"x",     0.20f,  0.0f, 0},
+            {"alpha", 0.00f,  1.0f, 0},
+            {"alpha", 0.05f,  0.2f, 0},
+            {"alpha", 0.10f,  1.0f, 0},
+            {"alpha", 0.15f,  0.2f, 0},
+            {"alpha", 0.20f,  1.0f, 0},
+        }
+    },
+    {
+        "Attack (no loop, lunge forward)",
+        "attack", false, 32, 32, 1.0f, {
+            {"x",      0.00f,  0.0f, 2},
+            {"x",      0.10f, 12.0f, 2},
+            {"x",      0.30f,  0.0f, 3},
+            {"scaleX", 0.00f,  1.0f, 2},
+            {"scaleX", 0.08f,  1.3f, 2},
+            {"scaleX", 0.20f,  1.0f, 2},
+        }
+    },
+    {
+        "Float / Hover (loop, bobbing)",
+        "float", true, 32, 32, 1.0f, {
+            {"y", 0.00f,  0.0f, 4}, // easeinout
+            {"y", 0.50f, -6.0f, 4},
+            {"y", 1.00f,  0.0f, 4},
+        }
+    },
+    {
+        "Spin (loop, full rotation)",
+        "spin", true, 32, 32, 1.0f, {
+            {"rotation", 0.00f,   0.0f, 0},
+            {"rotation", 1.00f, 360.0f, 0},
+        }
+    },
+};
+
+// -----------------------------------------------------------------------
 // Constructor
 // -----------------------------------------------------------------------
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -68,56 +190,151 @@ void MainWindow::openFile(const QString& path) {
 // -----------------------------------------------------------------------
 void MainWindow::buildMenuBar() {
     auto* file = menuBar()->addMenu("&File");
-    file->addAction("&New",              this, &MainWindow::onNew,             QKeySequence::New);
-    file->addAction("&Open...",          this, &MainWindow::onOpen,            QKeySequence::Open);
+    file->addAction("&New",                 this, &MainWindow::onNew,             QKeySequence::New);
+    file->addAction("&Open...",             this, &MainWindow::onOpen,            QKeySequence::Open);
     file->addSeparator();
-    file->addAction("&Save",             this, &MainWindow::onSave,            QKeySequence::Save);
-    file->addAction("Save &As...",       this, &MainWindow::onSaveAs,          QKeySequence::SaveAs);
+    file->addAction("&Save",                this, &MainWindow::onSave,            QKeySequence::Save);
+    file->addAction("Save &As...",          this, &MainWindow::onSaveAs,          QKeySequence::SaveAs);
     file->addSeparator();
     file->addAction("Load &Spritesheet...", this, &MainWindow::onLoadSpritesheet);
     file->addSeparator();
-    file->addAction("&Compile .konani",  this, &MainWindow::onCompile,         QKeySequence("Ctrl+B"));
+    file->addAction("&Compile .konani",     this, &MainWindow::onCompile,         QKeySequence("Ctrl+B"));
     file->addSeparator();
-    file->addAction("&Quit",             this, &QWidget::close,                QKeySequence::Quit);
+    file->addAction("&Quit",                this, &QWidget::close,                QKeySequence::Quit);
 
     auto* anim = menuBar()->addMenu("&Animation");
-    anim->addAction("Add Clip",          this, &MainWindow::onAddClip);
-    anim->addAction("Remove Clip",       this, &MainWindow::onRemoveClip);
+    anim->addAction("Add Clip",           this, &MainWindow::onAddClip);
+    anim->addAction("Remove Clip",        this, &MainWindow::onRemoveClip);
     anim->addSeparator();
-    anim->addAction("Add Frame (Manual)",this, &MainWindow::onAddFrameManual);
-    anim->addAction("Remove Frame",      this, &MainWindow::onRemoveFrame);
+    anim->addAction("Add Frame (Manual)", this, &MainWindow::onAddFrameManual);
+    anim->addAction("Remove Frame",       this, &MainWindow::onRemoveFrame);
     anim->addSeparator();
-    anim->addAction("Add Track",         this, &MainWindow::onAddTrack);
-    anim->addAction("Remove Track",      this, &MainWindow::onRemoveTrack);
+    anim->addAction("Add Track",          this, &MainWindow::onAddTrack);
+    anim->addAction("Remove Track",       this, &MainWindow::onRemoveTrack);
     anim->addSeparator();
-    anim->addAction("Add Keyframe",      this, &MainWindow::onAddKeyframe);
-    anim->addAction("Remove Keyframe",   this, &MainWindow::onRemoveKeyframe);
+    anim->addAction("Add Keyframe",       this, &MainWindow::onAddKeyframe);
+    anim->addAction("Remove Keyframe",    this, &MainWindow::onRemoveKeyframe);
+
+
+
+    // View menu — toggle docks + layout presets
+    auto* view = menuBar()->addMenu("&View");
+    view->addAction("Toggle &Clips Panel",       [this]() { m_dockLeft->setVisible(!m_dockLeft->isVisible()); });
+    view->addAction("Toggle &Spritesheet Panel", [this]() { m_dockSheet->setVisible(!m_dockSheet->isVisible()); });
+    view->addAction("Toggle &Timeline",          [this]() { m_dockTimeline->setVisible(!m_dockTimeline->isVisible()); });
+    view->addSeparator();
+
+    auto* layouts = view->addMenu("&Layout Presets");
+    layouts->addAction("&Default",          [this]() { applyLayoutPreset(0); });
+    layouts->addAction("&Animation",        [this]() { applyLayoutPreset(1); });
+    layouts->addAction("&Spritesheet",      [this]() { applyLayoutPreset(2); });
+    layouts->addAction("&Timeline Focus",   [this]() { applyLayoutPreset(3); });
+    view->addSeparator();
+    view->addAction("Reset to Default",     this, &MainWindow::resetDockLayout);
 }
 
 // -----------------------------------------------------------------------
-// UI layout
+// UI layout — dockable panels
 // -----------------------------------------------------------------------
 void MainWindow::buildUI() {
-    auto* central = new QWidget(this);
-    setCentralWidget(central);
-    auto* root = new QVBoxLayout(central);
-    root->setContentsMargins(4,4,4,4);
-    root->setSpacing(4);
- 
-    // Layout order changed:
-    //   Left   = clips / frames / settings  (unchanged)
-    //   Center = preview + tracks           (was right panel)
-    //   Right  = spritesheet view           (was center panel)
-    auto* hSplit = new QSplitter(Qt::Horizontal);
-    hSplit->addWidget(buildLeftPanel());
-    hSplit->addWidget(buildRightPanel());   // preview is now center
-    hSplit->addWidget(buildCenterPanel()); // spritesheet is now right
-    hSplit->setStretchFactor(0, 2);
-    hSplit->setStretchFactor(1, 3);
-    hSplit->setStretchFactor(2, 3);
- 
-    root->addWidget(hSplit, 1);
-    root->addWidget(buildBottomPanel());
+    setDockOptions(QMainWindow::AllowTabbedDocks |
+                   QMainWindow::AllowNestedDocks |
+                   QMainWindow::AnimatedDocks);
+
+    // Preview + tracks is the central widget (always visible)
+    setCentralWidget(buildRightPanel());
+
+    // Left dock: clips + frames
+    m_dockLeft = new QDockWidget("Clips & Frames", this);
+    m_dockLeft->setObjectName("dockLeft");
+    m_dockLeft->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_dockLeft->setWidget(buildLeftPanel());
+    m_dockLeft->setMinimumWidth(230);
+    // Allow floating and re-docking
+    m_dockLeft->setFeatures(QDockWidget::DockWidgetMovable |
+                             QDockWidget::DockWidgetFloatable |
+                             QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::LeftDockWidgetArea, m_dockLeft);
+
+    // Right dock: spritesheet
+    m_dockSheet = new QDockWidget("Spritesheet", this);
+    m_dockSheet->setObjectName("dockSheet");
+    m_dockSheet->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_dockSheet->setWidget(buildCenterPanel());
+    m_dockSheet->setMinimumWidth(250);
+    m_dockSheet->setFeatures(QDockWidget::DockWidgetMovable |
+                              QDockWidget::DockWidgetFloatable |
+                              QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_dockSheet);
+
+    // Bottom dock: timeline
+    m_dockTimeline = new QDockWidget("Timeline", this);
+    m_dockTimeline->setObjectName("dockTimeline");
+    m_dockTimeline->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_dockTimeline->setWidget(buildBottomPanel());
+    m_dockTimeline->setMinimumHeight(120);
+    m_dockTimeline->setFeatures(QDockWidget::DockWidgetMovable |
+                                 QDockWidget::DockWidgetFloatable |
+                                 QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::BottomDockWidgetArea, m_dockTimeline);
+
+    // Save this as the default layout state
+    m_layoutDefault = saveState();
+
+    // Build preset layouts
+    // --- Animation preset: left=clips(wide), center=preview(wide), right=sheet(narrow), bottom=timeline
+    // This is just the default, built above.
+
+    // --- Spritesheet preset: sheet is center/large, clips left, timeline bottom, preview right small
+    removeDockWidget(m_dockSheet);
+    addDockWidget(Qt::LeftDockWidgetArea, m_dockSheet);
+    splitDockWidget(m_dockLeft, m_dockSheet, Qt::Horizontal);
+    resizeDocks({m_dockLeft, m_dockSheet}, {220, 500}, Qt::Horizontal);
+    m_layoutSpritesheet = saveState();
+
+    // --- Timeline focus: timeline takes bottom half, sheet small right, clips small left
+    removeDockWidget(m_dockTimeline);
+    addDockWidget(Qt::BottomDockWidgetArea, m_dockTimeline);
+    resizeDocks({m_dockTimeline}, {300}, Qt::Vertical);
+    m_layoutTimelineFocus = saveState();
+
+    // --- Animation focus: clips left narrow, preview center large, sheet hidden, timeline bottom
+    m_dockSheet->hide();
+    m_layoutAnimation = saveState();
+    m_dockSheet->show();
+
+    // Restore to default
+    restoreState(m_layoutDefault);
+}
+
+void MainWindow::resetDockLayout() {
+    applyLayoutPreset(0);
+}
+
+void MainWindow::applyLayoutPreset(int preset) {
+    // Make sure all docks are visible first
+    m_dockLeft->show();
+    m_dockSheet->show();
+    m_dockTimeline->show();
+
+    switch (preset) {
+        case 0: // Default
+            restoreState(m_layoutDefault);
+            statusBar()->showMessage("Layout: Default");
+            break;
+        case 1: // Animation focus -- sheet hidden, preview large
+            restoreState(m_layoutAnimation);
+            statusBar()->showMessage("Layout: Animation");
+            break;
+        case 2: // Spritesheet focus -- sheet center/large
+            restoreState(m_layoutSpritesheet);
+            statusBar()->showMessage("Layout: Spritesheet");
+            break;
+        case 3: // Timeline focus -- tall timeline
+            restoreState(m_layoutTimelineFocus);
+            statusBar()->showMessage("Layout: Timeline");
+            break;
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -129,7 +346,7 @@ QWidget* MainWindow::buildLeftPanel() {
     vl->setContentsMargins(4,4,4,4);
     vl->setSpacing(6);
 
-    // --- Clip list ---
+    // Clip list
     {
         auto* grp = new QGroupBox("Animations");
         auto* gl  = new QVBoxLayout(grp);
@@ -137,18 +354,19 @@ QWidget* MainWindow::buildLeftPanel() {
         m_clipList->setMaximumHeight(150);
         connect(m_clipList, &QListWidget::currentRowChanged, this, &MainWindow::onClipSelected);
         gl->addWidget(m_clipList);
-
         auto* row = new QHBoxLayout;
         auto* add = new QPushButton("+"); add->setFixedWidth(30);
         auto* rem = new QPushButton("−"); rem->setFixedWidth(30);
+
         connect(add, &QPushButton::clicked, this, &MainWindow::onAddClip);
         connect(rem, &QPushButton::clicked, this, &MainWindow::onRemoveClip);
+
         row->addWidget(add); row->addWidget(rem); row->addStretch();
         gl->addLayout(row);
         vl->addWidget(grp);
     }
 
-    // --- Clip settings ---
+    // Clip settings
     {
         auto* grp = new QGroupBox("Clip Settings");
         auto* gl  = new QGridLayout(grp);
@@ -163,31 +381,31 @@ QWidget* MainWindow::buildLeftPanel() {
         connect(m_clipLoop, &QCheckBox::toggled, this, &MainWindow::onClipSettingsChanged);
         gl->addWidget(m_clipLoop, r++, 0, 1, 2);
 
-        auto spin = [](double min, double max, double val, double step=1.0) {
+        auto spin = [](double min, double max, double val, double step = 1.0) {
             auto* s = new QDoubleSpinBox;
-            s->setRange(min,max); s->setValue(val); s->setSingleStep(step);
+            s->setRange(min, max); s->setValue(val); s->setSingleStep(step);
             return s;
         };
 
         gl->addWidget(new QLabel("Display W:"), r, 0);
-        m_dispW = spin(1,4096,32);
+        m_dispW = spin(1, 4096, 32);
         connect(m_dispW, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::onClipSettingsChanged);
         gl->addWidget(m_dispW, r++, 1);
 
         gl->addWidget(new QLabel("Display H:"), r, 0);
-        m_dispH = spin(1,4096,32);
+        m_dispH = spin(1, 4096, 32);
         connect(m_dispH, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::onClipSettingsChanged);
         gl->addWidget(m_dispH, r++, 1);
 
         gl->addWidget(new QLabel("Scale:"), r, 0);
-        m_dispScale = spin(0.01,100,1.0,0.1);
+        m_dispScale = spin(0.01, 100, 1.0, 0.1);
         connect(m_dispScale, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::onClipSettingsChanged);
         gl->addWidget(m_dispScale, r++, 1);
 
         vl->addWidget(grp);
     }
 
-    // --- Frame list ---
+    // Frame list
     {
         auto* grp = new QGroupBox("Frames");
         auto* gl  = new QVBoxLayout(grp);
@@ -212,17 +430,19 @@ QWidget* MainWindow::buildLeftPanel() {
         // Frame property spinboxes
         auto* pg = new QGridLayout;
         int pr = 0;
-        auto spin = [](double max){ auto* s = new QDoubleSpinBox; s->setRange(0,max); return s; };
-        pg->addWidget(new QLabel("Src X:"), pr,0); m_fSrcX = spin(9999); pg->addWidget(m_fSrcX, pr++,1);
-        pg->addWidget(new QLabel("Src Y:"), pr,0); m_fSrcY = spin(9999); pg->addWidget(m_fSrcY, pr++,1);
-        pg->addWidget(new QLabel("Src W:"), pr,0); m_fSrcW = spin(9999); m_fSrcW->setMinimum(1); pg->addWidget(m_fSrcW, pr++,1);
-        pg->addWidget(new QLabel("Src H:"), pr,0); m_fSrcH = spin(9999); m_fSrcH->setMinimum(1); pg->addWidget(m_fSrcH, pr++,1);
-        pg->addWidget(new QLabel("Dur:"),  pr,0);
-        m_fDur = new QDoubleSpinBox; m_fDur->setRange(0.001,60); m_fDur->setSingleStep(0.05); m_fDur->setValue(0.1);
-        pg->addWidget(m_fDur, pr++,1);
+        auto fspin = [](double max) {
+            auto* s = new QDoubleSpinBox; s->setRange(0, max); return s;
+        };
+        pg->addWidget(new QLabel("Src X:"), pr, 0); m_fSrcX = fspin(9999); pg->addWidget(m_fSrcX, pr++, 1);
+        pg->addWidget(new QLabel("Src Y:"), pr, 0); m_fSrcY = fspin(9999); pg->addWidget(m_fSrcY, pr++, 1);
+        pg->addWidget(new QLabel("Src W:"), pr, 0); m_fSrcW = fspin(9999); m_fSrcW->setMinimum(1); pg->addWidget(m_fSrcW, pr++, 1);
+        pg->addWidget(new QLabel("Src H:"), pr, 0); m_fSrcH = fspin(9999); m_fSrcH->setMinimum(1); pg->addWidget(m_fSrcH, pr++, 1);
+        pg->addWidget(new QLabel("Dur:"),   pr, 0);
+        m_fDur = new QDoubleSpinBox; m_fDur->setRange(0.001, 60); m_fDur->setSingleStep(0.05); m_fDur->setValue(0.1);
+        pg->addWidget(m_fDur, pr++, 1);
         gl->addLayout(pg);
 
-        for (auto* s : {m_fSrcX,m_fSrcY,m_fSrcW,m_fSrcH,m_fDur})
+        for (auto* s : {m_fSrcX, m_fSrcY, m_fSrcW, m_fSrcH, m_fDur})
             connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::onFramePropChanged);
 
         vl->addWidget(grp);
@@ -234,14 +454,13 @@ QWidget* MainWindow::buildLeftPanel() {
 }
 
 // -----------------------------------------------------------------------
-// Center panel — spritesheet view
+// Center panel — spritesheet view (now a dock)
 // -----------------------------------------------------------------------
 QWidget* MainWindow::buildCenterPanel() {
     auto* w  = new QWidget;
     auto* vl = new QVBoxLayout(w);
     vl->setContentsMargins(4,4,4,4);
 
-    // Toolbar
     auto* toolbar = new QHBoxLayout;
     auto* loadBtn = new QPushButton("Load Spritesheet...");
     connect(loadBtn, &QPushButton::clicked, this, &MainWindow::onLoadSpritesheet);
@@ -257,11 +476,20 @@ QWidget* MainWindow::buildCenterPanel() {
     toolbar->addStretch();
     vl->addLayout(toolbar);
 
-    // Sheet view in scroll area
     auto* scroll = new QScrollArea;
     m_sheetView  = new SpritesheetView;
-    connect(m_sheetView, &SpritesheetView::frameAdded,   this, &MainWindow::onFrameAdded);
-    connect(m_sheetView, &SpritesheetView::frameClicked, this, &MainWindow::onFrameClicked);
+    connect(m_sheetView, &SpritesheetView::frameAdded,    this, &MainWindow::onFrameAdded);
+    connect(m_sheetView, &SpritesheetView::frameClicked,  this, &MainWindow::onFrameClicked);
+    connect(m_sheetView, &SpritesheetView::frameModified, [this](int idx) {
+        // Frame was moved/resized by dragging -- sync the spinboxes and mark dirty
+        m_frameIdx = idx;
+        m_proj.dirty = true;
+        m_suppress = true;
+        refreshFrameTable();
+        refreshFrameProps();
+        m_suppress = false;
+        updateTitle();
+    });
     scroll->setWidget(m_sheetView);
     scroll->setWidgetResizable(true);
     vl->addWidget(scroll, 1);
@@ -270,7 +498,7 @@ QWidget* MainWindow::buildCenterPanel() {
 }
 
 // -----------------------------------------------------------------------
-// Right panel — preview (vertically resizable) + tracks + keyframes
+// Right panel — preview (central widget) + tracks + keyframes
 // -----------------------------------------------------------------------
 QWidget* MainWindow::buildRightPanel() {
     auto* w  = new QWidget;
@@ -280,26 +508,21 @@ QWidget* MainWindow::buildRightPanel() {
 
     auto* vSplit = new QSplitter(Qt::Vertical);
 
-    // ---- Top: preview ----
+    // Top: preview
     {
         auto* top = new QWidget;
         auto* tl  = new QVBoxLayout(top);
         tl->setContentsMargins(0,0,0,0);
         tl->setSpacing(4);
 
-        // Header row: label + zoom buttons + fullscreen button
         auto* header = new QHBoxLayout;
         header->addWidget(new QLabel("<b>Preview</b>"));
         header->addStretch();
 
         auto* zoomOut   = new QPushButton("−");   zoomOut->setFixedSize(22,22);
-        auto* zoomIn    = new QPushButton("+");    zoomIn->setFixedSize(22,22);
-        auto* zoomReset = new QPushButton("1:1");  zoomReset->setFixedHeight(22);
-        auto* fsBtn     = new QPushButton("⛶");   fsBtn->setFixedSize(22,22);
-        zoomOut->setToolTip("Zoom out  (−)");
-        zoomIn->setToolTip("Zoom in  (+)");
-        zoomReset->setToolTip("Reset zoom & pan  (double-click or 0)");
-        fsBtn->setToolTip("Toggle fullscreen  (F)");
+        auto* zoomIn    = new QPushButton("+");   zoomIn->setFixedSize(22,22);
+        auto* zoomReset = new QPushButton("1:1"); zoomReset->setFixedHeight(22);
+        auto* fsBtn     = new QPushButton("⛶");  fsBtn->setFixedSize(22,22);
 
         header->addWidget(zoomOut);
         header->addWidget(zoomIn);
@@ -317,7 +540,6 @@ QWidget* MainWindow::buildRightPanel() {
         connect(fsBtn,      &QPushButton::clicked, m_preview, &PreviewWidget::toggleFullscreen);
         tl->addWidget(m_preview, 1);
 
-        // Playback controls
         auto* row = new QHBoxLayout;
         m_playBtn = new QPushButton("▶ Play"); m_playBtn->setFixedWidth(80);
         connect(m_playBtn, &QPushButton::clicked, this, &MainWindow::onPlayPause);
@@ -331,14 +553,13 @@ QWidget* MainWindow::buildRightPanel() {
         vSplit->addWidget(top);
     }
 
-    // ---- Bottom: tracks + keyframe props ----
+    // Bottom: tracks + keyframe props
     {
         auto* bot = new QWidget;
         auto* bl  = new QVBoxLayout(bot);
         bl->setContentsMargins(0,0,0,0);
         bl->setSpacing(6);
 
-        // Tracks
         {
             auto* grp = new QGroupBox("Keyframe Tracks");
             auto* gl  = new QVBoxLayout(grp);
@@ -355,7 +576,6 @@ QWidget* MainWindow::buildRightPanel() {
             bl->addWidget(grp, 1);
         }
 
-        // Keyframe props
         {
             auto* grp = new QGroupBox("Keyframe");
             auto* gl  = new QGridLayout(grp);
@@ -364,22 +584,19 @@ QWidget* MainWindow::buildRightPanel() {
             gl->addWidget(new QLabel("Time:"), r, 0);
             m_kfTime = new QDoubleSpinBox;
             m_kfTime->setRange(0,9999); m_kfTime->setSingleStep(0.05);
-            connect(m_kfTime, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-                    this, &MainWindow::onKFPropChanged);
+            connect(m_kfTime, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::onKFPropChanged);
             gl->addWidget(m_kfTime, r++, 1);
 
             gl->addWidget(new QLabel("Value:"), r, 0);
             m_kfValue = new QDoubleSpinBox;
             m_kfValue->setRange(-99999,99999); m_kfValue->setSingleStep(0.1);
-            connect(m_kfValue, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-                    this, &MainWindow::onKFPropChanged);
+            connect(m_kfValue, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::onKFPropChanged);
             gl->addWidget(m_kfValue, r++, 1);
 
             gl->addWidget(new QLabel("Curve:"), r, 0);
             m_kfCurve = new QComboBox;
             for (int i = 0; i < kEaseCount; i++) m_kfCurve->addItem(kEaseNames[i]);
-            connect(m_kfCurve, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    this, &MainWindow::onKFPropChanged);
+            connect(m_kfCurve, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onKFPropChanged);
             gl->addWidget(m_kfCurve, r++, 1);
 
             auto* addKF = new QPushButton("Add Keyframe at Playhead");
@@ -414,22 +631,13 @@ QWidget* MainWindow::buildBottomPanel() {
     vl->setSpacing(2);
 
     auto* scroll = new QScrollArea;
-    m_timeline   = new TimelineWidget;
-    connect(m_timeline, &TimelineWidget::playheadChanged,  [this](float t){
-        m_preview->setPlayhead(t); // not a method yet — handled via stop+seek
-        m_timeLabel->setText(QString::number(t,'f',3)+"s");
-    });
-    connect(m_timeline, &TimelineWidget::keyframeSelected, this, &MainWindow::onKeyframeSelected);
-    connect(m_timeline, &TimelineWidget::keyframeMoved,    this, &MainWindow::onKeyframeMoved);
-    connect(m_timeline, &TimelineWidget::clipEdited, [this]{
-        m_proj.dirty = true; updateTitle();
-    });
-    scroll->setWidget(m_timeline);
     scroll->setWidgetResizable(true);
-    scroll->setMaximumHeight(200);
-    vl->addWidget(scroll);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-    w->setMaximumHeight(210);
+    m_timeline = new TimelineWidget;
+    scroll->setWidget(m_timeline);
+    vl->addWidget(scroll, 1);
     return w;
 }
 
@@ -441,22 +649,18 @@ void MainWindow::onNew() {
     m_proj = AnimProject{};
     m_clipIdx = m_frameIdx = m_trackIdx = m_keyIdx = -1;
     refreshClipList();
-    m_sheetView->setPixmap({});
-    m_sheetView->setFrames(nullptr);
-    m_timeline->setClip(nullptr);
-    m_preview->setClip(nullptr);
+    if (m_sheetView) { m_sheetView->setPixmap({}); m_sheetView->setFrames(nullptr); }
+    if (m_timeline)  m_timeline->setClip(nullptr);
+    if (m_preview)   { m_preview->setClip(nullptr); m_preview->setSpritesheetPath({}); }
     updateTitle();
+    statusBar()->showMessage("New project");
 }
 
 void MainWindow::onOpen() {
     if (!confirmDiscard()) return;
-    QString path = QFileDialog::getOpenFileName(this, "Open Animation", {},
-        "Animation Files (*.anim *.konani);;"
-        "Anim Source (*.anim);;"
-        "Compiled Anim (*.konani);;"
-        "All Files (*)");
-    if (path.isEmpty()) return;
-    openFile(path);
+    QString path = QFileDialog::getOpenFileName(this, "Open",
+        {}, "Animation files (*.anim *.konani);;All files (*)");
+    if (!path.isEmpty()) openFile(path);
 }
 
 void MainWindow::onSave() {
@@ -464,28 +668,23 @@ void MainWindow::onSave() {
     std::string err;
     if (!AnimIO::save(m_proj, err))
         QMessageBox::critical(this, "Save Error", QString::fromStdString(err));
-    else {
-        m_proj.dirty = false;
-        updateTitle();
-        statusBar()->showMessage("Saved: " + QString::fromStdString(m_proj.filePath));
-    }
+    else { m_proj.dirty = false; updateTitle(); statusBar()->showMessage("Saved."); }
 }
 
 void MainWindow::onSaveAs() {
-    QString path = QFileDialog::getSaveFileName(this, "Save .anim", {},
-        "Anim files (*.anim)");
+    QString path = QFileDialog::getSaveFileName(this, "Save As",
+        {}, "Animation file (*.anim);;All files (*)");
     if (path.isEmpty()) return;
-    if (!path.endsWith(".anim")) path += ".anim";
     m_proj.filePath = path.toStdString();
     onSave();
 }
 
 void MainWindow::onLoadSpritesheet() {
-    QString path = QFileDialog::getOpenFileName(this, "Load Spritesheet", {},
-        "Images (*.png *.jpg *.bmp);;All files (*)");
+    QString path = QFileDialog::getOpenFileName(this, "Load Spritesheet",
+        {}, "Images (*.png *.jpg *.bmp *.tga);;All files (*)");
     if (path.isEmpty()) return;
     QPixmap px(path);
-    if (px.isNull()) { QMessageBox::warning(this,"Error","Failed to load image."); return; }
+    if (px.isNull()) { QMessageBox::warning(this, "Error", "Failed to load image."); return; }
     m_sheetView->setPixmap(px);
     m_preview->setSpritesheetPath(path);
     m_proj.spritesheetPath = path.toStdString();
@@ -519,6 +718,8 @@ void MainWindow::onAddClip() {
     updateTitle();
 }
 
+
+
 void MainWindow::onRemoveClip() {
     if (!clip()) return;
     m_proj.clips.erase(m_proj.clips.begin()+m_clipIdx);
@@ -529,6 +730,7 @@ void MainWindow::onRemoveClip() {
 }
 
 void MainWindow::onClipSelected(int row) {
+    if (m_suppress) return;
     m_clipIdx  = row;
     m_frameIdx = m_trackIdx = m_keyIdx = -1;
     refreshClipSettings();
@@ -566,7 +768,9 @@ void MainWindow::onClipSettingsChanged() {
 // Frame operations
 // -----------------------------------------------------------------------
 void MainWindow::onFrameTableSelected() {
+    if (m_suppress) return;  // don't deselect during table refresh
     int row = m_frameTable->currentRow();
+    if (row < 0) return;     // ignore deselect events
     m_frameIdx = row;
     m_sheetView->setSelectedFrame(row);
     refreshFrameProps();
@@ -625,9 +829,10 @@ void MainWindow::onAddTrack() {
     auto* c = clip(); if (!c) return;
     QStringList props = {"x","y","scaleX","scaleY","rotation","alpha"};
     bool ok;
-    QString name = QInputDialog::getItem(this,"Add Track","Property:",props,0,false,&ok);
+    QString name = QInputDialog::getItem(this,"Add Track","Property:", props, 0, false, &ok);
     if (!ok || name.isEmpty()) return;
-    c->getOrAddTrack(name.toStdString());
+    KFTrack t; t.name = name.toStdString();
+    c->tracks.push_back(t);
     m_proj.dirty = true;
     refreshTrackList();
     m_timeline->setClip(c);
@@ -637,61 +842,64 @@ void MainWindow::onAddTrack() {
 void MainWindow::onRemoveTrack() {
     auto* c = clip(); if (!c || m_trackIdx<0 || m_trackIdx>=(int)c->tracks.size()) return;
     c->tracks.erase(c->tracks.begin()+m_trackIdx);
-    m_proj.dirty = true; m_trackIdx = -1;
+    m_proj.dirty = true;
+    m_trackIdx = m_keyIdx = -1;
     refreshTrackList();
     m_timeline->setClip(c);
     updateTitle();
 }
 
 void MainWindow::onTrackSelected(int row) {
-    m_trackIdx = row;
-    m_keyIdx   = -1;
-    refreshKFProps();
+    if (m_suppress) return;
+    m_trackIdx = row; m_keyIdx = -1;
 }
 
 void MainWindow::onAddKeyframe() {
     auto* c = clip(); if (!c || m_trackIdx<0 || m_trackIdx>=(int)c->tracks.size()) return;
-    float t = m_timeline->playhead();
-    c->tracks[m_trackIdx].keys.push_back({t, 0.0f, Ease::EaseInOut});
+    Keyframe kf;
+    kf.time  = m_timeline->playhead();
+    kf.value = 0.0f;
+    kf.curve = Ease::Linear;
+    c->tracks[m_trackIdx].keys.push_back(kf);
     c->tracks[m_trackIdx].sortKeys();
     m_proj.dirty = true;
+    refreshTrackList();
     m_timeline->setClip(c);
     updateTitle();
 }
 
 void MainWindow::onRemoveKeyframe() {
-    auto* c = clip(); if (!c || m_trackIdx<0 || m_keyIdx<0) return;
-    auto& keys = c->tracks[m_trackIdx].keys;
-    if (m_keyIdx >= (int)keys.size()) return;
-    keys.erase(keys.begin()+m_keyIdx);
-    m_proj.dirty = true; m_keyIdx = -1;
+    auto* c = clip();
+    if (!c || m_trackIdx<0 || m_trackIdx>=(int)c->tracks.size() ||
+        m_keyIdx<0 || m_keyIdx>=(int)c->tracks[m_trackIdx].keys.size()) return;
+    c->tracks[m_trackIdx].keys.erase(c->tracks[m_trackIdx].keys.begin()+m_keyIdx);
+    m_proj.dirty = true;
+    m_keyIdx = -1;
+    refreshTrackList();
     m_timeline->setClip(c);
     updateTitle();
 }
 
 void MainWindow::onKeyframeSelected(int ti, int ki) {
     m_trackIdx = ti; m_keyIdx = ki;
-    m_trackList->setCurrentRow(ti);
     refreshKFProps();
 }
 
-void MainWindow::onKeyframeMoved(int ti, int ki, float t) {
-    auto* c = clip(); if (!c) return;
-    if (ti<0 || ti>=(int)c->tracks.size()) return;
-    if (ki<0 || ki>=(int)c->tracks[ti].keys.size()) return;
-    c->tracks[ti].keys[ki].time = t;
-    m_proj.dirty = true; updateTitle();
+void MainWindow::onKeyframeMoved(int ti, int ki, float) {
+    m_trackIdx = ti; m_keyIdx = ki;
+    m_proj.dirty = true;
+    updateTitle();
 }
 
 void MainWindow::onKFPropChanged() {
     if (m_suppress) return;
-    auto* c = clip(); if (!c || m_trackIdx<0 || m_keyIdx<0) return;
-    if (m_trackIdx>=(int)c->tracks.size()) return;
-    if (m_keyIdx>=(int)c->tracks[m_trackIdx].keys.size()) return;
-    auto& kf = c->tracks[m_trackIdx].keys[m_keyIdx];
-    kf.time  = (float)m_kfTime->value();
-    kf.value = (float)m_kfValue->value();
-    kf.curve = static_cast<Ease>(m_kfCurve->currentIndex());
+    auto* c = clip();
+    if (!c || m_trackIdx<0 || m_trackIdx>=(int)c->tracks.size() ||
+        m_keyIdx<0 || m_keyIdx>=(int)c->tracks[m_trackIdx].keys.size()) return;
+    auto& kf  = c->tracks[m_trackIdx].keys[m_keyIdx];
+    kf.time   = (float)m_kfTime->value();
+    kf.value  = (float)m_kfValue->value();
+    kf.curve  = static_cast<Ease>(m_kfCurve->currentIndex());
     m_proj.dirty = true;
     m_timeline->update(); updateTitle();
 }
@@ -717,10 +925,7 @@ void MainWindow::onStop() {
     m_sheetView->setHighlightFrame(-1);
 }
 
-void MainWindow::onFrameChanged(int idx) {
-    m_sheetView->setHighlightFrame(idx);
-}
-
+void MainWindow::onFrameChanged(int idx) { m_sheetView->setHighlightFrame(idx); }
 void MainWindow::onElapsedChanged(float t) {
     m_timeline->setPlayhead(t);
     m_timeLabel->setText(QString::number(t,'f',3)+"s");
@@ -809,9 +1014,6 @@ void MainWindow::refreshKFProps() {
     m_suppress = false;
 }
 
-// -----------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------
 void MainWindow::updateTitle() {
     setWindowTitle((m_proj.dirty ? "* " : "") + projectName() + " — KonAnimator");
 }
