@@ -6,58 +6,67 @@ on:
   pull_request:
     branches: [ "main" ]
 
-env:
-  BUILD_TYPE: Release
-
 jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Configure & Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            libxinerama-dev libxcursor-dev
+
+      - name: Build
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
   build-fedora:
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
-    - name: Install Git and dependencies
-      run: |
-        dnf install -y git gcc-c++ cmake make mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
-          wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Configure & Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+      - name: Install dependencies
+        run: |
+          dnf install -y git gcc-c++ cmake make \
+            mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
+            wayland-devel wayland-protocols-devel libxkbcommon-devel \
+            libXinerama-devel libXcursor-devel
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
   build-arch:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
-    - name: Install Git and dependencies
-      run: |
-        pacman -Syu --noconfirm git gcc cmake make pkgconf mesa libx11 libxrandr libxi \
-          wayland wayland-protocols libxkbcommon libxinerama libxcursor
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Configure & Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm git gcc cmake make pkgconf \
+            mesa libx11 libxrandr libxi \
+            wayland wayland-protocols libxkbcommon \
+            libxinerama libxcursor
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
   build-windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Configure & Build
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release
