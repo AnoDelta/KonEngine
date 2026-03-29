@@ -6,43 +6,45 @@
 #include <unordered_map>
 #include <algorithm>
 
-// Forward declaration so OnCollisionEnter/Exit can reference Collider2D
+// Forward declare so Node can have OnCollisionEnter/Exit
 class Collider2D;
 
 class Node {
 public:
     std::string name;
-    bool        active = true;
-    Node*       parent = nullptr;
+    bool active = true;
+    Node* parent = nullptr;
 
     Node(const std::string& name = "Node") : name(name) {}
     virtual ~Node() = default;
 
+    // Lifecycle -- override in subclasses
     virtual void Ready() {}
     virtual void Update(float dt) {}
     virtual void Draw() {}
+
+    // Collision callbacks -- override in nodes that have collider children
+    // Called by Collider2D::Emit() when a collision signal fires on a child collider
     virtual void OnCollisionEnter(Collider2D* other) {}
-    virtual void OnCollisionExit(Collider2D* other) {}
+    virtual void OnCollisionExit(Collider2D* other)  {}
 
     // Children
     template<typename T, typename... Args>
     T* AddChild(const std::string& childName, Args&&... args) {
-        auto node = std::make_unique<T>(childName, std::forward<Args>(args)...);
+        auto node = std::make_unique<T>(std::forward<Args>(args)...);
         node->name   = childName;
         node->parent = this;
         T* ptr = node.get();
         children.push_back(std::move(node));
+        ptr->Ready();
         return ptr;
     }
 
     void RemoveChild(const std::string& childName) {
         children.erase(
             std::remove_if(children.begin(), children.end(),
-                [&](const std::unique_ptr<Node>& n) {
-                    return n->name == childName;
-                }),
-            children.end()
-        );
+                [&](const std::unique_ptr<Node>& n) { return n->name == childName; }),
+            children.end());
     }
 
     void ForEachDescendant(std::function<void(Node*)> fn) {
@@ -61,16 +63,14 @@ public:
         return nullptr;
     }
 
-    // Signals (no-arg)
-    void Connect(const std::string& signal, std::function<void()> callback) {
-        signals[signal].push_back(callback);
+    // Signals
+    void Connect(const std::string& signal, std::function<void()> cb) {
+        signals[signal].push_back(cb);
     }
-
     void Emit(const std::string& signal) {
         auto it = signals.find(signal);
         if (it != signals.end())
-            for (auto& cb : it->second)
-                cb();
+            for (auto& cb : it->second) cb();
     }
 
     virtual void UpdateChildren(float dt) {

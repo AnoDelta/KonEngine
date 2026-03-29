@@ -85,3 +85,7 @@ void EndCamera2D();
 // -----------------------------------------------------------------------
 void DebugMode(bool enabled);
 bool IsDebugMode();
+// Convert screen-space mouse position to world-space using a camera.
+// Camera transform: world = cam.xy + (screen - halfScreen) / zoom
+float GetWorldMouseX(const Camera2D& cam);
+float GetWorldMouseY(const Camera2D& cam);

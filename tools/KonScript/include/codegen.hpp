@@ -787,6 +787,8 @@ private:
             {"MouseReleased",      "IsMouseButtonReleased"},
             {"GetMouseX",          "GetMouseX"},
             {"GetMouseY",          "GetMouseY"},
+            {"GetWorldMouseX",     "GetWorldMouseX"},
+            {"GetWorldMouseY",     "GetWorldMouseY"},
             {"GetMouseDeltaX",     "GetMouseDeltaX"},
             {"GetMouseDeltaY",     "GetMouseDeltaY"},
             {"GetMouseScroll",     "GetMouseScroll"},
@@ -996,13 +998,13 @@ private:
 
             // scene.update(dt)  -> scene.Update(dt)
             // scene.draw()      -> scene.Draw()
-            // scene.scan()      -> scene.ScanColliders()
+            // scene.scan()      -> scene.Scan()
             // scene.remove(n)   -> scene.Remove(n)
             // scene.get(n)      -> scene.GetNode(n)
             static const std::unordered_map<std::string,std::string> sceneMethods = {
                 {"update", "Update"},
                 {"draw",   "Draw"},
-                {"scan",   "ScanColliders"},
+                {"scan",   "Scan"},
                 {"remove", "Remove"},
                 {"get",    "GetNode"},
             };
