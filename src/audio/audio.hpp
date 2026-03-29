@@ -1,5 +1,16 @@
 #pragma once
 
+// Windows defines PlaySound and PlayMusic as macros via mmsystem.h/winmm.
+// Undefine them so our functions with the same names are not affected.
+#ifdef _WIN32
+  #ifdef PlaySound
+    #undef PlaySound
+  #endif
+  #ifdef PlayMusic
+    #undef PlayMusic
+  #endif
+#endif
+
 struct Sound {
     unsigned int id;
     float volume = 1.0f;

@@ -6,9 +6,10 @@
 #include "AnimData.hpp"
 
 // Displays a spritesheet and lets the user:
-//   - Click+drag to define new frame rects
-//   - Click an existing frame to select it
-//   - Mousewheel to zoom
+//   - Left click+drag  -- define new frame rects
+//   - Left click frame -- select it (stays selected until another is clicked)
+//   - Right click+drag -- pan the view
+//   - Mousewheel       -- zoom
 //   - Highlights the currently playing frame during preview
 
 class SpritesheetView : public QWidget {
@@ -19,7 +20,7 @@ public:
     void setPixmap(const QPixmap& px);
     void setFrames(const std::vector<AnimFrame>* frames);
     void setSelectedFrame(int idx);
-    void setHighlightFrame(int idx);  // used during playback
+    void setHighlightFrame(int idx);
     void setZoom(float z);
     float zoom() const { return m_zoom; }
 
@@ -42,8 +43,15 @@ private:
     int      m_highlightIdx = -1;
     float    m_zoom = 2.0f;
 
+    // Left button -- draw new frame
     bool   m_dragging = false;
     QPoint m_dragStart, m_dragCurrent;
+
+    // Right button -- pan view
+    bool   m_panning = false;
+    QPoint m_panStart;
+    QPoint m_panOffset;
+    QPoint m_panOffsetStart;
 
     QPointF widgetToSheet(QPoint p) const;
     QRect   frameToWidget(const AnimFrame& f) const;

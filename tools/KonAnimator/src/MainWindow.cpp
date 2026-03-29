@@ -103,15 +103,19 @@ void MainWindow::buildUI() {
     auto* root = new QVBoxLayout(central);
     root->setContentsMargins(4,4,4,4);
     root->setSpacing(4);
-
+ 
+    // Layout order changed:
+    //   Left   = clips / frames / settings  (unchanged)
+    //   Center = preview + tracks           (was right panel)
+    //   Right  = spritesheet view           (was center panel)
     auto* hSplit = new QSplitter(Qt::Horizontal);
     hSplit->addWidget(buildLeftPanel());
-    hSplit->addWidget(buildCenterPanel());
-    hSplit->addWidget(buildRightPanel());
+    hSplit->addWidget(buildRightPanel());   // preview is now center
+    hSplit->addWidget(buildCenterPanel()); // spritesheet is now right
     hSplit->setStretchFactor(0, 2);
-    hSplit->setStretchFactor(1, 4);
-    hSplit->setStretchFactor(2, 2);
-
+    hSplit->setStretchFactor(1, 3);
+    hSplit->setStretchFactor(2, 3);
+ 
     root->addWidget(hSplit, 1);
     root->addWidget(buildBottomPanel());
 }

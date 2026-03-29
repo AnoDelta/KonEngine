@@ -1,6 +1,7 @@
 #include "TimelineWidget.hpp"
 #include <QPainter>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <cmath>
 #include <algorithm>
 
@@ -14,16 +15,30 @@ void TimelineWidget::setClip(AnimClip* clip) {
     m_clip     = clip;
     m_playhead = 0.0f;
     m_selTrack = m_selKey = -1;
+    m_scrollX  = 0.0f;
     int tracks = clip ? (int)clip->tracks.size() : 0;
     setMinimumHeight(kHeaderH + std::max(1, tracks) * kTrackH + 4);
     update();
 }
 
-void TimelineWidget::setPlayhead(float t) { m_playhead = t; update(); }
+void TimelineWidget::setPlayhead(float t) {
+    m_playhead = t;
+    // Auto-scroll to keep playhead visible
+    float vis = (width() - kLabelW) / m_zoom;
+    if (t > m_scrollX + vis - 0.5f)
+        m_scrollX = t - vis + 1.0f;
+    if (t < m_scrollX + 0.1f && m_scrollX > 0.0f)
+        m_scrollX = std::max(0.0f, t - 0.5f);
+    update();
+}
 
-float TimelineWidget::visibleDuration() const {
-    float dur = m_clip ? m_clip->totalDuration() : 1.0f;
-    return std::max(1.0f, dur + 0.5f);
+float TimelineWidget::totalDuration() const {
+    float dur = m_clip ? m_clip->totalDuration() : 0.0f;
+    return std::max(30.0f, dur + 10.0f); // always at least 30s visible
+}
+
+QSize TimelineWidget::minimumSizeHint() const {
+    return QSize(200, kHeaderH + kTrackH);
 }
 
 void TimelineWidget::paintEvent(QPaintEvent*) {
@@ -36,19 +51,55 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
     // ---- Ruler ----
     p.fillRect(0, 0, width(), kHeaderH, QColor(24,24,24));
 
-    float dur  = visibleDuration();
-    float step = (m_zoom >= 80) ? 0.1f : (m_zoom >= 30) ? 0.5f : 1.0f;
+    // Label area background
+    p.fillRect(0, 0, kLabelW, height(), QColor(22,22,22));
 
-    for (float t = 0.0f; t <= dur; t += step) {
+    // Choose tick step based on zoom
+    float step;
+    if      (m_zoom >= 200) step = 0.1f;
+    else if (m_zoom >= 80)  step = 0.25f;
+    else if (m_zoom >= 30)  step = 0.5f;
+    else if (m_zoom >= 10)  step = 1.0f;
+    else if (m_zoom >= 4)   step = 5.0f;
+    else                    step = 10.0f;
+
+    float start = std::floor(visibleStart() / step) * step;
+    float end   = visibleEnd() + step;
+
+    for (float t = start; t <= end; t += step) {
         int x = timeToX(t);
         if (x < kLabelW || x > width()) continue;
-        bool major = std::fmod(t + 0.0001f, 1.0f) < 0.01f;
-        p.setPen(major ? QColor(160,160,160) : QColor(70,70,70));
-        p.drawLine(x, major ? 2 : 12, x, kHeaderH);
+
+        bool major = std::fmod(std::abs(t) + 0.0001f, 1.0f) < step * 0.5f;
+        p.setPen(major ? QColor(140,140,140) : QColor(60,60,60));
+        p.drawLine(x, major ? 4 : 14, x, kHeaderH);
+
         if (major) {
-            p.setPen(QColor(170,170,170));
+            p.setPen(QColor(160,160,160));
             p.setFont(QFont("monospace", 8));
-            p.drawText(x+2, kHeaderH-3, QString::number(t,'f',1)+"s");
+            // Format: show minutes if >= 60s
+            QString label;
+            if (t >= 60.0f) {
+                int mins = (int)(t / 60);
+                float secs = t - mins * 60;
+                label = QString("%1:%2").arg(mins).arg(secs, 4, 'f', 1, '0');
+            } else {
+                label = QString::number(t, 'f', t < 10 ? 2 : 1) + "s";
+            }
+            p.drawText(x + 2, kHeaderH - 3, label);
+        }
+    }
+
+    // Clip duration marker
+    if (m_clip) {
+        float clipDur = m_clip->totalDuration();
+        int cx = timeToX(clipDur);
+        if (cx >= kLabelW && cx <= width()) {
+            p.setPen(QPen(QColor(100,200,100,120), 1, Qt::DashLine));
+            p.drawLine(cx, 0, cx, height());
+            p.setPen(QColor(100,200,100,150));
+            p.setFont(QFont("monospace", 7));
+            p.drawText(cx + 2, kHeaderH - 3, "end");
         }
     }
 
@@ -58,16 +109,16 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
             auto& tr = m_clip->tracks[ti];
             int y = trackY(ti);
 
-            // Row bg
-            p.fillRect(0, y, width(), kTrackH,
+            // Row background
+            p.fillRect(kLabelW, y, width()-kLabelW, kTrackH,
                        ti%2==0 ? QColor(42,42,42) : QColor(36,36,36));
 
-            // Label area
+            // Label
             p.fillRect(0, y, kLabelW, kTrackH, QColor(26,26,26));
             p.setPen(QColor(190,190,190));
             p.setFont(QFont("monospace", 9));
-            QRect labelRect(4, y, kLabelW-8, kTrackH);
-            p.drawText(labelRect, Qt::AlignVCenter | Qt::AlignLeft,
+            p.drawText(QRect(4, y, kLabelW-8, kTrackH),
+                       Qt::AlignVCenter | Qt::AlignLeft,
                        QString::fromStdString(tr.name));
 
             // Separator
@@ -77,19 +128,20 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
             // Keyframe diamonds
             for (int ki = 0; ki < (int)tr.keys.size(); ki++) {
                 auto& kf = tr.keys[ki];
-                int   x  = timeToX(kf.time);
+                int   kx = timeToX(kf.time);
+                if (kx < kLabelW - 8 || kx > width() + 8) continue;
                 int   cy = y + kTrackH/2;
                 bool  sel = (ti==m_selTrack && ki==m_selKey);
 
-                QColor col    = sel ? QColor(255,210,0)  : QColor(0,190,255);
-                QColor border = sel ? QColor(255,255,120) : QColor(0,140,200);
+                QColor col    = sel ? QColor(255,210,0)   : QColor(0,190,255);
+                QColor border = sel ? QColor(255,255,120)  : QColor(0,140,200);
+                int r = sel ? 6 : 5;
 
                 QPolygon diamond;
-                int r = sel ? 6 : 5;
-                diamond << QPoint(x,   cy-r)
-                        << QPoint(x+r, cy)
-                        << QPoint(x,   cy+r)
-                        << QPoint(x-r, cy);
+                diamond << QPoint(kx,   cy-r)
+                        << QPoint(kx+r, cy)
+                        << QPoint(kx,   cy+r)
+                        << QPoint(kx-r, cy);
                 p.setBrush(col);
                 p.setPen(QPen(border, sel ? 2 : 1));
                 p.drawPolygon(diamond);
@@ -99,26 +151,38 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
 
     // ---- Playhead ----
     int px = timeToX(m_playhead);
-    p.setPen(QPen(QColor(255,70,70), 2));
-    p.drawLine(px, 0, px, height());
-    QPolygon tri;
-    tri << QPoint(px-5,0) << QPoint(px+5,0) << QPoint(px,8);
-    p.setBrush(QColor(255,70,70));
-    p.setPen(Qt::NoPen);
-    p.drawPolygon(tri);
+    if (px >= kLabelW && px <= width()) {
+        p.setPen(QPen(QColor(255,70,70), 2));
+        p.drawLine(px, 0, px, height());
+        QPolygon tri;
+        tri << QPoint(px-5,0) << QPoint(px+5,0) << QPoint(px,8);
+        p.setBrush(QColor(255,70,70));
+        p.setPen(Qt::NoPen);
+        p.drawPolygon(tri);
+    }
+
+    // Label area border
+    p.setPen(QColor(50,50,50));
+    p.drawLine(kLabelW, 0, kLabelW, height());
+
+    // Zoom hint
+    p.setPen(QColor(80,80,80));
+    p.setFont(QFont("monospace", 7));
+    p.drawText(kLabelW + 4, height() - 3,
+               QString("Scroll to pan  |  Ctrl+Scroll to zoom  |  %1 px/s").arg((int)m_zoom));
 }
 
 void TimelineWidget::mousePressEvent(QMouseEvent* e) {
     if (!m_clip) return;
 
-    // Hit-test keyframes
+    // Hit-test keyframes first
     for (int ti = 0; ti < (int)m_clip->tracks.size(); ti++) {
         auto& tr = m_clip->tracks[ti];
         int y = trackY(ti);
         for (int ki = 0; ki < (int)tr.keys.size(); ki++) {
-            int x  = timeToX(tr.keys[ki].time);
+            int kx = timeToX(tr.keys[ki].time);
             int cy = y + kTrackH/2;
-            if (std::abs(e->pos().x()-x) <= 6 && std::abs(e->pos().y()-cy) <= 6) {
+            if (std::abs(e->pos().x()-kx) <= 8 && std::abs(e->pos().y()-cy) <= 8) {
                 m_selTrack = ti; m_selKey = ki;
                 m_dragging = true;
                 emit keyframeSelected(ti, ki);
@@ -156,4 +220,21 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent*) {
             m_clip->tracks[m_selTrack].sortKeys();
         emit clipEdited();
     }
+}
+
+void TimelineWidget::wheelEvent(QWheelEvent* e) {
+    if (e->modifiers() & Qt::ControlModifier) {
+        // Zoom in/out around mouse position
+        float tAtMouse = xToTime(e->position().x());
+        float factor   = e->angleDelta().y() > 0 ? 1.25f : 0.8f;
+        m_zoom = std::max(4.0f, std::min(m_zoom * factor, 800.0f));
+        // Adjust scroll so the time under cursor stays fixed
+        m_scrollX = tAtMouse - (e->position().x() - kLabelW) / m_zoom;
+        m_scrollX = std::max(0.0f, m_scrollX);
+    } else {
+        // Horizontal scroll
+        float delta = (e->angleDelta().y() > 0 ? -1.0f : 1.0f) * (3.0f / m_zoom);
+        m_scrollX   = std::max(0.0f, m_scrollX + delta);
+    }
+    update();
 }
