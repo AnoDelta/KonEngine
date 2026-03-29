@@ -17,12 +17,21 @@ public:
     T* Add(const std::string& name, Args&&... args) {
         auto node = std::make_unique<T>(name);
         T* ptr = node.get();
+
+        // Set up the auto-registration callback BEFORE Ready() so any children
+        // added during Ready() (or any time after) get registered automatically.
+        // This means scene.Scan() is only needed for nodes added to the scene
+        // after their parent was already added — e.g. dynamic scene.add() calls.
+        ptr->_onChildAdded = [this](Node* n) {
+            registerNode(n);
+        };
+
         nodes.push_back(std::move(node));
 
-        // Call Ready before registering colliders so Ready() can add children
+        // Call Ready — children added here will auto-register via _onChildAdded
         ptr->Ready();
 
-        // Register this node if it's a collider
+        // Register this node itself if it's a collider
         if (auto* col = dynamic_cast<Collider2D*>(ptr))
             collisionWorld.Add(col);
 
@@ -112,4 +121,16 @@ public:
 
 private:
     std::vector<std::unique_ptr<Node>> nodes;
+
+    // Register a node and all its descendants with the collision world.
+    // Called automatically when children are added via AddChild.
+    void registerNode(Node* n) {
+        if (auto* col = dynamic_cast<Collider2D*>(n))
+            collisionWorld.Add(col);
+        n->_onChildAdded = [this](Node* child) { registerNode(child); };
+        n->ForEachDescendant([this](Node* d) {
+            if (auto* col = dynamic_cast<Collider2D*>(d))
+                collisionWorld.Add(col);
+        });
+    }
 };

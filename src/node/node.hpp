@@ -15,6 +15,10 @@ public:
     bool active = true;
     Node* parent = nullptr;
 
+    // Optional callback set by Scene so dynamically added collider children
+    // get registered with the CollisionWorld automatically, no Scan() needed.
+    std::function<void(Node*)> _onChildAdded;
+
     Node(const std::string& name = "Node") : name(name) {}
     virtual ~Node() = default;
 
@@ -34,9 +38,13 @@ public:
         auto node = std::make_unique<T>(std::forward<Args>(args)...);
         node->name   = childName;
         node->parent = this;
+        // Propagate the scene registration callback down
+        if (_onChildAdded) node->_onChildAdded = _onChildAdded;
         T* ptr = node.get();
         children.push_back(std::move(node));
         ptr->Ready();
+        // Notify scene so it can register any colliders
+        if (_onChildAdded) _onChildAdded(ptr);
         return ptr;
     }
 

@@ -116,7 +116,15 @@ add_subdirectory(tests)
 #   add_subdirectory(KonEngine)
 #   add_executable(MyGame)
 #   target_link_libraries(MyGame PRIVATE KonEngine)
-#   konscript_sources(MyGame src/main.ks)
+#   konscript_sources(MyGame
+#       src/player.ks   # module file — no main(), compiled but not linked
+#       src/wall.ks     # module file — no main(), compiled but not linked
+#       src/main.ks     # entry file  — has main(), linked into the binary
+#   )
+#
+# Module files (no main()) are compiled to .ks.cpp so #include "x.ks.cpp"
+# resolves inside the entry file, but they are NOT added as link sources.
+# Entry files (has main()) are compiled and linked as normal .cpp sources.
 # -----------------------------------------------------------------------
 find_program(KONSCRIPT_COMPILER konscript
     HINTS
@@ -139,11 +147,14 @@ function(konscript_sources TARGET)
         return()
     endif()
 
+    set(ALL_CPP_FILES "")
+    set(ENTRY_CPP_FILES "")
+
+    # Pass 1: register custom commands for all files, categorise entry vs module
     foreach(KS_FILE ${ARGN})
         if(NOT IS_ABSOLUTE "${KS_FILE}")
             set(KS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${KS_FILE}")
         endif()
-
         get_filename_component(KS_DIR  "${KS_FILE}" DIRECTORY)
         get_filename_component(KS_NAME "${KS_FILE}" NAME_WE)
         set(CPP_FILE "${KS_DIR}/${KS_NAME}.ks.cpp")
@@ -156,6 +167,23 @@ function(konscript_sources TARGET)
             VERBATIM
         )
 
+        list(APPEND ALL_CPP_FILES "${CPP_FILE}")
+
+        # Detect entry file by checking for func main() in source
+        file(READ "${KS_FILE}" _KS_CONTENT)
+        string(FIND "${_KS_CONTENT}" "func main()" _HAS_MAIN)
+        if(_HAS_MAIN GREATER_EQUAL 0)
+            list(APPEND ENTRY_CPP_FILES "${CPP_FILE}")
+        endif()
+    endforeach()
+
+    # Ensure ALL .ks.cpp files are built before compiling the target
+    # (modules must exist before the entry file #includes them)
+    add_custom_target(${TARGET}_ks_modules DEPENDS ${ALL_CPP_FILES})
+    add_dependencies(${TARGET} ${TARGET}_ks_modules)
+
+    # Only add entry files as compiled sources — modules are header-included
+    foreach(CPP_FILE ${ENTRY_CPP_FILES})
         target_sources(${TARGET} PRIVATE "${CPP_FILE}")
     endforeach()
 endfunction()
