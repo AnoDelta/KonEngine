@@ -637,6 +637,23 @@ QWidget* MainWindow::buildBottomPanel() {
 
     m_timeline = new TimelineWidget;
     scroll->setWidget(m_timeline);
+
+    // Wire timeline -> preview: clicking the timeline seeks the preview
+    connect(m_timeline, &TimelineWidget::playheadChanged, [this](float t) {
+        // Pause playback when scrubbing so the frame stays where you clicked
+        if (m_preview->isPlaying()) {
+            m_preview->pause();
+            m_playBtn->setText("▶ Play");
+        }
+        m_preview->setPlayhead(t);
+        m_timeLabel->setText(QString::number(t,'f',3)+"s");
+        // frameChanged signal from setPlayhead() will update the spritesheet highlight
+    });
+    connect(m_timeline, &TimelineWidget::keyframeSelected, this, &MainWindow::onKeyframeSelected);
+    connect(m_timeline, &TimelineWidget::keyframeMoved,    this, &MainWindow::onKeyframeMoved);
+    connect(m_timeline, &TimelineWidget::clipEdited, [this]{
+        m_proj.dirty = true; updateTitle();
+    });
     vl->addWidget(scroll, 1);
     return w;
 }
