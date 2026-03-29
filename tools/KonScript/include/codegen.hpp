@@ -1125,7 +1125,6 @@ private:
             auto sm = sceneMethods.find(m->member);
             if (sm != sceneMethods.end()) {
                 genExpr(m->object.get());
-                // Scene is a value type, use .
                 write("." + sm->second + "(");
                 for (size_t i = 0; i < e->args.size(); i++) {
                     if (i > 0) write(", ");
@@ -1133,6 +1132,21 @@ private:
                 }
                 write(")");
                 return;
+            }
+
+            // AssetManager.init(...)  -> AssetManager::init(...)
+            // AssetManager.isPackMode() etc — static methods via ::
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                if (objId->name == "AssetManager") {
+                    write("AssetManager::" + m->member + "(");
+                    for (size_t i = 0; i < e->args.size(); i++) {
+                        if (i > 0) write(", ");
+                        genExpr(e->args[i].get());
+                    }
+                    write(")");
+                    return;
+                }
             }
 
             // DrawText with 5 args (text, x, y, size, Color) -- pass through directly
@@ -1177,9 +1191,14 @@ private:
         if (e->object->kind == Expr::Kind::Ident) {
             auto* id = static_cast<const IdentExpr*>(e->object.get());
             static const std::unordered_set<std::string> cppNamespaces = {
-                "Key", "Mouse", "Gamepad"
+                "Key", "Mouse", "Gamepad", "AssetManager"
             };
             if (cppNamespaces.count(id->name)) {
+                // AssetManager uses :: (static methods)
+                if (id->name == "AssetManager") {
+                    write("AssetManager::" + e->member);
+                    return;
+                }
                 static const std::unordered_map<std::string,std::string> keyAliases = {
                     {"Esc", "Escape"}, {"ESC", "Escape"},
                     {"Return", "Enter"}, {"Del", "Delete"},

@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <iostream>
 #include <fstream>
+#include "../asset_manager.hpp"
 
 class AnimationPlayer : public Node {
 public:
@@ -26,88 +27,69 @@ public:
     }
 
     // Load compiled .animb file
-    bool LoadFromFile(const std::string& path) {
-        std::ifstream file(path, std::ios::binary);
-        if (!file.is_open()) {
-            std::cerr << "[AnimationPlayer] Failed to open: " << path << "\n";
-            return false;
-        }
+	bool LoadFromFile(const std::string& path) {
+		auto data = AssetManager::readFile(path);
+		if (data.empty()) {
+			std::cerr << "[AnimationPlayer] Failed to open: " << path << "\n";
+			return false;
+		}
 
-        // --- Binary format ---
-        // [uint32] animation count
-        // Per animation:
-        //   [uint32] name length + chars
-        //   [uint8]  loop
-        //   [uint32] sprite frame count
-        //   Per frame: [float x5] srcX srcY srcW srcH duration
-        //   [uint32] track count
-        //   Per track:
-        //     [uint32] name length + chars
-        //     [uint32] keyframe count
-        //     Per keyframe: [float] time, value, [uint32] curve enum
+		// Read from memory buffer instead of file stream
+		size_t pos = 0;
+		auto readU8  = [&]() -> uint8_t  { return data[pos++]; };
+		auto readU32 = [&]() -> uint32_t {
+			uint32_t v; memcpy(&v, data.data() + pos, 4); pos += 4; return v;
+		};
+		auto readF32 = [&]() -> float {
+			float v; memcpy(&v, data.data() + pos, 4); pos += 4; return v;
+		};
 
-        uint32_t animCount = 0;
-        file.read(reinterpret_cast<char*>(&animCount), sizeof(animCount));
+		uint32_t animCount = readU32();
 
-        for (uint32_t i = 0; i < animCount; i++) {
-            Animation anim;
+		for (uint32_t i = 0; i < animCount; i++) {
+			Animation anim;
 
-            uint32_t nameLen = 0;
-            file.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
-            anim.name.resize(nameLen);
-            file.read(anim.name.data(), nameLen);
+			uint32_t nameLen = readU32();
+			anim.name.resize(nameLen);
+			memcpy(anim.name.data(), data.data() + pos, nameLen); pos += nameLen;
 
-            uint8_t loop = 0;
-            file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
-            anim.loop = loop != 0;
+			anim.loop = readU8() != 0;
 
-            // Display metadata (written by new anim_compiler / KonAnimator)
-            file.read(reinterpret_cast<char*>(&anim.displayW),     sizeof(float));
-            file.read(reinterpret_cast<char*>(&anim.displayH),     sizeof(float));
-            file.read(reinterpret_cast<char*>(&anim.displayScale), sizeof(float));
+			anim.displayW     = readF32();
+			anim.displayH     = readF32();
+			anim.displayScale = readF32();
 
-            // Sprite frames
-            uint32_t frameCount = 0;
-            file.read(reinterpret_cast<char*>(&frameCount), sizeof(frameCount));
-            for (uint32_t j = 0; j < frameCount; j++) {
-                float srcX, srcY, srcW, srcH, dur;
-                file.read(reinterpret_cast<char*>(&srcX), sizeof(float));
-                file.read(reinterpret_cast<char*>(&srcY), sizeof(float));
-                file.read(reinterpret_cast<char*>(&srcW), sizeof(float));
-                file.read(reinterpret_cast<char*>(&srcH), sizeof(float));
-                file.read(reinterpret_cast<char*>(&dur),  sizeof(float));
-                anim.AddFrame(srcX, srcY, srcW, srcH, dur);
-            }
+			uint32_t frameCount = readU32();
+			for (uint32_t j = 0; j < frameCount; j++) {
+				float srcX = readF32(), srcY = readF32();
+				float srcW = readF32(), srcH = readF32();
+				float dur  = readF32();
+				anim.AddFrame(srcX, srcY, srcW, srcH, dur);
+			}
 
-            // Keyframe tracks
-            uint32_t trackCount = 0;
-            file.read(reinterpret_cast<char*>(&trackCount), sizeof(trackCount));
-            for (uint32_t j = 0; j < trackCount; j++) {
-                uint32_t tNameLen = 0;
-                file.read(reinterpret_cast<char*>(&tNameLen), sizeof(tNameLen));
-                std::string tName(tNameLen, '\0');
-                file.read(tName.data(), tNameLen);
+			uint32_t trackCount = readU32();
+			for (uint32_t j = 0; j < trackCount; j++) {
+				uint32_t tNameLen = readU32();
+				std::string tName(tNameLen, '\0');
+				memcpy(tName.data(), data.data() + pos, tNameLen); pos += tNameLen;
 
-                KeyframeTrack& track = anim.Track(tName);
+				KeyframeTrack& track = anim.Track(tName);
 
-                uint32_t keyCount = 0;
-                file.read(reinterpret_cast<char*>(&keyCount), sizeof(keyCount));
-                for (uint32_t k = 0; k < keyCount; k++) {
-                    float time, value;
-                    uint32_t curveID;
-                    file.read(reinterpret_cast<char*>(&time),    sizeof(float));
-                    file.read(reinterpret_cast<char*>(&value),   sizeof(float));
-                    file.read(reinterpret_cast<char*>(&curveID), sizeof(uint32_t));
-                    track.AddKey(time, value, static_cast<Ease>(curveID));
-                }
-            }
+				uint32_t keyCount = readU32();
+				for (uint32_t k = 0; k < keyCount; k++) {
+					float time    = readF32();
+					float value   = readF32();
+					uint32_t curveID = readU32();
+					track.AddKey(time, value, static_cast<Ease>(curveID));
+				}
+			}
 
-            anim.AutoDuration();
-            animations[anim.name] = anim;
-        }
+			anim.AutoDuration();
+			animations[anim.name] = anim;
+		}
 
-        return true;
-    }
+		return true;
+	}
 
     // --- Playback ---
 

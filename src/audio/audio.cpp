@@ -1,10 +1,11 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio/miniaudio.h"
 #include "audio.hpp"
+#include "../asset_manager.hpp"
 #include <iostream>
 #include <unordered_map>
 
-static ma_engine engine;
+static ma_engine s_engine;
 static bool audioInitialized = false;
 
 static std::unordered_map<unsigned int, ma_sound*> sounds;
@@ -19,41 +20,34 @@ static void EnsureAudioInitialized() {
 }
 
 void InitAudio() {
-    ma_result result = ma_engine_init(nullptr, &engine);
+    ma_result result = ma_engine_init(nullptr, &s_engine);
     if (result != MA_SUCCESS) {
-        std::cerr << "Failed to initialize audio engine" << std::endl;
+        std::cerr << "Failed to initialize audio engine\n";
         return;
     }
     audioInitialized = true;
 }
 
 void ShutdownAudio() {
-    for (auto& [id, sound] : sounds) {
-        ma_sound_uninit(sound);
-        delete sound;
-    }
-    for (auto& [id, m] : music) {
-        ma_sound_uninit(m);
-        delete m;
-    }
+    for (auto& [id, sound] : sounds) { ma_sound_uninit(sound); delete sound; }
+    for (auto& [id, m]     : music)  { ma_sound_uninit(m);     delete m;     }
     sounds.clear();
     music.clear();
-    ma_engine_uninit(&engine);
+    ma_engine_uninit(&s_engine);
     audioInitialized = false;
 }
 
-// Sound
 Sound LoadSound(const char* path) {
-	EnsureAudioInitialized();
-
+    EnsureAudioInitialized();
+    std::string resolved = AssetManager::resolvePath(path);
     ma_sound* s = new ma_sound();
-    ma_result result = ma_sound_init_from_file(&engine, path, 0, nullptr, nullptr, s);
+    ma_result result = ma_sound_init_from_file(
+        &s_engine, resolved.c_str(), 0, nullptr, nullptr, s);
     if (result != MA_SUCCESS) {
-        std::cerr << "Failed to load sound: " << path << std::endl;
+        std::cerr << "Failed to load sound: " << path << "\n";
         delete s;
         return {0};
     }
-
     unsigned int id = nextID++;
     sounds[id] = s;
     return {id};
@@ -106,21 +100,19 @@ void SetSoundVolume(Sound& sound, float volume) {
     ma_sound_set_volume(it->second, volume);
 }
 
-// Music
 Music LoadMusic(const char* path) {
-	EnsureAudioInitialized();
-
+    EnsureAudioInitialized();
+    std::string resolved = AssetManager::resolvePath(path);
     ma_sound* s = new ma_sound();
-    ma_result result = ma_sound_init_from_file(&engine, path,
+    ma_result result = ma_sound_init_from_file(
+        &s_engine, resolved.c_str(),
         MA_SOUND_FLAG_STREAM, nullptr, nullptr, s);
     if (result != MA_SUCCESS) {
-        std::cerr << "Failed to load music: " << path << std::endl;
+        std::cerr << "Failed to load music: " << path << "\n";
         delete s;
         return {0};
     }
-
     ma_sound_set_looping(s, MA_TRUE);
-
     unsigned int id = nextID++;
     music[id] = s;
     return {id, 1.0f, true};
@@ -160,10 +152,7 @@ void ResumeMusic(Music& m) {
     ma_sound_start(it->second);
 }
 
-void UpdateMusic(Music& m) {
-    // miniaudio streams automatically, nothing needed here
-    // kept for API consistency
-}
+void UpdateMusic(Music&) {} // miniaudio streams automatically
 
 bool IsMusicPlaying(Music& m) {
     auto it = music.find(m.id);
@@ -187,5 +176,5 @@ void SetMusicLooping(Music& m, bool loop) {
 
 void SetMasterVolume(float volume) {
     if (!audioInitialized) return;
-    ma_engine_set_volume(&engine, volume);
+    ma_engine_set_volume(&s_engine, volume);
 }

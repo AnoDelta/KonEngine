@@ -37,9 +37,53 @@ target_include_directories(KonEngine PUBLIC src src/glad/include src/stb)
 target_link_libraries(KonEngine PUBLIC glfw glm::glm)
 
 if(WIN32)
-    target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm)
+	find_package(ZLIB REQUIRED)
+	target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm ZLIB::ZLIB)
+	target_include_directories(KonEngine PUBLIC ${ZLIB_INCLUDE_DIRS})
 else()
     target_link_libraries(KonEngine PRIVATE GL dl pthread X11 Xrandr Xi)
+endif()
+
+# -----------------------------------------------------------------------
+# Optional .konpak support
+# Bake a key into the binary so the engine can decrypt assets at runtime.
+# End users cannot extract the pack — the key is only in the compiled exe.
+#
+# Enable in your game's CMakeLists.txt:
+#   target_compile_definitions(MyGame PRIVATE KON_PACK_KEY="mygamekey")
+#
+# Or pass at cmake time to enable engine-wide:
+#   cmake -B build -DKON_PACK_KEY="mygamekey"
+#
+# Then in main():
+#   AssetManager::init("game.konpak");  // release
+#   AssetManager::init("assets/");     // dev
+# -----------------------------------------------------------------------
+option(KON_PACK_SUPPORT "Build with .konpak asset encryption support" OFF)
+if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
+    if(WIN32)
+        target_link_libraries(KonEngine PUBLIC bcrypt)
+    else()
+        find_package(OpenSSL REQUIRED)
+        find_package(ZLIB    REQUIRED)
+        target_link_libraries(KonEngine PUBLIC OpenSSL::Crypto ZLIB::ZLIB)
+    endif()
+    target_compile_definitions(KonEngine PUBLIC KON_USE_PACK)
+    if(DEFINED KON_PACK_KEY)
+        target_compile_definitions(KonEngine PUBLIC KON_PACK_KEY="${KON_PACK_KEY}")
+    endif()
+    # Expose konpak.hpp to the engine (copy from KonPaktor tool)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/KonPaktor/src/konpak.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/konpak.hpp"
+        COPYONLY
+    )
+    message(STATUS "KonPak support: ENABLED")
+    if(DEFINED KON_PACK_KEY)
+        message(STATUS "KonPak key: baked at compile time")
+    endif()
+else()
+    message(STATUS "KonPak support: disabled (enable with -DKON_PACK_SUPPORT=ON)")
 endif()
 
 # Install

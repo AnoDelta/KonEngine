@@ -18,3 +18,4 @@
 #include "animation/curves.hpp"
 #include "animation/animation.hpp"
 #include "animation/animation_player.hpp"
+#include "asset_manager.hpp"

@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "../asset_manager.hpp"
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
@@ -182,7 +183,10 @@ void Window::drawTexture(Texture& t,float x,float y,float w,float h){renderer->D
 void Window::drawTextureRec(Texture& t,float x,float y,float w,float h,float sx,float sy,float sw,float sh){renderer->DrawTextureRec(t,x,y,w,h,sx,sy,sw,sh);}
 void Window::drawTexture(Texture& t,float x,float y,float w,float h,Color c){renderer->DrawTexture(t,x,y,w,h,c);}
 void Window::drawTextureRec(Texture& t,float x,float y,float w,float h,float sx,float sy,float sw,float sh,Color c){renderer->DrawTextureRec(t,x,y,w,h,sx,sy,sw,sh,c);}
-Texture LoadTexture(const char* p){return window?window->loadTexture(p):Texture{0,0,0};}
+Texture LoadTexture(const char* p){
+    std::string r=AssetManager::resolvePath(p);
+    return window?window->loadTexture(r.c_str()):Texture{0,0,0};
+}
 void    UnloadTexture(Texture& t){if(window)window->unloadTexture(t);}
 void DrawTexture(Texture& t,float x,float y,float w,float h){if(window)window->drawTexture(t,x,y,w,h);}
 void DrawTextureRec(Texture& t,float x,float y,float w,float h,float sx,float sy,float sw,float sh){if(window)window->drawTextureRec(t,x,y,w,h,sx,sy,sw,sh);}
