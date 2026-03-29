@@ -242,8 +242,9 @@ jobs:
           arch: win64_msvc2019_64
           cache: true
 
-      - name: Install zlib via vcpkg
-        run: vcpkg install zlib:x64-windows
+      - name: Install zlib via vcpkg (static)
+        # Use x64-windows-static so zlib is compiled into the exe — no zlib1.dll needed
+        run: vcpkg install zlib:x64-windows-static
 
       - name: Build KonPaktor
         shell: pwsh
@@ -252,7 +253,8 @@ jobs:
           cmake -B tools/KonPaktor/build -S tools/KonPaktor `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="$env:Qt5_DIR" `
-            -DCMAKE_TOOLCHAIN_FILE="$toolchain"
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DVCPKG_TARGET_TRIPLET="x64-windows-static"
           cmake --build tools/KonPaktor/build --config Release --target KonPaktor
           cmake --build tools/KonPaktor/build --config Release --target konpak
 
@@ -270,11 +272,6 @@ jobs:
 
           Copy-Item $kp.FullName konpaktor-staging/
           Copy-Item $kc.FullName konpaktor-staging/
-
-          # Copy zlib1.dll from vcpkg so the exe runs without extra installs
-          $zlib = Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" `
-                    -Filter "zlib1.dll" | Select-Object -First 1
-          if ($zlib) { Copy-Item $zlib.FullName konpaktor-staging/ }
 
           $wdq = Get-ChildItem "$env:RUNNER_WORKSPACE/Qt" -Recurse `
                    -Filter "windeployqt.exe" | Select-Object -First 1
