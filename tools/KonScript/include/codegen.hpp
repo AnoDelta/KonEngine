@@ -338,6 +338,36 @@ private:
     // -----------------------------------------------------------------------
     // Node
     // -----------------------------------------------------------------------
+    // Returns true if an expression is safe as a C++ inline member initializer.
+    // Calls (LoadSound, AddChild, this.add...) require runtime context so are NOT safe.
+    bool isTrivialInit(const Expr* e) const {
+        if (!e) return true;
+        switch (e->kind) {
+            case Expr::Kind::IntLit:
+            case Expr::Kind::FloatLit:
+            case Expr::Kind::BoolLit:
+            case Expr::Kind::StrLit:
+            case Expr::Kind::NullLit:
+            case Expr::Kind::NoneLit:
+            case Expr::Kind::Ident:    // constants, color presets etc.
+                return true;
+            case Expr::Kind::Unary: {
+                auto* u = static_cast<const UnaryExpr*>(e);
+                return isTrivialInit(u->operand.get());
+            }
+            case Expr::Kind::Binary: {
+                auto* b = static_cast<const BinaryExpr*>(e);
+                return isTrivialInit(b->left.get()) && isTrivialInit(b->right.get());
+            }
+            // Any call, member call, or member access on non-namespace is non-trivial
+            case Expr::Kind::Call:
+            case Expr::Kind::Member:
+            case Expr::Kind::SafeMember:
+            default:
+                return false;
+        }
+    }
+
     void genNode(const Stmt* s) {
         auto* n = static_cast<const NodeDecl*>(s);
         if (m_target == Target::Standalone)
@@ -347,22 +377,80 @@ private:
         line("public:");
         indent();
 
-        if (m_target == Target::Engine)
-            line(n->name + "(const std::string& name) : " + n->base + "(name) {}");
-        else
-            line(n->name + "() {}");
+        // Collect fields whose initializers need to run in the constructor
+        // (e.g. AddChild, LoadSound -- anything that isn't a literal/constant)
+        std::vector<const FieldDecl*> ctorInits;
+        for (auto& f : n->fields)
+            if (f.init && !isTrivialInit(f.init.get()))
+                ctorInits.push_back(&f);
+
+        // Constructor
+        if (m_target == Target::Engine) {
+            write(std::string(m_indent * 4, ' '));
+            write(n->name + "(const std::string& _name) : " + n->base + "(_name)");
+            if (ctorInits.empty()) {
+                write(" {}\n");
+            } else {
+                write(" {\n");
+                indent();
+                for (auto* f : ctorInits) {
+                    write(std::string(m_indent * 4, ' '));
+                    write(f->name + " = ");
+                    genExpr(f->init.get());
+                    write(";\n");
+                }
+                dedent();
+                line("}");
+            }
+        } else {
+            if (ctorInits.empty()) {
+                line(n->name + "() {}");
+            } else {
+                line(n->name + "() {");
+                indent();
+                for (auto* f : ctorInits) {
+                    write(std::string(m_indent * 4, ' '));
+                    write(f->name + " = ");
+                    genExpr(f->init.get());
+                    write(";\n");
+                }
+                dedent();
+                line("}");
+            }
+        }
         line("");
 
+        // Fields -- trivial inits stay inline, non-trivial just declared (set in ctor)
         for (auto& f : n->fields) {
             write(std::string(m_indent * 4, ' '));
             write(cppType(f.type) + " " + f.name);
-            if (f.init) { write(" = "); genExpr(f.init.get()); }
+            if (f.init && isTrivialInit(f.init.get())) {
+                write(" = ");
+                genExpr(f.init.get());
+            }
             write(";\n");
         }
         if (!n->fields.empty()) line("");
 
+        // Register pointer-typed node fields in m_ptrVars so genMember
+        // correctly emits -> when accessing them inside methods
+        std::vector<std::string> addedFieldPtrs;
+        for (auto& f : n->fields) {
+            std::string ct = cppType(f.type);
+            bool isPtr   = !ct.empty() && ct.back() == '*';
+            bool isUNode = m_userNodeTypes.count(f.type.base) > 0;
+            if (isPtr || isUNode) {
+                m_ptrVars.insert(f.name);
+                addedFieldPtrs.push_back(f.name);
+            }
+        }
+
         for (auto& m : n->methods)
             genNodeMethod(m.get(), n->name);
+
+        // Remove field ptrs so they don't leak to other nodes/methods
+        for (auto& name : addedFieldPtrs)
+            m_ptrVars.erase(name);
 
         dedent();
         line("};");

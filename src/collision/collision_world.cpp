@@ -3,14 +3,8 @@
 #include <algorithm>
 #include <limits>
 
-// -------------------------------------------------------------------------
-// Registration
-// -------------------------------------------------------------------------
-
 void CollisionWorld::Add(Collider2D* collider) {
-    // Idempotent -- don't register the same collider twice
-    if (std::find(colliders.begin(), colliders.end(), collider) == colliders.end())
-        colliders.push_back(collider);
+    colliders.push_back(collider);
 }
 
 void CollisionWorld::Remove(Collider2D* collider) {
@@ -29,23 +23,6 @@ void CollisionWorld::Clear() {
     activePairs.clear();
 }
 
-// -------------------------------------------------------------------------
-// Per-frame update
-// -------------------------------------------------------------------------
-
-// Fire collision signal on the collider and bubble up to the parent node.
-// This is what makes OnCollisionEnter/Exit work in KonScript nodes --
-// the Collider2D is a child of the node, so signals need to reach the parent.
-static void fireEnter(Collider2D* a, Collider2D* b) {
-    a->Emit("on_collision_enter", b);
-    if (a->parent) a->parent->OnCollisionEnter(b);
-}
-
-static void fireExit(Collider2D* a, Collider2D* b) {
-    a->Emit("on_collision_exit", b);
-    if (a->parent) a->parent->OnCollisionExit(b);
-}
-
 void CollisionWorld::Update() {
     std::set<std::pair<Collider2D*, Collider2D*>> currentPairs;
 
@@ -61,28 +38,32 @@ void CollisionWorld::Update() {
             if (Overlaps(a, b)) {
                 auto pair = MakePair(a, b);
                 currentPairs.insert(pair);
-
                 if (activePairs.find(pair) == activePairs.end()) {
-                    fireEnter(a, b);
-                    fireEnter(b, a);
+                    a->Emit("on_collision_enter", b);
+                    b->Emit("on_collision_enter", a);
                 }
             }
         }
     }
 
+    // Fire exit signals for pairs that ended
     for (auto& pair : activePairs) {
         if (currentPairs.find(pair) == currentPairs.end()) {
-            fireExit(pair.first,  pair.second);
-            fireExit(pair.second, pair.first);
+            pair.first->Emit("on_collision_exit", pair.second);
+            pair.second->Emit("on_collision_exit", pair.first);
         }
     }
 
     activePairs = currentPairs;
-}
 
-// -------------------------------------------------------------------------
-// Public static overlap test
-// -------------------------------------------------------------------------
+    // Update touching flag for debug visualization
+    for (auto* col : colliders)
+        col->touching = false;
+    for (auto& pair : activePairs) {
+        pair.first->touching  = true;
+        pair.second->touching = true;
+    }
+}
 
 bool CollisionWorld::Overlaps(Collider2D* a, Collider2D* b) {
     bool aCircle = a->shape == ColliderShape::Circle;
@@ -90,17 +71,16 @@ bool CollisionWorld::Overlaps(Collider2D* a, Collider2D* b) {
 
     if (aCircle && bCircle)
         return SATCircleVsCircle(a, b);
+
     if (aCircle && !bCircle)
-        return SATCircleVsPolygon({ a->x, a->y }, a->radius, b->GetWorldPoints());
+        return SATCircleVsPolygon({ a->worldX(), a->worldY() }, a->radius,
+                                   b->GetWorldPoints());
     if (!aCircle && bCircle)
-        return SATCircleVsPolygon({ b->x, b->y }, b->radius, a->GetWorldPoints());
+        return SATCircleVsPolygon({ b->worldX(), b->worldY() }, b->radius,
+                                   a->GetWorldPoints());
 
     return SATPolygonVsPolygon(a->GetWorldPoints(), b->GetWorldPoints());
 }
-
-// -------------------------------------------------------------------------
-// SAT -- Polygon vs Polygon
-// -------------------------------------------------------------------------
 
 void CollisionWorld::ProjectOntoAxis(const std::vector<glm::vec2>& points,
                                       glm::vec2 axis, float& outMin, float& outMax) {
@@ -116,7 +96,7 @@ bool CollisionWorld::SATPolygonVsPolygon(const std::vector<glm::vec2>& a,
                                           const std::vector<glm::vec2>& b) {
     auto testAxes = [&](const std::vector<glm::vec2>& poly) -> bool {
         for (size_t i = 0; i < poly.size(); i++) {
-            glm::vec2 edge = poly[(i + 1) % poly.size()] - poly[i];
+            glm::vec2 edge = poly[(i+1) % poly.size()] - poly[i];
             glm::vec2 axis = glm::normalize(glm::vec2(-edge.y, edge.x));
             float minA, maxA, minB, maxB;
             ProjectOntoAxis(a, axis, minA, maxA);
@@ -128,20 +108,17 @@ bool CollisionWorld::SATPolygonVsPolygon(const std::vector<glm::vec2>& a,
     return testAxes(a) && testAxes(b);
 }
 
-// -------------------------------------------------------------------------
-// SAT -- Circle vs Polygon
-// -------------------------------------------------------------------------
-
 bool CollisionWorld::SATCircleVsPolygon(glm::vec2 center, float radius,
                                          const std::vector<glm::vec2>& poly) {
     for (size_t i = 0; i < poly.size(); i++) {
-        glm::vec2 edge = poly[(i + 1) % poly.size()] - poly[i];
+        glm::vec2 edge = poly[(i+1) % poly.size()] - poly[i];
         glm::vec2 axis = glm::normalize(glm::vec2(-edge.y, edge.x));
         float minP, maxP;
         ProjectOntoAxis(poly, axis, minP, maxP);
         float proj = glm::dot(center, axis);
-        if (proj + radius < minP || proj - radius > maxP) return false;
+        if ((proj + radius) < minP || maxP < (proj - radius)) return false;
     }
+    // Nearest vertex axis
     float minDist = std::numeric_limits<float>::max();
     glm::vec2 nearest = poly[0];
     for (auto& v : poly) {
@@ -152,18 +129,13 @@ bool CollisionWorld::SATCircleVsPolygon(glm::vec2 center, float radius,
     float minP, maxP;
     ProjectOntoAxis(poly, axis, minP, maxP);
     float proj = glm::dot(center, axis);
-    if (proj + radius < minP || proj - radius > maxP) return false;
+    if ((proj + radius) < minP || maxP < (proj - radius)) return false;
     return true;
 }
 
-// -------------------------------------------------------------------------
-// SAT -- Circle vs Circle
-// -------------------------------------------------------------------------
-
 bool CollisionWorld::SATCircleVsCircle(Collider2D* a, Collider2D* b) {
-    float dx = b->x - a->x;
-    float dy = b->y - a->y;
-    float dist2 = dx * dx + dy * dy;
+    float dx = a->worldX() - b->worldX();
+    float dy = a->worldY() - b->worldY();
     float radSum = a->radius + b->radius;
-    return dist2 < radSum * radSum;
+    return (dx*dx + dy*dy) < (radSum * radSum);
 }
