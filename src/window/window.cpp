@@ -28,7 +28,7 @@ struct Window::Impl {
 	bool vsyncEnabled = true;
 
 	Impl(int width, int height, const std::string& title, bool canResize, OpenGLRenderer* renderer) {
-#ifdef GLFW_PLATFORM_X11
+#if defined(GLFW_PLATFORM_X11) && !defined(_WIN32)
 		glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
 #endif
 		if (!glfwInit()) { std::cerr << "Failed to initialize GLFW\n"; handle = nullptr; return; }
