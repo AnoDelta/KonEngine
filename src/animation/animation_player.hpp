@@ -8,14 +8,11 @@
 #include <unordered_map>
 #include <iostream>
 #include <fstream>
-#include "../asset_manager.hpp"
-#include <cstring>
 
 class AnimationPlayer : public Node {
 public:
-    Sprite2D* target = nullptr; // sprite driven by sheet-frame animations
-    Node2D*   node   = nullptr; // node driven by keyframe animations
-                                // (can point to the same object if it's a Sprite2D)
+    Sprite2D* target = nullptr;
+    Node2D*   node   = nullptr;
     float speed = 1.0f;
 
     AnimationPlayer(const std::string& name = "AnimationPlayer") : Node(name) {}
@@ -27,70 +24,72 @@ public:
         return *this;
     }
 
-    // Load compiled .animb file
-	bool LoadFromFile(const std::string& path) {
-		auto data = AssetManager::readFile(path);
-		if (data.empty()) {
-			std::cerr << "[AnimationPlayer] Failed to open: " << path << "\n";
-			return false;
-		}
+    bool LoadFromFile(const std::string& path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open()) {
+            std::cerr << "[AnimationPlayer] Failed to open: " << path << "\n";
+            return false;
+        }
 
-		// Read from memory buffer instead of file stream
-		size_t pos = 0;
-		auto readU8  = [&]() -> uint8_t  { return data[pos++]; };
-		auto readU32 = [&]() -> uint32_t {
-			uint32_t v; memcpy(&v, data.data() + pos, 4); pos += 4; return v;
-		};
-		auto readF32 = [&]() -> float {
-			float v; memcpy(&v, data.data() + pos, 4); pos += 4; return v;
-		};
+        uint32_t animCount = 0;
+        file.read(reinterpret_cast<char*>(&animCount), sizeof(animCount));
 
-		uint32_t animCount = readU32();
+        for (uint32_t i = 0; i < animCount; i++) {
+            Animation anim;
 
-		for (uint32_t i = 0; i < animCount; i++) {
-			Animation anim;
+            uint32_t nameLen = 0;
+            file.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+            anim.name.resize(nameLen);
+            file.read(anim.name.data(), nameLen);
 
-			uint32_t nameLen = readU32();
-			anim.name.resize(nameLen);
-			memcpy(anim.name.data(), data.data() + pos, nameLen); pos += nameLen;
+            uint8_t loop = 0;
+            file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
+            anim.loop = loop != 0;
 
-			anim.loop = readU8() != 0;
+            file.read(reinterpret_cast<char*>(&anim.displayW),     sizeof(float));
+            file.read(reinterpret_cast<char*>(&anim.displayH),     sizeof(float));
+            file.read(reinterpret_cast<char*>(&anim.displayScale), sizeof(float));
 
-			anim.displayW     = readF32();
-			anim.displayH     = readF32();
-			anim.displayScale = readF32();
+            uint32_t frameCount = 0;
+            file.read(reinterpret_cast<char*>(&frameCount), sizeof(frameCount));
+            for (uint32_t j = 0; j < frameCount; j++) {
+                float srcX, srcY, srcW, srcH, dur;
+                file.read(reinterpret_cast<char*>(&srcX), sizeof(float));
+                file.read(reinterpret_cast<char*>(&srcY), sizeof(float));
+                file.read(reinterpret_cast<char*>(&srcW), sizeof(float));
+                file.read(reinterpret_cast<char*>(&srcH), sizeof(float));
+                file.read(reinterpret_cast<char*>(&dur),  sizeof(float));
+                anim.AddFrame(srcX, srcY, srcW, srcH, dur);
+            }
 
-			uint32_t frameCount = readU32();
-			for (uint32_t j = 0; j < frameCount; j++) {
-				float srcX = readF32(), srcY = readF32();
-				float srcW = readF32(), srcH = readF32();
-				float dur  = readF32();
-				anim.AddFrame(srcX, srcY, srcW, srcH, dur);
-			}
+            uint32_t trackCount = 0;
+            file.read(reinterpret_cast<char*>(&trackCount), sizeof(trackCount));
+            for (uint32_t j = 0; j < trackCount; j++) {
+                uint32_t tNameLen = 0;
+                file.read(reinterpret_cast<char*>(&tNameLen), sizeof(tNameLen));
+                std::string tName(tNameLen, '\0');
+                file.read(tName.data(), tNameLen);
 
-			uint32_t trackCount = readU32();
-			for (uint32_t j = 0; j < trackCount; j++) {
-				uint32_t tNameLen = readU32();
-				std::string tName(tNameLen, '\0');
-				memcpy(tName.data(), data.data() + pos, tNameLen); pos += tNameLen;
+                KeyframeTrack& track = anim.Track(tName);
 
-				KeyframeTrack& track = anim.Track(tName);
+                uint32_t keyCount = 0;
+                file.read(reinterpret_cast<char*>(&keyCount), sizeof(keyCount));
+                for (uint32_t k = 0; k < keyCount; k++) {
+                    float time, value;
+                    uint32_t curveID;
+                    file.read(reinterpret_cast<char*>(&time),    sizeof(float));
+                    file.read(reinterpret_cast<char*>(&value),   sizeof(float));
+                    file.read(reinterpret_cast<char*>(&curveID), sizeof(uint32_t));
+                    track.AddKey(time, value, static_cast<Ease>(curveID));
+                }
+            }
 
-				uint32_t keyCount = readU32();
-				for (uint32_t k = 0; k < keyCount; k++) {
-					float time    = readF32();
-					float value   = readF32();
-					uint32_t curveID = readU32();
-					track.AddKey(time, value, static_cast<Ease>(curveID));
-				}
-			}
+            anim.AutoDuration();
+            animations[anim.name] = anim;
+        }
 
-			anim.AutoDuration();
-			animations[anim.name] = anim;
-		}
-
-		return true;
-	}
+        return true;
+    }
 
     // --- Playback ---
 
@@ -101,18 +100,20 @@ public:
             return;
         }
 
-        // Auto-detect target/node from parent Sprite2D if not explicitly set
         if (!target || !node) {
             if (auto* p = dynamic_cast<Sprite2D*>(parent)) {
                 if (!target) target = p;
                 if (!node)   node   = p;
             }
         }
-        if (!target && !node) {
+        if (!target && !node)
             std::cerr << "[AnimationPlayer] No target — add as child of a Sprite2D\n";
-        }
 
         if (current == animName && playing) return;
+
+        // Clean up any visual state left by the previous clip
+        UndoPositionDelta();
+        RestoreVisualBase();
 
         current      = animName;
         currentFrame = 0;
@@ -120,14 +121,24 @@ public:
         playing      = true;
         finished     = false;
 
-        // Enable source rect on target automatically
+        // Snapshot purely-visual properties (scale, rotation, alpha).
+        // x/y are NOT snapshotted — gameplay owns those.
+        SnapshotVisualBase();
+
         if (target)
             target->useSourceRect = true;
 
         ApplySpriteFrame();
     }
 
-    void Stop()   { playing = false; finished = true; elapsed = 0.0f; }
+    void Stop() {
+        UndoPositionDelta();
+        RestoreVisualBase();
+        playing  = false;
+        finished = true;
+        elapsed  = 0.0f;
+    }
+
     void Pause()  { playing = false; }
     void Resume() { if (!finished) playing = true; }
 
@@ -136,11 +147,11 @@ public:
         if (it != animations.end()) it->second.loop = loop;
     }
 
-    bool        IsPlaying()       const { return playing; }
-    bool        IsFinished()      const { return finished; }
-    const std::string& GetCurrent() const { return current; }
-    int         GetCurrentFrame() const { return currentFrame; }
-    float       GetElapsed()      const { return elapsed; }
+    bool               IsPlaying()    const { return playing; }
+    bool               IsFinished()   const { return finished; }
+    const std::string& GetCurrent()   const { return current; }
+    int                GetCurrentFrame() const { return currentFrame; }
+    float              GetElapsed()   const { return elapsed; }
 
     // --- Node update ---
 
@@ -153,15 +164,12 @@ public:
 
         elapsed += dt * speed;
 
-        // --- Sprite sheet ---
         if (!anim.frames.empty())
             TickSpriteFrames(anim);
 
-        // --- Keyframe tracks ---
         if (!anim.tracks.empty() && node)
             ApplyTracks(anim);
 
-        // --- End of animation ---
         if (elapsed >= anim.duration && anim.duration > 0.0f) {
             if (anim.loop) {
                 elapsed = std::fmod(elapsed, anim.duration);
@@ -183,7 +191,53 @@ private:
     bool  playing      = false;
     bool  finished     = false;
 
-    // Advance sprite sheet frame based on elapsed time
+    // ── Visual-only base (scale, rotation, alpha) ────────────────────────
+    // Snapshotted at Play(), restored at Stop()/clip-switch.
+    // x/y deliberately excluded — gameplay code owns position.
+    bool  hasVisualBase = false;
+    float baseScaleX    = 1.0f;
+    float baseScaleY    = 1.0f;
+    float baseRot       = 0.0f;
+    float baseAlpha     = 1.0f;
+
+    void SnapshotVisualBase() {
+        if (!node) { hasVisualBase = false; return; }
+        hasVisualBase = true;
+        baseScaleX    = node->scaleX;
+        baseScaleY    = node->scaleY;
+        baseRot       = node->rotation;
+        if (auto* s = dynamic_cast<Sprite2D*>(node)) baseAlpha = s->tint.a;
+        else                                               baseAlpha = 1.0f;
+    }
+
+    void RestoreVisualBase() {
+        if (!hasVisualBase || !node) return;
+        node->scaleX   = baseScaleX;
+        node->scaleY   = baseScaleY;
+        node->rotation = baseRot;
+        if (auto* s = dynamic_cast<Sprite2D*>(node))
+            s->tint.a = baseAlpha;
+        hasVisualBase = false;
+    }
+
+    // ── Position delta tracking ──────────────────────────────────────────
+    // x/y tracks add an offset each frame. We track what we applied last
+    // frame so we can subtract it before applying the new value.
+    // This way the animation never permanently moves the node — it just
+    // rides on top of wherever gameplay put it.
+    float lastDeltaX = 0.0f;
+    float lastDeltaY = 0.0f;
+
+    void UndoPositionDelta() {
+        if (!node) return;
+        node->x     -= lastDeltaX;
+        node->y     -= lastDeltaY;
+        lastDeltaX   = 0.0f;
+        lastDeltaY   = 0.0f;
+    }
+
+    // ── Sprite frame ─────────────────────────────────────────────────────
+
     void TickSpriteFrames(Animation& anim) {
         float acc = 0.0f;
         int newFrame = 0;
@@ -191,10 +245,10 @@ private:
             ? std::fmod(elapsed, anim.duration)
             : std::min(elapsed, anim.duration);
 
-        for (int i = 0; i < static_cast<int>(anim.frames.size()); i++) {
+        for (int i = 0; i < (int)anim.frames.size(); i++) {
             acc += anim.frames[i].duration;
             if (t < acc) { newFrame = i; break; }
-            newFrame = static_cast<int>(anim.frames.size()) - 1;
+            newFrame = (int)anim.frames.size() - 1;
         }
 
         if (newFrame != currentFrame) {
@@ -217,28 +271,50 @@ private:
         target->srcHeight     = f.srcHeight;
         target->useSourceRect = true;
 
-        // Use displayW/H from the clip if set, otherwise fall back to frame size.
-        // displayScale lets artists author at 1x and scale up in-engine.
         float dW = (anim.displayW > 0.0f ? anim.displayW : f.srcWidth)  * anim.displayScale;
         float dH = (anim.displayH > 0.0f ? anim.displayH : f.srcHeight) * anim.displayScale;
         target->width  = dW;
         target->height = dH;
     }
 
-    // Sample all keyframe tracks and write to node properties
+    // ── Track application ────────────────────────────────────────────────
+    //
+    //  x / y      → delta on top of current gameplay position.
+    //               Undo last frame's delta first so it doesn't accumulate.
+    //  scaleX/Y   → multiply base scale  (1.0 = no change)
+    //  rotation   → add to base rotation (0   = no change)
+    //  alpha      → multiply base alpha   (1.0 = no change)
+
     void ApplyTracks(Animation& anim) {
+        // Undo last frame's position delta before re-applying
+        if (node) {
+            node->x -= lastDeltaX;
+            node->y -= lastDeltaY;
+        }
+        lastDeltaX = 0.0f;
+        lastDeltaY = 0.0f;
+
         for (auto& track : anim.tracks) {
             float value = track.Sample(elapsed);
 
-            if      (track.name == "x")        node->x        = value;
-            else if (track.name == "y")        node->y        = value;
-            else if (track.name == "scaleX")   node->scaleX   = value;
-            else if (track.name == "scaleY")   node->scaleY   = value;
-            else if (track.name == "rotation") node->rotation = value;
+            if (track.name == "x") {
+                if (node) { node->x += value; lastDeltaX = value; }
+            }
+            else if (track.name == "y") {
+                if (node) { node->y += value; lastDeltaY = value; }
+            }
+            else if (track.name == "scaleX") {
+                if (node && hasVisualBase) node->scaleX = baseScaleX * value;
+            }
+            else if (track.name == "scaleY") {
+                if (node && hasVisualBase) node->scaleY = baseScaleY * value;
+            }
+            else if (track.name == "rotation") {
+                if (node && hasVisualBase) node->rotation = baseRot + value;
+            }
             else if (track.name == "alpha") {
-                // Works if node is a Sprite2D
                 if (auto* s = dynamic_cast<Sprite2D*>(node))
-                    s->tint.a = value;
+                    s->tint.a = hasVisualBase ? baseAlpha * value : value;
             }
         }
     }

@@ -23,15 +23,70 @@ void main() {
 }
 )";
 
+// CHANGED: added tint uniform so the alpha track can reach the GPU
 static const char* kFragSrc = R"(
 #version 330 core
 in vec2 vUV;
 out vec4 fragColor;
 uniform sampler2D tex;
+uniform vec4 tint;
 void main() {
-    fragColor = texture(tex, vUV);
+    fragColor = texture(tex, vUV) * tint;
 }
 )";
+
+// -----------------------------------------------------------------------
+// Local curve + track sampling helpers
+// KonAnimator uses AnimData.hpp types (KFTrack / Keyframe / Ease) which
+// don't have a Sample() method and don't link against curves.hpp.
+// These mirror KeyframeTrack::Sample + Curves::Apply exactly.
+// -----------------------------------------------------------------------
+static float applyEase(Ease e, float t) {
+    switch (e) {
+        case Ease::Linear:         return t;
+        case Ease::EaseIn:         return t * t;
+        case Ease::EaseOut:        return t * (2.0f - t);
+        case Ease::EaseInOut:      return t < 0.5f ? 2*t*t : -1+(4-2*t)*t;
+        case Ease::EaseInCubic:    return t*t*t;
+        case Ease::EaseOutCubic:   { float u=1-t; return 1-u*u*u; }
+        case Ease::EaseInOutCubic: return t<0.5f ? 4*t*t*t : 1-std::pow(-2*t+2,3)/2;
+        case Ease::EaseInBack:     { float c=1.70158f; return (c+1)*t*t*t-c*t*t; }
+        case Ease::EaseOutBack:    { float c=1.70158f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
+        case Ease::EaseInElastic:
+            if (t==0||t==1) return t;
+            return -std::pow(2,10*t-10)*std::sin((t*10-10.75f)*(2*3.14159265f)/3);
+        case Ease::EaseOutElastic:
+            if (t==0||t==1) return t;
+            return std::pow(2,-10*t)*std::sin((t*10-0.75f)*(2*3.14159265f)/3)+1;
+        case Ease::EaseOutBounce: {
+            float n=7.5625f,d=2.75f;
+            if (t<1/d)    return n*t*t;
+            if (t<2/d)    { t-=1.5f/d;  return n*t*t+0.75f; }
+            if (t<2.5f/d) { t-=2.25f/d; return n*t*t+0.9375f; }
+                            t-=2.625f/d; return n*t*t+0.984375f;
+        }
+        case Ease::EaseInBounce: return 1-applyEase(Ease::EaseOutBounce,1-t);
+        default: return t;
+    }
+}
+
+static float sampleKFTrack(const KFTrack& track, float time) {
+    if (track.keys.empty())   return 0.0f;
+    if (track.keys.size()==1) return track.keys[0].value;
+    if (time <= track.keys.front().time) return track.keys.front().value;
+    if (time >= track.keys.back().time)  return track.keys.back().value;
+    for (size_t i = 0; i+1 < track.keys.size(); i++) {
+        const Keyframe& a = track.keys[i];
+        const Keyframe& b = track.keys[i+1];
+        if (time >= a.time && time <= b.time) {
+            float span = b.time - a.time;
+            if (span == 0.0f) return b.value;
+            float t = (time - a.time) / span;
+            return a.value + (b.value - a.value) * applyEase(a.curve, t);
+        }
+    }
+    return track.keys.back().value;
+}
 
 // -----------------------------------------------------------------------
 // Constructor / destructor
@@ -44,7 +99,6 @@ PreviewWidget::PreviewWidget(QWidget* parent)
     setFocusPolicy(Qt::StrongFocus);
     setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
 
-    // Plain QWidget children — no QPainter involvement in paintGL
     m_overlay = new QLabel(
         "No animation loaded\n\nDrag → pan     Scroll → zoom\nDouble-click → reset     F → fullscreen",
         this);
@@ -121,13 +175,11 @@ void PreviewWidget::setPlayhead(float t) {
 }
 
 // -----------------------------------------------------------------------
-// Fullscreen — maximise/restore the top-level window.
-// Never reparents QOpenGLWidget (that would destroy the GL context).
+// Fullscreen
 // -----------------------------------------------------------------------
 void PreviewWidget::toggleFullscreen() {
     QWindow* win = window()->windowHandle();
     if (!win) return;
-
     if (win->windowState() & Qt::WindowMaximized) {
         m_wasMaximized ? win->showMaximized() : win->showNormal();
     } else {
@@ -138,9 +190,7 @@ void PreviewWidget::toggleFullscreen() {
 }
 
 // -----------------------------------------------------------------------
-// Zoom — keeps the pixel under `anchor` (widget coords) stationary.
-//
-//   newPan = (anchor - centre) * (1 - ratio) + oldPan * ratio
+// Zoom
 // -----------------------------------------------------------------------
 void PreviewWidget::applyZoom(float newZoom, QPointF anchor) {
     newZoom = std::max(0.05f, std::min(newZoom, 64.0f));
@@ -216,7 +266,6 @@ void PreviewWidget::resizeGL(int, int) { update(); }
 
 void PreviewWidget::resizeEvent(QResizeEvent* e) {
     QOpenGLWidget::resizeEvent(e);
-    // Keep overlay centred, zoom label top-right
     m_overlay->setGeometry(rect());
     m_zoomLabel->adjustSize();
     m_zoomLabel->move(width() - m_zoomLabel->width() - 6, 4);
@@ -292,7 +341,8 @@ void PreviewWidget::onTick() {
 int PreviewWidget::currentFrameForTime(float t) const {
     if (!m_clip || m_clip->frames.empty()) return 0;
     float dur = m_clip->totalDuration();
-    float tt  = (m_clip->loop && dur > 0.0f) ? std::fmod(t, dur) : std::min(t, dur);
+    float tt  = (m_clip->loop && dur > 0.0f) ?
+                std::fmod(t, dur) : std::min(t, dur);
     float acc = 0.0f;
     for (int i = 0; i < (int)m_clip->frames.size(); i++) {
         acc += m_clip->frames[i].duration;
@@ -310,13 +360,13 @@ void PreviewWidget::paintGL() {
     glClearColor(0.18f, 0.18f, 0.18f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    bool hasContent = m_clip && !m_clip->frames.empty() && m_texID && m_shader;
+    bool hasFrames  = m_clip && !m_clip->frames.empty() && m_texID;
+    bool hasTracks  = m_clip && !m_clip->tracks.empty();
+    bool hasContent = m_clip && m_shader && (hasFrames || hasTracks);
+
     if (hasContent)
         drawFrame(m_curFrame);
 
-    // No QPainter here at all — it calls beginNativePainting() which
-    // recomposites the old framebuffer on Wayland, causing the trail.
-    // Text overlay is handled by m_overlay (a plain QLabel child widget).
     m_overlay->setVisible(!hasContent);
     if (hasContent) {
         m_zoomLabel->setText(QString("%1%").arg(qRound(m_zoom * 100.0f)));
@@ -326,21 +376,82 @@ void PreviewWidget::paintGL() {
     }
 }
 
+// -----------------------------------------------------------------------
+// drawFrame — CHANGED: samples keyframe tracks and applies full transform
+// -----------------------------------------------------------------------
 void PreviewWidget::drawFrame(int frameIdx) {
-    if (!m_clip || frameIdx < 0 || frameIdx >= (int)m_clip->frames.size()) return;
-    const auto& fr = m_clip->frames[frameIdx];
+    if (!m_clip) return;
 
     int W = width(), H = height();
 
-    // Sprite size in screen pixels = display size x clip scale x user zoom
-    float dW = m_clip->displayW * m_clip->displayScale * m_zoom;
-    float dH = m_clip->displayH * m_clip->displayScale * m_zoom;
+    // ── Sample keyframe tracks at current elapsed time ───────────────────
+    float kx    = 0.0f;
+    float ky    = 0.0f;
+    float ksx   = 1.0f;
+    float ksy   = 1.0f;
+    float krot  = 0.0f;   // degrees
+    float alpha = 1.0f;
 
-    // Top-left corner: widget centre + pan offset - half sprite size
-    float x = W * 0.5f + (float)m_pan.x() - dW * 0.5f;
-    float y = H * 0.5f + (float)m_pan.y() - dH * 0.5f;
+    for (const auto& track : m_clip->tracks) {
+        float v = sampleKFTrack(track, m_elapsed);
+        if      (track.name == "x")        kx    = v;
+        else if (track.name == "y")        ky    = v;
+        else if (track.name == "scaleX")   ksx   = v;
+        else if (track.name == "scaleY")   ksy   = v;
+        else if (track.name == "rotation") krot  = v;
+        else if (track.name == "alpha")    alpha = v;
+    }
 
-    // Orthographic projection: top-left origin, y pointing down
+    // ── Base sprite size ─────────────────────────────────────────────────
+    float baseW = (m_clip->displayW  > 0.0f ? m_clip->displayW  : 64.0f)
+                  * m_clip->displayScale * m_zoom;
+    float baseH = (m_clip->displayH  > 0.0f ? m_clip->displayH  : 64.0f)
+                  * m_clip->displayScale * m_zoom;
+
+    float dW = baseW * ksx;
+    float dH = baseH * ksy;
+
+    // ── Sprite centre on screen ──────────────────────────────────────────
+    float cx = W * 0.5f + (float)m_pan.x() + kx * m_zoom;
+    float cy = H * 0.5f + (float)m_pan.y() + ky * m_zoom;
+
+    // ── UV coordinates ───────────────────────────────────────────────────
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    if (m_texID && !m_clip->frames.empty() &&
+        frameIdx >= 0 && frameIdx < (int)m_clip->frames.size()) {
+        const auto& fr = m_clip->frames[frameIdx];
+        u0 = fr.srcX             / (float)m_texW;
+        v0 = fr.srcY             / (float)m_texH;
+        u1 = (fr.srcX + fr.srcW) / (float)m_texW;
+        v1 = (fr.srcY + fr.srcH) / (float)m_texH;
+    }
+
+    // ── Rotated quad corners ─────────────────────────────────────────────
+    float hw  = dW * 0.5f;
+    float hh  = dH * 0.5f;
+    float rad = krot * 3.14159265f / 180.0f;
+    float cr  = std::cos(rad);
+    float sr  = std::sin(rad);
+
+    auto rotated = [&](float lx, float ly, float& ox, float& oy) {
+        ox = cx + lx * cr - ly * sr;
+        oy = cy + lx * sr + ly * cr;
+    };
+
+    float x0,y0, x1,y1, x2,y2, x3,y3;
+    rotated(-hw, -hh, x0, y0);   // TL
+    rotated(+hw, -hh, x1, y1);   // TR
+    rotated(+hw, +hh, x2, y2);   // BR
+    rotated(-hw, +hh, x3, y3);   // BL
+
+    float verts[] = {
+        x0, y0,  u0, v0,
+        x1, y1,  u1, v0,
+        x2, y2,  u1, v1,
+        x3, y3,  u0, v1,
+    };
+
+    // ── Orthographic projection (top-left origin, y down) ────────────────
     float proj[16] = {
          2.0f/W,  0,      0, 0,
          0,      -2.0f/H, 0, 0,
@@ -348,28 +459,18 @@ void PreviewWidget::drawFrame(int frameIdx) {
         -1.0f,    1.0f,   0, 1
     };
 
-    float u0 = fr.srcX             / (float)m_texW;
-    float v0 = fr.srcY             / (float)m_texH;
-    float u1 = (fr.srcX + fr.srcW) / (float)m_texW;
-    float v1 = (fr.srcY + fr.srcH) / (float)m_texH;
-
-    float verts[] = {
-        x,    y,    u0, v0,
-        x+dW, y,    u1, v0,
-        x+dW, y+dH, u1, v1,
-        x,    y+dH, u0, v1,
-    };
-
+    // ── Draw ─────────────────────────────────────────────────────────────
     glUseProgram(m_shader);
-    glUniformMatrix4fv(glGetUniformLocation(m_shader, "proj"), 1, GL_FALSE, proj);
-    glUniform1i(glGetUniformLocation(m_shader, "tex"), 0);
+    glUniformMatrix4fv(glGetUniformLocation(m_shader, "proj"),  1, GL_FALSE, proj);
+    glUniform1i(glGetUniformLocation(m_shader, "tex"),  0);
+    glUniform4f(glGetUniformLocation(m_shader, "tint"), 1.0f, 1.0f, 1.0f, alpha);
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_texID);
+    if (m_texID) glBindTexture(GL_TEXTURE_2D, m_texID);
 
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     glBindVertexArray(0);
