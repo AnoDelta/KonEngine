@@ -3,21 +3,36 @@
 #include <algorithm>
 #include <limits>
 
-void CollisionWorld::Add(Collider2D* c)    { colliders.push_back(c); }
-void CollisionWorld::Remove(Collider2D* c) {
-    colliders.erase(std::remove(colliders.begin(), colliders.end(), c), colliders.end());
-    for (auto it = activePairs.begin(); it != activePairs.end(); )
-        (it->first == c || it->second == c) ? it = activePairs.erase(it) : ++it;
+void CollisionWorld::Add(Collider2D* collider) {
+    colliders.push_back(collider);
 }
-void CollisionWorld::Clear() { colliders.clear(); activePairs.clear(); }
+
+void CollisionWorld::Remove(Collider2D* collider) {
+    colliders.erase(std::remove(colliders.begin(), colliders.end(), collider), colliders.end());
+    for (auto it = activePairs.begin(); it != activePairs.end(); ) {
+        if (it->first == collider || it->second == collider) {
+            it->first->Emit("on_collision_exit",  it->second);
+            it->second->Emit("on_collision_exit", it->first);
+            auto& fc = it->first->contacts;
+            fc.erase(std::remove(fc.begin(), fc.end(), it->second), fc.end());
+            auto& sc = it->second->contacts;
+            sc.erase(std::remove(sc.begin(), sc.end(), it->first), sc.end());
+            it = activePairs.erase(it);
+        } else { ++it; }
+    }
+}
+
+void CollisionWorld::Clear() {
+    colliders.clear();
+    activePairs.clear();
+}
 
 void CollisionWorld::Update() {
     std::set<std::pair<Collider2D*, Collider2D*>> currentPairs;
-
     for (size_t i = 0; i < colliders.size(); i++) {
         Collider2D* a = colliders[i];
         if (!a->active) continue;
-        for (size_t j = i+1; j < colliders.size(); j++) {
+        for (size_t j = i + 1; j < colliders.size(); j++) {
             Collider2D* b = colliders[j];
             if (!b->active) continue;
             if (!LayersOverlap(a, b)) continue;
@@ -31,32 +46,27 @@ void CollisionWorld::Update() {
             }
         }
     }
-
-    for (auto& pair : activePairs)
+    for (auto& pair : activePairs) {
         if (currentPairs.find(pair) == currentPairs.end()) {
-            pair.first->Emit("on_collision_exit",  pair.second);
+            pair.first->Emit("on_collision_exit", pair.second);
             pair.second->Emit("on_collision_exit", pair.first);
         }
-
+    }
     activePairs = currentPairs;
-
-    // Update touching flag for debug highlight
-    for (auto* c : colliders) c->touching = false;
-    for (auto& p : activePairs) { p.first->touching = true; p.second->touching = true; }
+    for (auto* c : colliders) c->contacts.clear();
+    for (auto& pair : activePairs) {
+        pair.first->contacts.push_back(pair.second);
+        pair.second->contacts.push_back(pair.first);
+    }
 }
 
 bool CollisionWorld::Overlaps(Collider2D* a, Collider2D* b) {
-    bool aCirc = a->shape == ColliderShape::Circle;
-    bool bCirc = b->shape == ColliderShape::Circle;
-
-    if (aCirc && bCirc) return SATCircleVsCircle(a, b);
-
-    auto aPts = a->GetWorldPoints();
-    auto bPts = b->GetWorldPoints();
-
-    if (aCirc) return SATCircleVsPolygon(a->worldCenter(), a->radius, bPts);
-    if (bCirc) return SATCircleVsPolygon(b->worldCenter(), b->radius, aPts);
-    return SATPolygonVsPolygon(aPts, bPts);
+    bool aCircle = a->shape == ColliderShape::Circle;
+    bool bCircle = b->shape == ColliderShape::Circle;
+    if (aCircle && bCircle)  return SATCircleVsCircle(a, b);
+    if (aCircle && !bCircle) return SATCircleVsPolygon({a->x,a->y}, a->radius, b->GetWorldPoints());
+    if (!aCircle && bCircle) return SATCircleVsPolygon({b->x,b->y}, b->radius, a->GetWorldPoints());
+    return SATPolygonVsPolygon(a->GetWorldPoints(), b->GetWorldPoints());
 }
 
 void CollisionWorld::ProjectOntoAxis(const std::vector<glm::vec2>& pts,

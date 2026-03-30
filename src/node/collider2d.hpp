@@ -139,7 +139,14 @@ public:
 
     void Draw() override {
         if (!debugDraw) return;
-        Color c = touching ? Color{1.0f, 0.8f, 0.0f, 1.0f} : debugColor;
+        Color _base = debugColor; _base.a = 1.f;
+        Color c = IsColliding() ?
+            Color{1.f, 1.f, 0.2f, 0.5f} :
+            // dummy — replaced below
+            _base; Color _dummy = IsColliding()
+            ? Color{_base.r+(1.f-_base.r)*.65f, _base.g+(1.f-_base.g)*.65f,
+                    _base.b+(1.f-_base.b)*.65f, 1.f}
+            : _base;
         auto tl = computeWorldTopLeft();
 
         // Get world-scaled size
@@ -191,6 +198,15 @@ public:
             }
         }
     }
+
+
+    // ── Contact query ─────────────────────────────────────────────────
+    // Updated every frame by CollisionWorld.
+    // IsColliding()  → true if touching at least one other collider.
+    // GetContacts()  → the actual pointers so you can inspect them.
+    std::vector<Collider2D*> contacts;
+    bool IsColliding() const { return !contacts.empty(); }
+    const std::vector<Collider2D*>& GetContacts() const { return contacts; }
 
 private:
     std::unordered_map<std::string,

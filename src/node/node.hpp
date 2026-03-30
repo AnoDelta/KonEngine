@@ -97,6 +97,8 @@ public:
             }
     }
 
+    const std::vector<std::unique_ptr<Node>>& getChildren() const { return children; }
+
 protected:
     std::vector<std::unique_ptr<Node>> children;
     std::unordered_map<std::string, std::vector<std::function<void()>>> signals;

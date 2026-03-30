@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #if __has_include("node.hpp")
 #include "node.hpp"
 #else
@@ -23,7 +24,32 @@ public:
     // Both Draw and Update children use the same world-space transform baking.
     // This ensures colliders have correct world positions during both
     // Update (collision) and Draw (debug outlines).
-    void DrawChildren() override   { propagateToChildren(false, 0); }
+    void DrawChildren() override {
+        float rad  = rotation * 3.14159265f / 180.f;
+        float cosR = std::cos(rad);
+        float sinR = std::sin(rad);
+        for (auto& child : children) {
+            if (!child->active) continue;
+            if (auto* c = dynamic_cast<Node2D*>(child.get())) {
+                float savedX  = c->x,      savedY  = c->y;
+                float savedSX = c->scaleX, savedSY = c->scaleY;
+                // Rotate child's local offset by parent rotation, then translate
+                float lx = c->x * scaleX;
+                float ly = c->y * scaleY;
+                c->x      = x + lx * cosR - ly * sinR;
+                c->y      = y + lx * sinR + ly * cosR;
+                c->scaleX *= scaleX;
+                c->scaleY *= scaleY;
+                c->Draw();
+                c->DrawChildren();
+                c->x = savedX; c->y = savedY;
+                c->scaleX = savedSX; c->scaleY = savedSY;
+            } else {
+                child->Draw();
+                child->DrawChildren();
+            }
+        }
+    }
     void UpdateChildren(float dt)  override { propagateToChildren(true, dt); }
 
 private:

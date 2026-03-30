@@ -3,12 +3,14 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <string>
 #include <memory>
 #include "../renderer/opengl/opengl_renderer.hpp"
 #include "../time/time.hpp"
 #include <functional>
 #include "../input/input.hpp"
 #include "../camera/camera.hpp"
+#include "../font/font.hpp"
 #include <cmath>
 
 static bool s_debugMode = false;
@@ -98,10 +100,16 @@ void Present() {
 		dbgTimer += dbgDt;
 		if (dbgTimer >= 1.0f) {
 			dbgFPS=dbgFrames; dbgFrames=0; dbgTimer=0;
-			std::cout << "[KonEngine DEBUG]  FPS: " << dbgFPS
-			          << "  dt: " << dbgDt
-			          << "  Mouse: (" << (int)GetMouseX() << ", " << (int)GetMouseY() << ")"
-			          << "\n";
+			// On-screen debug overlay
+                    {
+                        std::string l1 = "FPS: " + std::to_string(dbgFPS)
+                            + "  dt: " + std::to_string(dbgDt).substr(0,6) + "s";
+                        std::string l2 = "Mouse: (" + std::to_string((int)GetMouseX())
+                            + ", " + std::to_string((int)GetMouseY()) + ")";
+                        window->drawRectangle(2, 2, 240, 40, 0,0,0,0.7f);
+                        DrawText(l1.c_str(), 6,  4, {1,1,0,1});
+                        DrawText(l2.c_str(), 6, 22, {1,1,0,1});
+                    }
 		}
 
 		// Debug overlay — screen-space HUD
