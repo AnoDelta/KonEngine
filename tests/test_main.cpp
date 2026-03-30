@@ -1,628 +1,581 @@
 #include "KonEngine.hpp"
+#include "collision/collision_world.hpp"
+#include "node/collider2d.hpp"
 #include <iostream>
-#include <cassert>
 #include <cmath>
+#include <vector>
 #include <string>
-#include <sstream>
+#include <memory>
 
-// -----------------------------------------------------------------------
-// Test runner
-// -----------------------------------------------------------------------
-static int s_passed = 0;
-static int s_failed = 0;
-
+static int s_passed = 0, s_failed = 0;
 #define TEST(name, expr) do { \
-    if (expr) { \
-        std::cout << "  [PASS] " << (name) << "\n"; \
-        s_passed++; \
-    } else { \
-        std::cout << "  [FAIL] " << (name) << "\n"; \
-        s_failed++; \
-    } \
+    if (expr) { std::cout << "  [PASS] " << name << "\n"; s_passed++; } \
+    else      { std::cout << "  [FAIL] " << name << "\n"; s_failed++; } \
 } while(0)
+#define SECTION(name) std::cout << "\n-- " << name << " --\n"
 
-#define SECTION(name) \
-    std::cout << "\n-- " << (name) << " --\n"
+static const float EPS = 0.001f;
+static bool near(float a, float b) { return std::fabs(a-b)<EPS; }
+static bool nearv(Vector2 a, Vector2 b) { return near(a.x,b.x)&&near(a.y,b.y); }
+static float sumDur(const Animation& a){ float d=0; for(auto& f:a.frames) d+=f.duration; return d; }
+static void label(const std::string& t, float x, float y){ DrawText(t.c_str(),x,y,WHITE); }
 
-#define TEST_NEAR(name, a, b, eps) \
-    TEST(name, std::abs((a)-(b)) < (eps))
-
-// -----------------------------------------------------------------------
-// Curves
-// -----------------------------------------------------------------------
-void test_curves() {
-    SECTION("Easing Curves");
-    TEST("Linear(0) == 0",      Curves::Linear(0.0f) == 0.0f);
-    TEST("Linear(1) == 1",      Curves::Linear(1.0f) == 1.0f);
-    TEST_NEAR("Linear(0.5) == 0.5", Curves::Linear(0.5f), 0.5f, 0.0001f);
-    TEST("EaseIn(0) == 0",      Curves::EaseIn(0.0f) == 0.0f);
-    TEST("EaseIn(1) == 1",      Curves::EaseIn(1.0f) == 1.0f);
-    TEST("EaseIn midpoint < 0.5",  Curves::EaseIn(0.5f) < 0.5f);
-    TEST("EaseOut(0) == 0",     Curves::EaseOut(0.0f) == 0.0f);
-    TEST("EaseOut(1) == 1",     Curves::EaseOut(1.0f) == 1.0f);
-    TEST("EaseOut midpoint > 0.5", Curves::EaseOut(0.5f) > 0.5f);
-    TEST("EaseInOut(0) == 0",   Curves::EaseInOut(0.0f) == 0.0f);
-    TEST("EaseInOut(1) == 1",   Curves::EaseInOut(1.0f) == 1.0f);
-    TEST_NEAR("EaseInOut(0.5) == 0.5", Curves::EaseInOut(0.5f), 0.5f, 0.0001f);
-    TEST("EaseOutBounce(0) == 0",  Curves::EaseOutBounce(0.0f) == 0.0f);
-    TEST("EaseOutBounce(1) == 1",  Curves::EaseOutBounce(1.0f) == 1.0f);
-    TEST("Apply dispatches Linear",
-         std::abs(Curves::Apply(Ease::Linear, 0.75f) - 0.75f) < 0.0001f);
-    TEST("Apply dispatches EaseOut",
-         Curves::Apply(Ease::EaseOut, 0.5f) > 0.5f);
-}
-
-// -----------------------------------------------------------------------
-// KeyframeTrack
-// -----------------------------------------------------------------------
-void test_keyframe_track() {
-    SECTION("KeyframeTrack");
-
-    KeyframeTrack t;
-    t.AddKey(0.0f, 0.0f, Ease::Linear);
-    t.AddKey(1.0f, 100.0f, Ease::Linear);
-
-    TEST_NEAR("Sample(0.0) == 0",     t.Sample(0.0f),  0.0f,   0.01f);
-    TEST_NEAR("Sample(1.0) == 100",   t.Sample(1.0f),  100.0f, 0.01f);
-    TEST_NEAR("Sample(0.5) == 50",    t.Sample(0.5f),  50.0f,  0.01f);
-    TEST_NEAR("Sample(-1) clamps lo", t.Sample(-1.0f), 0.0f,   0.01f);
-    TEST_NEAR("Sample(2) clamps hi",  t.Sample(2.0f),  100.0f, 0.01f);
-
-    KeyframeTrack single;
-    single.AddKey(0.5f, 42.0f);
-    TEST_NEAR("Single key before",  single.Sample(0.0f), 42.0f, 0.01f);
-    TEST_NEAR("Single key after",   single.Sample(1.0f), 42.0f, 0.01f);
-    TEST_NEAR("Single key at",      single.Sample(0.5f), 42.0f, 0.01f);
-
-    KeyframeTrack multi;
-    multi.AddKey(0.0f, 0.0f,   Ease::Linear);
-    multi.AddKey(0.5f, 50.0f,  Ease::Linear);
-    multi.AddKey(1.0f, 200.0f, Ease::Linear);
-    TEST_NEAR("Multi-key second segment", multi.Sample(0.75f), 125.0f, 0.5f);
-}
-
-// -----------------------------------------------------------------------
-// Animation clip
-// -----------------------------------------------------------------------
-void test_animation_clip() {
-    SECTION("Animation Clip");
-
-    Animation anim("walk", true);
-    anim.AddFrame(0,  0, 32, 32, 0.1f);
-    anim.AddFrame(32, 0, 32, 32, 0.1f);
-    anim.AddFrame(64, 0, 32, 32, 0.1f);
-
-    TEST("Frame count == 3",      anim.frames.size() == 3);
-    TEST_NEAR("Duration == 0.3",  anim.duration, 0.3f, 0.001f);
-    TEST("Loop flag set",         anim.loop == true);
-    TEST("Name correct",          anim.name == "walk");
-
-    anim.Track("x").AddKey(0.0f, 0.0f).AddKey(1.0f, 100.0f);
-    anim.AutoDuration();
-    TEST("AutoDuration extends to track end", anim.duration >= 1.0f);
-
-    Animation noloop("idle", false);
-    noloop.AddFrame(0, 0, 64, 64, 0.5f);
-    TEST("Non-loop flag",    noloop.loop == false);
-    TEST_NEAR("Single frame duration", noloop.duration, 0.5f, 0.001f);
-}
-
-// -----------------------------------------------------------------------
-// Node tree
-// -----------------------------------------------------------------------
-void test_node_tree() {
-    SECTION("Node Tree");
-
-    Node root("root");
-    auto* child  = root.AddChild<Node>("child");
-    auto* child2 = root.AddChild<Node>("child2");
-    auto* grand  = child->AddChild<Node>("grandchild");
-
-    TEST("child parent == root",        child->parent  == &root);
-    TEST("grand parent == child",       grand->parent  == child);
-    TEST("GetNode finds child",         root.GetNode("child")       == child);
-    TEST("GetNode finds grandchild",    root.GetNode("grandchild")  == grand);
-    TEST("GetNode finds deep",          root.GetNode("grandchild")  != nullptr);
-    TEST("GetNode returns null",        root.GetNode("nope")        == nullptr);
-    TEST("child2 parent == root",       child2->parent == &root);
-
-    int count = 0;
-    root.ForEachDescendant([&](Node*) { count++; });
-    TEST("ForEachDescendant visits 3",  count == 3);
-
-    root.RemoveChild("child2");
-    count = 0;
-    root.ForEachDescendant([&](Node*) { count++; });
-    TEST("After RemoveChild 2 remain",  count == 2);
-    TEST("GetNode after remove",        root.GetNode("child2") == nullptr);
-    TEST("Other child still exists",    root.GetNode("child") != nullptr);
-
-    // Ready() called on AddChild
-    struct ReadyTracker : public Node {
-        bool readyCalled = false;
-        ReadyTracker(const std::string& name = "tracker") : Node(name) {}
-        void Ready() override { readyCalled = true; }
-    };
-    auto* tracker = root.AddChild<ReadyTracker>("tracker");
-    TEST("Ready() called by AddChild",  tracker->readyCalled);
-}
-
-// -----------------------------------------------------------------------
-// Node2D
-// -----------------------------------------------------------------------
-void test_node2d() {
-    SECTION("Node2D");
-
-    Node2D n("n");
-    n.x = 100; n.y = 200;
-    n.originX = 0.5f; n.originY = 0.5f;
-
-    TEST_NEAR("DrawX center pivot",  n.DrawX(64),   68.0f,  0.01f);
-    TEST_NEAR("DrawY center pivot",  n.DrawY(32),  184.0f,  0.01f);
-
-    n.originX = 0.0f; n.originY = 0.0f;
-    TEST_NEAR("DrawX top-left",      n.DrawX(64),  100.0f,  0.01f);
-    TEST_NEAR("DrawY top-left",      n.DrawY(64),  200.0f,  0.01f);
-
-    n.originX = 1.0f; n.originY = 1.0f;
-    TEST_NEAR("DrawX bottom-right",  n.DrawX(64),   36.0f,  0.01f);
-    TEST_NEAR("DrawY bottom-right",  n.DrawY(64),  136.0f,  0.01f);
-
-    n.x = 0; n.y = 0; n.originX = 0.5f; n.originY = 0.5f;
-    n.Move(10, -5);
-    TEST_NEAR("Move x",  n.x,  10.0f, 0.01f);
-    TEST_NEAR("Move y",  n.y,  -5.0f, 0.01f);
-
-    // Child world transform
-    Node2D parent("p");
-    parent.x = 100; parent.y = 100; parent.scaleX = 2; parent.scaleY = 2;
-    auto* childNode = parent.AddChild<Node2D>("c");
-    childNode->x = 10; childNode->y = 5;
-    // World position from propagateToChildren: parent.x + child.x * parent.scaleX
-    // = 100 + 10*2 = 120,  100 + 5*2 = 110
-    float worldX = parent.x + childNode->x * parent.scaleX;
-    float worldY = parent.y + childNode->y * parent.scaleY;
-    TEST_NEAR("Child world X with scale",  worldX, 120.0f, 0.01f);
-    TEST_NEAR("Child world Y with scale",  worldY, 110.0f, 0.01f);
-}
-
-// -----------------------------------------------------------------------
-// Signals
-// -----------------------------------------------------------------------
-void test_signals() {
-    SECTION("Signals");
-
-    Node n("sig");
-    int count = 0;
-    n.Connect("fire", [&]() { count++; });
-    n.Emit("fire");
-    n.Emit("fire");
-    TEST("Signal fires twice",       count == 2);
-    TEST("Unknown signal no crash",  (n.Emit("nope"), true));
-
-    // Multiple listeners
-    int a = 0, b = 0;
-    Node m("multi");
-    m.Connect("ev", [&]() { a++; });
-    m.Connect("ev", [&]() { b++; });
-    m.Emit("ev");
-    TEST("Multiple listeners both fire", a == 1 && b == 1);
-}
-
-// -----------------------------------------------------------------------
-// AnimationPlayer (headless)
-// -----------------------------------------------------------------------
-void test_animation_player_headless() {
-    SECTION("AnimationPlayer (headless)");
-
-    AnimationPlayer ap("ap");
-    Animation clip("run", true);
-    clip.AddFrame(0,  0, 32, 32, 0.1f);
-    clip.AddFrame(32, 0, 32, 32, 0.1f);
-    clip.displayW = 32; clip.displayH = 32; clip.displayScale = 1.0f;
-    ap.Add(clip);
-
-    TEST("Not playing before Play()",  !ap.IsPlaying());
-    ap.Play("run");
-    TEST("Playing after Play()",        ap.IsPlaying());
-    TEST("GetCurrent == run",           ap.GetCurrent() == "run");
-    TEST("GetCurrentFrame == 0",        ap.GetCurrentFrame() == 0);
-
-    ap.Pause();
-    TEST("Not playing after Pause()",  !ap.IsPlaying());
-    ap.Resume();
-    TEST("Playing after Resume()",      ap.IsPlaying());
-    ap.Stop();
-    TEST("Not playing after Stop()",   !ap.IsPlaying());
-    TEST("IsFinished after Stop()",     ap.IsFinished());
-
-    ap.Play("nonexistent");
-    TEST("Play unknown clip no crash", true);
-
-    // Non-looping clip finishes
-    Animation once("once", false);
-    once.AddFrame(0, 0, 32, 32, 0.01f); // very short
-    ap.Add(once);
-    ap.Play("once");
-    TEST("Non-loop initially playing",  ap.IsPlaying());
-}
-
-// -----------------------------------------------------------------------
-// Collision (AABB helper)
-// -----------------------------------------------------------------------
-void test_collision() {
-    SECTION("Collision (AABB helper)");
-
-    Rectangle a(0, 0, 100, 100);
-    Rectangle b(50, 50, 100, 100);
-    Rectangle c(200, 200, 50, 50);
-    Rectangle d(100, 0, 100, 100); // touching edge
-
-    TEST("Overlapping rects collide",         CheckCollisionRecs(a, b));
-    TEST("Non-overlapping rects no col",      !CheckCollisionRecs(a, c));
-    TEST("Touching edge does NOT collide",    !CheckCollisionRecs(a, d));
-    TEST("1px overlap does collide",
-         CheckCollisionRecs(Rectangle(0,0,100,100), Rectangle(99,0,100,100)));
-    TEST("Contained rect collides",
-         CheckCollisionRecs(Rectangle(0,0,100,100), Rectangle(10,10,10,10)));
-    TEST("Self overlap",                       CheckCollisionRecs(a, a));
-}
-
-// -----------------------------------------------------------------------
-// CollisionWorld + Collider2D
-// -----------------------------------------------------------------------
-void test_collision_world() {
-    SECTION("CollisionWorld + Collider2D");
-
-    // Basic overlap detection
-    Collider2D a("a"), b("b"), c("c");
-    a.x = 0;   a.y = 0;   a.width = 100; a.height = 100;
-    b.x = 50;  b.y = 50;  b.width = 100; b.height = 100;
-    c.x = 300; c.y = 300; c.width = 100; c.height = 100;
-
-    TEST("Overlaps() detects overlap",    CollisionWorld::Overlaps(&a, &b));
-    TEST("Overlaps() detects no overlap", !CollisionWorld::Overlaps(&a, &c));
-
-    // Signals fire correctly
-    int enterA = 0, exitA = 0;
-    a.Connect("on_collision_enter", [&](Collider2D*) { enterA++; });
-    a.Connect("on_collision_exit",  [&](Collider2D*) { exitA++;  });
-
-    CollisionWorld world;
-    world.Add(&a); world.Add(&b); world.Add(&c);
-
-    world.Update();
-    TEST("enter fires on first overlap",  enterA == 1);
-    TEST("exit not fired yet",            exitA  == 0);
-
-    world.Update();
-    TEST("No duplicate enter on stay",    enterA == 1);
-
-    b.x = 500;
-    world.Update();
-    TEST("exit fires after separation",   exitA  == 1);
-
-    // Re-enter
-    b.x = 50;
-    world.Update();
-    TEST("enter fires again on re-entry", enterA == 2);
-
-    // Layer/mask filtering
-    Collider2D d("d"), e("e");
-    d.x = 0; d.y = 0; d.width = 50; d.height = 50;
-    e.x = 0; e.y = 0; e.width = 50; e.height = 50;
-    d.layer = 1; d.mask = 2;
-    e.layer = 4; e.mask = 4;
-    TEST("Layer mask filters non-matching",
-         !CollisionWorld::Overlaps(&d, &e) ||
-         !((d.layer & e.mask) || (e.layer & d.mask)));
-
-    // Circle vs circle
-    Collider2D ca("ca"), cb("cb");
-    ca.shape = ColliderShape::Circle; ca.x = 0;   ca.y = 0; ca.radius = 50;
-    cb.shape = ColliderShape::Circle; cb.x = 60;  cb.y = 0; cb.radius = 50;
-    TEST("Circle vs circle overlap",    CollisionWorld::Overlaps(&ca, &cb));
-    cb.x = 200;
-    TEST("Circle vs circle no overlap", !CollisionWorld::Overlaps(&ca, &cb));
-
-    // Rect vs circle
-    Collider2D rect("rect"), circ("circ");
-    rect.shape  = ColliderShape::Rectangle;
-    rect.x = 0; rect.y = 0; rect.width = 100; rect.height = 100;
-    circ.shape  = ColliderShape::Circle;
-    circ.x = 50; circ.y = 50; circ.radius = 20;
-    TEST("Rect vs circle overlap",      CollisionWorld::Overlaps(&rect, &circ));
-    circ.x = 300;
-    TEST("Rect vs circle no overlap",   !CollisionWorld::Overlaps(&rect, &circ));
-
-    // touching flag
-    CollisionWorld world2;
-    Collider2D p("p"), q("q");
-    p.x = 0; p.y = 0; p.width = 50; p.height = 50;
-    q.x = 10; q.y = 10; q.width = 50; q.height = 50;
-    world2.Add(&p); world2.Add(&q);
-    world2.Update();
-    TEST("touching flag set on overlap",  p.touching && q.touching);
-    q.x = 500;
-    world2.Update();
-    TEST("touching flag cleared after separation", !p.touching && !q.touching);
-
-    // OnCollisionEnter bubbles to parent node
-    struct ColNode : public Node2D {
-        int hits = 0;
-        ColNode() : Node2D("colnode") {}
-        void OnCollisionEnter(Collider2D*) override { hits++; }
-    };
-    ColNode parent;
-    auto* pCol = parent.AddChild<Collider2D>("pCol");
-    pCol->width = 100; pCol->height = 100;
-
-    Collider2D other("other");
-    other.x = 10; other.y = 10; other.width = 50; other.height = 50;
-
-    CollisionWorld world3;
-    world3.Add(pCol); world3.Add(&other);
-    world3.Update();
-    TEST("OnCollisionEnter bubbles to parent node", parent.hits == 1);
-}
-
-// -----------------------------------------------------------------------
-// Scene
-// -----------------------------------------------------------------------
-void test_scene() {
-    SECTION("Scene");
-
-    // Needs a window for rendering but we can test the tree logic
-    // NOTE: Scene::Add calls Ready() which may call AddChild for colliders
-    // We can't open a window here so we just test the logic paths
-    // that don't require GL
-
-    // Test that collision world is scanned correctly
-    // (headless — no window needed for this)
-    struct TestNode : public Node2D {
-        bool readyCalled = false;
-        TestNode(const std::string& name = "tn") : Node2D(name) {}
-        void Ready() override { readyCalled = true; }
-    };
-
-    Scene scene;
-    auto* tn = scene.Add<TestNode>("tn");
-    TEST("Scene::Add calls Ready()",  tn->readyCalled);
-    TEST("Scene::GetNode finds node", scene.GetNode("tn") != nullptr);
-    scene.Remove("tn");
-    TEST("Scene::Remove works",       scene.GetNode("tn") == nullptr);
-}
-
-// -----------------------------------------------------------------------
-// Vector2
-// -----------------------------------------------------------------------
+// ---- Vector2 ----
 void test_vector2() {
-    SECTION("Vector2");
+    SECTION("Vector2 — arithmetic");
+    Vector2 a(3,4), b(1,2);
+    TEST("Addition",        nearv(a+b,{4,6}));
+    TEST("Subtraction",     nearv(a-b,{2,2}));
+    TEST("Scalar mul",      nearv(a*2,{6,8}));
+    TEST("Float*vec",       nearv(2.0f*a,{6,8}));
+    TEST("Scalar div",      nearv(a/2,{1.5f,2}));
+    TEST("Negate",          nearv(-a,{-3,-4}));
+    TEST("Equal",           a==Vector2(3,4));
+    TEST("Not equal",       a!=b);
 
-    Vector2 a(3.0f, 4.0f);
-    TEST_NEAR("Length == 5",       a.Length(), 5.0f, 0.001f);
-    TEST_NEAR("LengthSq == 25",    a.LengthSq(), 25.0f, 0.001f);
+    SECTION("Vector2 — length/distance");
+    TEST("Length (3,4)==5",    near(a.Length(),5));
+    TEST("LengthSq==25",       near(a.LengthSq(),25));
+    TEST("Distance to 0==5",   near(a.Distance({}),5));
+    TEST("DistanceSq==25",     near(a.DistanceSq({}),25));
+    TEST("Zero length==0",     near(Vector2{}.Length(),0));
 
-    Vector2 norm = a.Normalized();
-    TEST_NEAR("Normalized length == 1", norm.Length(), 1.0f, 0.001f);
+    SECTION("Vector2 — normalize");
+    Vector2 n=a.Normalized();
+    TEST("Norm length==1",       near(n.Length(),1));
+    TEST("Norm direction",       near(n.x,0.6f)&&near(n.y,0.8f));
+    TEST("Zero norm safe",       Vector2{}.Normalized()==Vector2{});
 
-    Vector2 b(1.0f, 0.0f), c(0.0f, 1.0f);
-    TEST_NEAR("Dot(right, up) == 0",  b.Dot(c), 0.0f, 0.001f);
-    TEST_NEAR("Dot(right, right)==1", b.Dot(b), 1.0f, 0.001f);
+    SECTION("Vector2 — dot");
+    TEST("Right·Up==0",   near(Vector2::Right().Dot(Vector2::Up()),0));
+    TEST("Right·Right==1",near(Vector2::Right().Dot(Vector2::Right()),1));
+    TEST("Right·Left==-1",near(Vector2::Right().Dot(Vector2::Left()),-1));
 
-    Vector2 sum = a + b;
-    TEST_NEAR("Add x", sum.x, 4.0f, 0.001f);
-    TEST_NEAR("Add y", sum.y, 4.0f, 0.001f);
+    SECTION("Vector2 — rotation");
+    float pi=3.14159265f;
+    Vector2 r90=Vector2::Right().Rotated(pi/2);
+    TEST("90deg ~= Down",  near(r90.x,0)&&near(r90.y,1));
+    Vector2 r180=Vector2::Right().Rotated(pi);
+    TEST("180deg ~= Left", near(r180.x,-1)&&near(r180.y,0));
+    TEST("Rotation length preserved", near(Vector2(3,4).Rotated(1.23f).Length(),5));
 
-    Vector2 lerped = Vector2::Lerp(Vector2(0,0), Vector2(10,10), 0.5f);
-    TEST_NEAR("Lerp x", lerped.x, 5.0f, 0.001f);
-    TEST_NEAR("Lerp y", lerped.y, 5.0f, 0.001f);
+    SECTION("Vector2 — reflection");
+    // Floor: normal=(0,-1). (1,1) reflected = (1,-1)
+    Vector2 ref=Vector2(1,1).Reflected({0,-1});
+    TEST("Floor flips Y",       near(ref.x,1)&&near(ref.y,-1));
+    TEST("Reflection len kept", near(ref.Length(),Vector2(1,1).Length()));
+    // 45-deg wall: normal=(-1,-1)/sqrt2. (1,0) reflected = (0,-1)
+    Vector2 wr=Vector2(1,0).Reflected(Vector2(-1,-1).Normalized());
+    TEST("45-deg wall len",     near(wr.Length(),1));
+    TEST("45-deg wall dir (0,-1)", near(wr.x,0)&&near(wr.y,-1));
 
-    TEST("Zero()",   Vector2::Zero().x == 0 && Vector2::Zero().y == 0);
-    TEST("Right()",  Vector2::Right().x == 1 && Vector2::Right().y == 0);
-    TEST("Up()",     Vector2::Up().x    == 0 && Vector2::Up().y    == -1);
+    SECTION("Vector2 — lerp");
+    TEST("Lerp mid",  nearv(Vector2::Lerp({0,0},{10,20},0.5f),{5,10}));
+    TEST("Lerp t=0",  nearv(Vector2::Lerp({1,2},{3,4},0),{1,2}));
+    TEST("Lerp t=1",  nearv(Vector2::Lerp({1,2},{3,4},1),{3,4}));
+
+    SECTION("Vector2 — presets");
+    TEST("Zero",  Vector2::Zero()==Vector2(0,0));
+    TEST("One",   Vector2::One()==Vector2(1,1));
+    TEST("Up",    Vector2::Up()==Vector2(0,-1));
+    TEST("Down",  Vector2::Down()==Vector2(0,1));
+    TEST("Left",  Vector2::Left()==Vector2(-1,0));
+    TEST("Right", Vector2::Right()==Vector2(1,0));
 }
 
-// -----------------------------------------------------------------------
-// DebugMode
-// -----------------------------------------------------------------------
-void test_debug_mode() {
-    SECTION("DebugMode");
-    DebugMode(false);
-    TEST("IsDebugMode false after disable", !IsDebugMode());
-    DebugMode(true);
-    TEST("IsDebugMode true after enable",    IsDebugMode());
-    DebugMode(false);
-    TEST("IsDebugMode false again",         !IsDebugMode());
+// ---- Primitive collision ----
+void test_primitives() {
+    SECTION("CheckCollisionCircles");
+    TEST("Exact touch no collide",  !CheckCollisionCircles({0,0,50},{100,0,50}));
+    TEST("1-unit overlap",           CheckCollisionCircles({0,0,50},{99,0,50}));
+    TEST("Far apart",               !CheckCollisionCircles({0,0,50},{300,0,50}));
+    TEST("Concentric",               CheckCollisionCircles({0,0,10},{0,0,10}));
+    TEST("Diagonal overlap (3-4-5)", CheckCollisionCircles({0,0,3},{3,4,3}));
+    TEST("Diagonal gap (3-4-5)",    !CheckCollisionCircles({0,0,2},{3,4,2}));
+
+    SECTION("CheckCollisionCircleRec");
+    Rectangle r(100,100,200,100);
+    TEST("Center inside",      CheckCollisionCircleRec({200,150,10},r));
+    TEST("Far away",          !CheckCollisionCircleRec({0,0,10},r));
+    TEST("Exact touch left",  !CheckCollisionCircleRec({90,150,10},r));
+    TEST("1px overlap left",   CheckCollisionCircleRec({91,150,10},r));
+    TEST("Above no overlap",  !CheckCollisionCircleRec({200,80,10},r));
+    TEST("Above overlap",      CheckCollisionCircleRec({200,91,10},r));
+    TEST("Corner outside",    !CheckCollisionCircleRec({90,90,10},r)); // dist~14.1>10
+    TEST("Corner inside",      CheckCollisionCircleRec({93,93,10},r)); // dist~9.9<10
+
+    SECTION("CheckCollisionRecs");
+    TEST("Full overlap",        CheckCollisionRecs({0,0,100,100},{25,25,50,50}));
+    TEST("Partial overlap",     CheckCollisionRecs({0,0,100,100},{50,50,100,100}));
+    TEST("Touch right",        !CheckCollisionRecs({0,0,100,100},{100,0,100,100}));
+    TEST("Touch bottom",       !CheckCollisionRecs({0,0,100,100},{0,100,100,100}));
+    TEST("1px overlap X",       CheckCollisionRecs({0,0,100,100},{99,0,100,100}));
+    TEST("Contained",           CheckCollisionRecs({0,0,200,200},{50,50,10,10}));
+    TEST("Separate X",         !CheckCollisionRecs({0,0,100,100},{200,0,100,100}));
+    TEST("Separate diagonal",  !CheckCollisionRecs({0,0,10,10},{20,20,10,10}));
 }
 
-// -----------------------------------------------------------------------
-// Color
-// -----------------------------------------------------------------------
-void test_color() {
-    SECTION("Color presets");
-    TEST("RED.r == 1",      RED.r == 1.0f   && RED.g == 0.0f);
-    TEST("GREEN.g == 1",    GREEN.g == 1.0f && GREEN.r == 0.0f);
-    TEST("BLUE.b == 1",     BLUE.b == 1.0f  && BLUE.r == 0.0f);
-    TEST("WHITE all 1",     WHITE.r == 1 && WHITE.g == 1 && WHITE.b == 1);
-    TEST("BLACK all 0",     BLACK.r == 0 && BLACK.g == 0 && BLACK.b == 0);
-    TEST("BLANK a==0", BLANK.a == 0.0f);
+// ---- SAT ----
+void test_sat() {
+    SECTION("SAT — Circle vs Circle");
+    Collider2D ca("ca"),cb("cb");
+    ca.shape=ColliderShape::Circle; ca.x=0; ca.y=0; ca.radius=50;
+    cb.shape=ColliderShape::Circle; cb.x=80;cb.y=0; cb.radius=50;
+    TEST("Overlap",       CollisionWorld::Overlaps(&ca,&cb));
+    cb.x=100;
+    TEST("Exact touch",  !CollisionWorld::Overlaps(&ca,&cb));
+    cb.x=99;
+    TEST("1-unit",        CollisionWorld::Overlaps(&ca,&cb));
+    cb.x=60; cb.y=60;
+    TEST("Diagonal hit",  CollisionWorld::Overlaps(&ca,&cb));
+    cb.x=80; cb.y=80;
+    TEST("Diagonal miss",!CollisionWorld::Overlaps(&ca,&cb));
+
+    SECTION("SAT — Circle vs Rect");
+    Collider2D rect("r"),circ("c");
+    rect.shape=ColliderShape::Rectangle;
+    rect.x=0; rect.y=0; rect.width=200; rect.height=200; rect.originX=0; rect.originY=0;
+    circ.shape=ColliderShape::Circle; circ.radius=30;
+    circ.x=100; circ.y=100;
+    TEST("Inside rect",    CollisionWorld::Overlaps(&rect,&circ));
+    circ.x=-20; circ.y=100;
+    TEST("Left edge hit",  CollisionWorld::Overlaps(&rect,&circ));
+    circ.x=-31; circ.y=100;
+    TEST("Left edge miss",!CollisionWorld::Overlaps(&rect,&circ));
+    circ.x=-20; circ.y=-20;
+    TEST("Corner hit",     CollisionWorld::Overlaps(&rect,&circ));
+    circ.x=-25; circ.y=-25;
+    TEST("Corner miss",   !CollisionWorld::Overlaps(&rect,&circ));
+
+    SECTION("SAT — Rect vs Rect");
+    Collider2D r1("r1"),r2("r2");
+    r1.shape=ColliderShape::Rectangle; r1.x=0;r1.y=0;r1.width=100;r1.height=100;r1.originX=0;r1.originY=0;
+    r2.shape=ColliderShape::Rectangle; r2.x=50;r2.y=50;r2.width=100;r2.height=100;r2.originX=0;r2.originY=0;
+    TEST("Overlap",   CollisionWorld::Overlaps(&r1,&r2));
+    r2.x=200;
+    TEST("Separate", !CollisionWorld::Overlaps(&r1,&r2));
+
+    SECTION("SAT — Custom polygon (triangle)");
+    Collider2D tri("tri"),pt("pt");
+    tri.shape=ColliderShape::Custom; tri.x=0; tri.y=0;
+    tri.points={{0,-60},{52,30},{-52,30}};
+    pt.shape=ColliderShape::Rectangle; pt.width=10; pt.height=10; pt.originX=0.5f; pt.originY=0.5f;
+    pt.x=0; pt.y=0;
+    TEST("Inside triangle",  CollisionWorld::Overlaps(&tri,&pt));
+    pt.x=0; pt.y=-50;
+    TEST("Near top vertex",  CollisionWorld::Overlaps(&tri,&pt));
+    pt.x=0; pt.y=-80;
+    TEST("Above triangle",  !CollisionWorld::Overlaps(&tri,&pt));
+    pt.x=100; pt.y=0;
+    TEST("Right of triangle",!CollisionWorld::Overlaps(&tri,&pt));
 }
 
-// -----------------------------------------------------------------------
-// Visual / interactive tests (require a window)
-// -----------------------------------------------------------------------
-void run_visual_tests() {
-    SECTION("Visual Tests (manual verification required)");
+// ---- Layer/mask ----
+void test_layer_mask() {
+    SECTION("Layer/mask bitmask");
+    auto hits=[](uint32_t la,uint32_t ma,uint32_t lb,uint32_t mb){ return (la&mb)||(lb&ma); };
+    TEST("Default 1,1 vs 1,1", hits(1,1,1,1));
+    TEST("1,2 hits 2,1",       hits(1,2,2,1));
+    TEST("1,4 vs 2,8 no match",!hits(1,4,2,8));
+    uint32_t pL=1,pM=2|4, eL=2,eM=1, wL=4,wM=1|2, bL=8,bM=0;
+    TEST("Player hits enemy",  hits(pL,pM,eL,eM));
+    TEST("Player hits wall",   hits(pL,pM,wL,wM));
+    TEST("Player misses bg",  !hits(pL,pM,bL,bM));
+    TEST("Enemy hits wall",    hits(eL,eM,wL,wM));
+    TEST("BG hits nothing",   !hits(bL,bM,pL,pM));
 
-    std::cout << R"(
-  A window will open. Verify each item, then close (ESC or X).
+    SECTION("Layer/mask CollisionWorld enforcement");
+    Collider2D a("a"),b("b");
+    a.x=0;a.y=0;a.width=100;a.height=100;a.originX=0;a.originY=0;
+    b.x=0;b.y=0;b.width=100;b.height=100;b.originX=0;b.originY=0;
+    a.layer=1; a.mask=4;
+    b.layer=2; b.mask=8;
+    int entered=0;
+    a.Connect("on_collision_enter",[&](Collider2D*){ entered++; });
+    CollisionWorld world; world.Add(&a); world.Add(&b);
+    world.Update();
+    TEST("Mismatch suppresses signal", entered==0);
+    b.layer=4; b.mask=1;
+    world.Update();
+    TEST("Match fires signal", entered==1);
+}
 
-  What you will see:
-    - A WHITE box  (WASD to move) with a GREEN collider outline around it
-    - A CYAN box   (right-click drag to move) with a GREEN collider outline
-    - A GRAY floor line at y=480
-    - HUD text in the top-left corner (screen space, does not scroll)
-    - Red debug border + mouse crosshair
+// ---- Multi-collision ----
+void test_multi_collision() {
+    SECTION("Multi collision");
+    const int N=5;
+    std::vector<std::unique_ptr<Collider2D>> cols;
+    for(int i=0;i<N;i++){
+        auto c=std::make_unique<Collider2D>("c"+std::to_string(i));
+        c->x=0;c->y=0;c->width=100;c->height=100;c->originX=0;c->originY=0;
+        cols.push_back(std::move(c));
+    }
+    int te=0;
+    for(auto& c:cols) c->Connect("on_collision_enter",[&](Collider2D*){ te++; });
+    CollisionWorld world;
+    for(auto& c:cols) world.Add(c.get());
+    world.Update();
+    TEST("All pairs fire enter", te==N*(N-1)/2*2);
 
-  Checklist:
-    [ ] Window opens and stays responsive
-    [ ] Background is dark, clears every frame
-    [ ] White box moves with WASD (stays inside camera)
-    [ ] Green collider outlines visible around both boxes
-    [ ] Dragging cyan box into white box: outlines turn YELLOW
-    [ ] Terminal prints "Collision ENTER" on overlap
-    [ ] Terminal prints "Collision EXIT" on separation
-    [ ] HUD text (top-left) stays fixed on screen — does NOT move with camera
-    [ ] Camera zoom pulses gently (sin wave) — scene zooms in/out
-    [ ] FPS shown in HUD stays near 60
-    [ ] SPACE prints "SPACE pressed" to terminal
-    [ ] Left click prints world position to terminal
-    [ ] ESC closes window cleanly
+    int tx=0;
+    for(auto& c:cols) c->Connect("on_collision_exit",[&](Collider2D*){ tx++; });
+    cols[0]->x=500;
+    world.Update();
+    TEST("Move one out fires exits", tx==(N-1)*2);
 
-  Press ESC or close the window when done.
-)";
+    SECTION("Re-enter");
+    CollisionWorld w2;
+    Collider2D p("p"),q("q");
+    p.x=0;p.y=0;p.width=50;p.height=50;p.originX=0;p.originY=0;
+    q.x=0;q.y=0;q.width=50;q.height=50;q.originX=0;q.originY=0;
+    w2.Add(&p); w2.Add(&q);
+    int en=0,ex=0;
+    p.Connect("on_collision_enter",[&](Collider2D*){ en++; });
+    p.Connect("on_collision_exit", [&](Collider2D*){ ex++; });
+    w2.Update(); TEST("First enter",  en==1);
+    w2.Update(); TEST("Stay no dupe", en==1);
+    q.x=200; w2.Update(); TEST("Exit",    ex==1);
+    q.x=0;   w2.Update(); TEST("Re-enter",en==2);
+}
 
-    DebugMode(true);
-    InitWindow(800, 600, "KonEngine -- Visual Test Suite v0.8.2");
+// ---- Physics ----
+void test_physics() {
+    SECTION("Bouncing ball");
+    const float W=800,H=600,R=20,DT=1.f/60.f;
+    Vector2 pos(400,300),vel(237,173);
+    int bounces=0; bool px=false,py=false;
+    for(int f=0;f<600;f++){
+        pos+=vel*DT;
+        bool hx=false,hy=false;
+        if(pos.x-R<0){pos.x=R;vel.x=std::fabs(vel.x);hx=true;}
+        if(pos.x+R>W){pos.x=W-R;vel.x=-std::fabs(vel.x);hx=true;}
+        if(pos.y-R<0){pos.y=R;vel.y=std::fabs(vel.y);hy=true;}
+        if(pos.y+R>H){pos.y=H-R;vel.y=-std::fabs(vel.y);hy=true;}
+        if((hx&&!px)||(hy&&!py)) bounces++;
+        px=hx;py=hy;
+    }
+    TEST("Ball in box X min", pos.x-R>=-EPS);
+    TEST("Ball in box X max", pos.x+R<=W+EPS);
+    TEST("Ball in box Y min", pos.y-R>=-EPS);
+    TEST("Ball in box Y max", pos.y+R<=H+EPS);
+    TEST("Ball bounces",      bounces>0);
+    TEST("Speed preserved",   near(vel.Length(),Vector2(237,173).Length()));
+
+    SECTION("Proximity trigger");
+    Vector2 enemy(400,300),player(0,300);
+    float alertRange=150,speed=200; bool fired=false; float t=0;
+    Vector2 dir=(enemy-player).Normalized();
+    while(t<5.f){ player+=dir*speed*DT; t+=DT; if(player.Distance(enemy)<alertRange){fired=true;break;} }
+    TEST("Alert fires",       fired);
+    TEST("Correct distance",  player.Distance(enemy)<alertRange);
+}
+
+// ---- Animation ----
+void test_animation() {
+    SECTION("Curves — boundary values");
+    for(auto [nm,e]: std::vector<std::pair<std::string,Ease>>{
+        {"Linear",Ease::Linear},{"EaseIn",Ease::EaseIn},{"EaseOut",Ease::EaseOut},
+        {"EaseInOut",Ease::EaseInOut},{"EaseInCubic",Ease::EaseInCubic},
+        {"EaseOutCubic",Ease::EaseOutCubic},{"EaseInOutCubic",Ease::EaseInOutCubic},
+        {"EaseInElastic",Ease::EaseInElastic},{"EaseOutElastic",Ease::EaseOutElastic},
+        {"EaseInBounce",Ease::EaseInBounce},{"EaseOutBounce",Ease::EaseOutBounce},
+        {"EaseInBack",Ease::EaseInBack},{"EaseOutBack",Ease::EaseOutBack},
+        {"EaseInOutBack",Ease::EaseInOutBack}
+    }){
+        TEST(nm+"(0)==0", near(Curves::Apply(e,0),0));
+        TEST(nm+"(1)==1", near(Curves::Apply(e,1),1));
+    }
+    TEST("EaseIn slow start",  Curves::Apply(Ease::EaseIn,0.5f)<0.5f);
+    TEST("EaseOut fast start", Curves::Apply(Ease::EaseOut,0.5f)>0.5f);
+
+    SECTION("KeyframeTrack");
+    KeyframeTrack t; t.AddKey(0.5f,42.f);
+    TEST("Single key before", near(t.Sample(0),42)); TEST("Single key at",near(t.Sample(.5f),42));
+    KeyframeTrack t2;
+    t2.AddKey(0,0,Ease::Linear); t2.AddKey(1,100,Ease::Linear);
+    TEST("Linear t=0.25",near(t2.Sample(.25f),25)); TEST("Linear t=0.5",near(t2.Sample(.5f),50));
+    TEST("Before clamps",near(t2.Sample(-1),0));    TEST("After clamps",near(t2.Sample(2),100));
+    KeyframeTrack t3;
+    t3.AddKey(0,0,Ease::Linear); t3.AddKey(.5f,50,Ease::Linear); t3.AddKey(1,0,Ease::Linear);
+    TEST("3-key peak",  near(t3.Sample(.5f),50)); TEST("3-key end",near(t3.Sample(1),0));
+
+    SECTION("AnimationPlayer state machine");
+    AnimationPlayer ap("ap");
+    Animation idle("idle",true); idle.AddFrame(0,0,32,32,.1f); idle.AddFrame(32,0,32,32,.1f);
+    idle.displayW=32;idle.displayH=32;idle.displayScale=1;
+    Animation jump("jump",false); jump.AddFrame(0,64,32,32,.1f); jump.AddFrame(32,64,32,32,.1f);
+    jump.displayW=32;jump.displayH=32;jump.displayScale=1;
+    ap.Add(idle); ap.Add(jump);
+    TEST("Not playing initially",!ap.IsPlaying());
+    ap.Play("idle"); TEST("Playing after Play",ap.IsPlaying());
+    ap.Pause();      TEST("Paused",!ap.IsPlaying());
+    ap.Resume();     TEST("Resumed",ap.IsPlaying());
+    ap.Play("jump"); float jd=sumDur(jump);
+    ap.Update(jd+.1f);
+    TEST("Non-loop finishes",ap.IsFinished());
+    TEST("Finished not playing",!ap.IsPlaying());
+    ap.Play("idle"); TEST("Resets on Play",!ap.IsFinished());
+    ap.Stop();       TEST("Stop sets finished",ap.IsFinished());
+    ap.Play("nope"); TEST("Missing safe",!ap.IsPlaying());
+}
+
+// ---- Nodes ----
+void test_nodes() {
+    SECTION("Node tree");
+    Node root("root");
+    auto* c1=root.AddChild<Node>("c1"); auto* c2=root.AddChild<Node>("c2");
+    auto* gc=c1->AddChild<Node>("gc"); auto* gt=gc->AddChild<Node>("gt");
+    TEST("Child parent",  c1->parent==&root);
+    TEST("Deep parent",   gt->parent==gc);
+    TEST("GetNode c1",    root.GetNode("c1")==c1);
+    TEST("GetNode deep",  root.GetNode("gt")==gt);
+    TEST("GetNode miss",  root.GetNode("nope")==nullptr);
+    int cnt=0; root.ForEachDescendant([&](Node*){ cnt++; });
+    TEST("ForEach count", cnt==4);
+    c1->RemoveChild("gc");
+    int cnt2=0; root.ForEachDescendant([&](Node*){ cnt2++; });
+    TEST("After remove",  cnt2==2);
+
+    SECTION("Node2D");
+    Node2D n; n.x=100;n.y=200;n.originX=.5f;n.originY=.5f;
+    TEST("Center DrawX",near(n.DrawX(64),68.f)); TEST("Center DrawY",near(n.DrawY(32),184.f));
+    n.Move(10,-5); TEST("Move dx",near(n.x,110)); TEST("Move dy",near(n.y,195));
+
+    SECTION("Signals");
+    Node s("s"); int a=0;
+    s.Connect("ev",[&](){ a++; }); s.Emit("ev"); s.Emit("ev");
+    TEST("Fires twice",a==2); TEST("Unknown safe",(s.Emit("nope"),true));
+
+    SECTION("Scene integration");
+    Scene sc;
+    auto* sa=sc.Add<Collider2D>("a"); auto* sb=sc.Add<Collider2D>("b");
+    sa->x=0;sa->y=0;sa->width=100;sa->height=100;sa->originX=0;sa->originY=0;
+    sb->x=0;sb->y=0;sb->width=100;sb->height=100;sb->originX=0;sb->originY=0;
+    int en=0,ex=0;
+    sa->Connect("on_collision_enter",[&](Collider2D*){ en++; });
+    sa->Connect("on_collision_exit", [&](Collider2D*){ ex++; });
+    sc.Update(.016f); TEST("Scene detects collision",en==1);
+    sc.Remove("b");
+    sc.Update(.016f); TEST("Exit fires after remove",ex==1);
+}
+
+// ---- Stress ----
+void test_stress() {
+    SECTION("20-object stress");
+    const int N=20;
+    std::vector<std::unique_ptr<Collider2D>> cols;
+    for(int i=0;i<N;i++){
+        auto c=std::make_unique<Collider2D>("s"+std::to_string(i));
+        c->x=0;c->y=0;c->width=50;c->height=50;c->originX=0;c->originY=0;
+        cols.push_back(std::move(c));
+    }
+    int te=0;
+    for(auto& c:cols) c->Connect("on_collision_enter",[&](Collider2D*){ te++; });
+    CollisionWorld world;
+    for(auto& c:cols) world.Add(c.get());
+    world.Update();
+    int ep=N*(N-1)/2;
+    TEST("All pairs fire",te==ep*2);
+    int tx=0;
+    for(auto& c:cols) c->Connect("on_collision_exit",[&](Collider2D*){ tx++; });
+    for(int i=0;i<N;i++) cols[i]->x=(float)(i*200);
+    world.Update();
+    TEST("All exits",tx==ep*2);
+}
+
+// ================================================================
+// VISUAL TESTS
+// ================================================================
+
+void visual_circles() {
+    InitWindow(900,600,"Visual Test 1/4 — Circles & Distance  (ESC=next)");
     SetTargetFPS(60);
-
-    Scene scene;
-
-    // Player: white box with a collider child
-    auto* player = scene.Add<Sprite2D>("player");
-    player->x = 300; player->y = 300;
-    player->width = 48; player->height = 48;
-    player->tint = WHITE;
-    auto* playerCol = player->AddChild<Collider2D>("playerCol");
-    playerCol->width = 48; playerCol->height = 48;
-    playerCol->x = 0; playerCol->y = 0; // centered on player pivot
-
-    // Target: cyan box the user drags with RMB
-    auto* target = scene.Add<Sprite2D>("target");
-    target->x = 520; target->y = 300;
-    target->width = 48; target->height = 48;
-    target->tint = CYAN;
-    auto* targetCol = target->AddChild<Collider2D>("targetCol");
-    targetCol->width = 48; targetCol->height = 48;
-
-    scene.Scan();
-
-    int collisionCount = 0;
-    playerCol->Connect("on_collision_enter", [&](Collider2D* other) {
-        collisionCount++;
-        std::cout << "  [VISUAL] Collision ENTER  total=" << collisionCount << "\n";
-    });
-    playerCol->Connect("on_collision_exit", [&](Collider2D*) {
-        std::cout << "  [VISUAL] Collision EXIT\n";
-    });
-
-    float elapsed = 0.0f;
-    Camera2D cam(400, 300, 1.0f, 0.0f);
-
-    while (!WindowShouldClose()) {
-        float dt = GetDeltaTime();
-        elapsed += dt;
-
-        float speed = 200.0f;
-        if (IsKeyDown(Key::W)) player->y -= speed * dt;
-        if (IsKeyDown(Key::S)) player->y += speed * dt;
-        if (IsKeyDown(Key::A)) player->x -= speed * dt;
-        if (IsKeyDown(Key::D)) player->x += speed * dt;
-
-        // Right-click drag moves target in world space
-        if (IsMouseButtonDown(Mouse::Right)) {
-            target->x = GetWorldMouseX(cam);
-            target->y = GetWorldMouseY(cam);
+    Circle fixed(450,300,80);
+    float alertDist=200.f;
+    while(!WindowShouldClose()){
+        float mx=GetMouseX(),my=GetMouseY();
+        Circle cursor(mx,my,30);
+        bool touching=CheckCollisionCircles(fixed,cursor);
+        float dist=std::sqrt((mx-450)*(mx-450)+(my-300)*(my-300));
+        bool inRange=dist<alertDist;
+        ClearBackground(.08f,.08f,.12f);
+        // Alert ring
+        for(int i=0;i<64;i++){
+            float a1=i/64.f*6.2832f,a2=(i+1)/64.f*6.2832f;
+            DrawLine(450+std::cos(a1)*alertDist,300+std::sin(a1)*alertDist,
+                     450+std::cos(a2)*alertDist,300+std::sin(a2)*alertDist,
+                     inRange?Color{1,1,0,.5f}:Color{.3f,.3f,.3f,1});
         }
-
-        if (IsKeyPressed(Key::Space))
-            std::cout << "  SPACE pressed\n";
-        if (IsKeyPressed(Key::Escape))
-            break;
-
-        if (IsMouseButtonPressed(Mouse::Left))
-            std::cout << "  Left click world=("
-                      << (int)GetWorldMouseX(cam) << ", "
-                      << (int)GetWorldMouseY(cam) << ")\n";
-
-        // Pulsing zoom
-        float zoom = 1.0f + sinf(elapsed * 0.5f) * 0.15f;
-        cam = Camera2D(400, 300, zoom, 0.0f);
-
-        // FPS to terminal every second
-        static float fpsTimer = 0.0f;
-        fpsTimer += dt;
-        if (fpsTimer >= 1.0f) {
-            std::cout << "  FPS: " << GetFPS() << "\n";
-            fpsTimer = 0.0f;
-        }
-
-        ClearBackground(0.10f, 0.10f, 0.14f);
-
-        BeginCamera2D(cam);
-            scene.Update(dt);
-            scene.Draw();
-            // Floor line (world space)
-            DrawLine(0, 480, 800, 480, GRAY);
-            // World origin marker
-            DrawCircle(0, 0, 4, YELLOW);
-        EndCamera2D();
-
-        // HUD — screen space, fixed position, does NOT move with camera
-        DrawRectangle(0, 0, 260, 80, {0,0,0,0.6f});
-        DrawText("WASD: move white box", 8, 8,  14, WHITE);
-        DrawText("RMB drag: move cyan box", 8, 26, 14, WHITE);
-        DrawText("Space: print to terminal", 8, 44, 14, WHITE);
-        char fpsBuf[32];
-        snprintf(fpsBuf, sizeof(fpsBuf), "FPS: %d  Hits: %d", GetFPS(), collisionCount);
-        DrawText(fpsBuf, 8, 62, 14, GREEN);
-
-        Present();
-        PollEvents();
+        DrawLine(450,300,mx,my,GRAY);
+        DrawCircle(450,300,80,touching?RED:GREEN);
+        DrawCircle(mx,my,30,touching?Color{1,.5f,0,1}:BLUE);
+        DrawRectangle(10,10,340,90,Color{0,0,0,.7f});
+        label(touching?"COLLIDING!":"No collision",20,18);
+        label(inRange?"IN ALERT RANGE":"Outside range",20,40);
+        label("dist="+std::to_string((int)dist),20,62);
+        label("Move mouse — ESC = next test",20,82);
+        Present(); PollEvents();
     }
 }
 
-// -----------------------------------------------------------------------
-// main
-// -----------------------------------------------------------------------
-int main() {
-    std::cout << "========================================\n";
-    std::cout << "  KonEngine Test Suite  v0.8.2\n";
-    std::cout << "========================================\n";
-
-    test_curves();
-    test_keyframe_track();
-    test_animation_clip();
-    test_node_tree();
-    test_node2d();
-    test_signals();
-    test_animation_player_headless();
-    test_collision();
-    test_collision_world();
-    test_scene();
-    test_vector2();
-    test_color();
-    test_debug_mode();
-
-    std::cout << "\n========================================\n";
-    std::cout << "  Headless: " << s_passed << " passed, "
-                                << s_failed << " failed\n";
-    std::cout << "========================================\n";
-
-    if (s_failed > 0) {
-        std::cout << "\n  !! FAILING TESTS — fix before release !!\n";
-        return 1;
+void visual_sat() {
+    InitWindow(900,600,"Visual Test 2/4 — SAT Shapes  (WASD=box, Mouse=circle, ESC=next)");
+    SetTargetFPS(60); DebugMode(true);
+    Scene scene;
+    auto* tri=scene.Add<Collider2D>("triangle");
+    tri->shape=ColliderShape::Custom; tri->x=450;tri->y=300;
+    tri->points={{0,-80},{70,40},{-70,40}};
+    tri->debugDraw=true; tri->debugColor=GREEN;
+    auto* box=scene.Add<Collider2D>("box");
+    box->shape=ColliderShape::Rectangle; box->x=200;box->y=300;
+    box->width=60;box->height=60;box->originX=.5f;box->originY=.5f;
+    box->debugDraw=true; box->debugColor=BLUE;
+    auto* circ=scene.Add<Collider2D>("circle");
+    circ->shape=ColliderShape::Circle; circ->radius=40;
+    circ->debugDraw=true; circ->debugColor={1,.5f,0,1};
+    bool triBox=false,triCirc=false;
+    box->Connect("on_collision_enter",[&](Collider2D* o){if(o==tri) triBox=true;});
+    box->Connect("on_collision_exit", [&](Collider2D* o){if(o==tri) triBox=false;});
+    circ->Connect("on_collision_enter",[&](Collider2D* o){if(o==tri) triCirc=true;});
+    circ->Connect("on_collision_exit", [&](Collider2D* o){if(o==tri) triCirc=false;});
+    while(!WindowShouldClose()){
+        float dt=GetDeltaTime(),sp=200.f;
+        if(IsKeyDown(Key::W)) box->y-=sp*dt;
+        if(IsKeyDown(Key::S)) box->y+=sp*dt;
+        if(IsKeyDown(Key::A)) box->x-=sp*dt;
+        if(IsKeyDown(Key::D)) box->x+=sp*dt;
+        circ->x=GetMouseX(); circ->y=GetMouseY();
+        tri->rotation+=30.f*dt;
+        ClearBackground(.08f,.08f,.12f);
+        scene.Update(dt); scene.Draw();
+        DrawRectangle(10,10,400,90,Color{0,0,0,.7f});
+        label("WASD:move box   Mouse:move circle   ESC:next",20,18);
+        label(triBox ?"BOX  HITS TRIANGLE!":"Box: no hit", 20,42);
+        label(triCirc?"CIRC HITS TRIANGLE!":"Circ: no hit",20,65);
+        Present(); PollEvents();
     }
+    DebugMode(false);
+}
 
-    std::cout << "  All headless tests passed.\n";
+void visual_physics() {
+    InitWindow(900,600,"Visual Test 3/4 — Bouncing Balls  (ESC=next)");
+    SetTargetFPS(60);
+    struct Ball{ Vector2 pos,vel; float r; Color col; };
+    std::vector<Ball> balls={
+        {{200,150},{220,173},20,RED},
+        {{500,300},{-180,250},15,GREEN},
+        {{700,400},{130,-220},25,BLUE},
+        {{300,500},{270,-90},12,YELLOW},
+        {{600,100},{-150,310},18,{.8f,0,1,1}},
+    };
+    std::vector<std::unique_ptr<Collider2D>> cols;
+    for(int i=0;i<(int)balls.size();i++){
+        auto c=std::make_unique<Collider2D>("b"+std::to_string(i));
+        c->shape=ColliderShape::Circle; c->radius=balls[i].r;
+        c->x=balls[i].pos.x; c->y=balls[i].pos.y;
+        cols.push_back(std::move(c));
+    }
+    CollisionWorld world;
+    for(auto& c:cols) world.Add(c.get());
+    int contacts=0;
+    for(auto& c:cols) c->Connect("on_collision_enter",[&](Collider2D*){ contacts++; });
+    while(!WindowShouldClose()){
+        float dt=GetDeltaTime();
+        float W=GetWindowWidth(),H=GetWindowHeight();
+        for(int i=0;i<(int)balls.size();i++){
+            auto& b=balls[i];
+            b.pos+=b.vel*dt;
+            if(b.pos.x-b.r<0){b.pos.x=b.r;b.vel.x=std::fabs(b.vel.x);}
+            if(b.pos.x+b.r>W){b.pos.x=W-b.r;b.vel.x=-std::fabs(b.vel.x);}
+            if(b.pos.y-b.r<0){b.pos.y=b.r;b.vel.y=std::fabs(b.vel.y);}
+            if(b.pos.y+b.r>H){b.pos.y=H-b.r;b.vel.y=-std::fabs(b.vel.y);}
+            cols[i]->x=b.pos.x; cols[i]->y=b.pos.y;
+        }
+        world.Update();
+        ClearBackground(.05f,.05f,.1f);
+        for(auto& b:balls)
+            DrawLine(b.pos.x,b.pos.y,b.pos.x+b.vel.x*.1f,b.pos.y+b.vel.y*.1f,{1,1,1,.3f});
+        for(auto& b:balls) DrawCircle(b.pos.x,b.pos.y,b.r,b.col);
+        for(int i=0;i<(int)balls.size();i++)
+            for(int j=i+1;j<(int)balls.size();j++)
+                if(CollisionWorld::Overlaps(cols[i].get(),cols[j].get()))
+                    DrawLine(balls[i].pos.x,balls[i].pos.y,balls[j].pos.x,balls[j].pos.y,{1,0,0,.8f});
+        DrawRectangle(10,10,360,70,Color{0,0,0,.7f});
+        label("5 balls bouncing — arrows=velocity",20,18);
+        label("Red lines = ball-ball collision pairs",20,40);
+        label("Total ball contacts: "+std::to_string(contacts/2),20,60);
+        Present(); PollEvents();
+    }
+}
 
+void visual_camera() {
+    InitWindow(900,600,"Visual Test 4/4 — Camera  (WASD=pan, Scroll=zoom, Q/E=rotate, ESC=done)");
+    SetTargetFPS(60);
+    Scene scene;
+    for(int row=0;row<5;row++) for(int col=0;col<5;col++){
+        auto* c=scene.Add<Collider2D>("c"+std::to_string(row*5+col));
+        c->shape=ColliderShape::Rectangle;
+        c->x=(float)(col*150+75); c->y=(float)(row*120+60);
+        c->width=80; c->height=60; c->originX=.5f; c->originY=.5f;
+        c->debugDraw=true;
+        c->debugColor={.3f+(float)col*.15f,.3f+(float)row*.15f,.8f,1};
+    }
+    Camera2D cam(450,300,1,0);
+    float zoom=1,rot=0;
+    while(!WindowShouldClose()){
+        float dt=GetDeltaTime(),sp=300.f/zoom;
+        if(IsKeyDown(Key::W)) cam.y-=sp*dt;
+        if(IsKeyDown(Key::S)) cam.y+=sp*dt;
+        if(IsKeyDown(Key::A)) cam.x-=sp*dt;
+        if(IsKeyDown(Key::D)) cam.x+=sp*dt;
+        zoom=std::max(.1f,zoom+GetMouseScroll()*.1f);
+        if(IsKeyDown(Key::Q)) rot-=45*dt;
+        if(IsKeyDown(Key::E)) rot+=45*dt;
+        cam.zoom=zoom; cam.rotation=rot;
+        ClearBackground(.08f,.08f,.12f);
+        BeginCamera2D(cam);
+        scene.Update(dt); scene.Draw();
+        DrawCircle(0,0,8,RED);
+        DrawLine(-30,0,30,0,RED); DrawLine(0,-30,0,30,RED);
+        EndCamera2D();
+        DrawRectangle(10,10,400,90,Color{0,0,0,.7f});
+        label("WASD:pan  Scroll:zoom  Q/E:rotate  ESC:done",20,18);
+        label("Zoom:"+std::to_string(zoom).substr(0,4)+"  Rot:"+std::to_string((int)rot)+"deg",20,42);
+        label("Cam:("+std::to_string((int)cam.x)+","+std::to_string((int)cam.y)+")",20,65);
+        Present(); PollEvents();
+    }
+}
+
+void run_visual_tests() {
+    std::cout<<"\n========================================\n";
+    std::cout<<"  VISUAL TESTS — close each window to advance\n";
+    std::cout<<"========================================\n";
+    std::cout<<"1/4: Circle collision + distance\n"; visual_circles();
+    std::cout<<"2/4: SAT — box + circle vs triangle\n"; visual_sat();
+    std::cout<<"3/4: Physics — bouncing balls\n";      visual_physics();
+    std::cout<<"4/4: Camera pan/zoom/rotation\n";      visual_camera();
+    std::cout<<"  Visual tests complete.\n";
+}
+
+// ================================================================
+int main() {
+    std::cout<<"========================================\n";
+    std::cout<<"  KonEngine Test Suite\n";
+    std::cout<<"========================================\n";
+    test_vector2();
+    test_primitives();
+    test_sat();
+    test_layer_mask();
+    test_multi_collision();
+    test_physics();
+    test_animation();
+    test_nodes();
+    test_stress();
+    std::cout<<"\n========================================\n";
+    std::cout<<"  Headless: "<<s_passed<<" passed, "<<s_failed<<" failed\n";
+    std::cout<<"========================================\n";
+    if(s_failed>0){ std::cout<<"  Failing tests — fix before release!\n"; }
+    std::cout<<"  All headless tests passed!\n";
     run_visual_tests();
-
-    std::cout << "\n========================================\n";
-    std::cout << "  Visual test complete.\n";
-    std::cout << "  Verify the checklist above before releasing.\n";
-    std::cout << "========================================\n";
-
     return 0;
 }

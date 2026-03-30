@@ -214,8 +214,8 @@ void OpenGLRenderer::CreateCircleBuffers() {
 	const int segments = 36;
 	float vertices[segments * 2 + 4];
 	
-	vertices[0] = 0.0f;
-	vertices[1] = 0.0f;
+	vertices[0] = 0.5f;  // fan center matches ring center (0.5,0.5)
+	vertices[1] = 0.5f;
 	
 	for (int i = 0; i <= segments; i++) {
 		float angle = 2.0f * 3.14159265f * i / segments;
@@ -297,7 +297,9 @@ void OpenGLRenderer::DrawCircle(float x, float y, float radius,
 								float r, float g, float b, float a) {
 	glUseProgram(shaderProgram);
 	
-	glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0f));
+	// Circle mesh spans (0,0)->(1,1) with center at (0.5,0.5).
+	// After scale(r*2), center is at (r,r). Subtract r to put center at (x,y).
+	glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(x - radius, y - radius, 0.0f));
 	transform = glm::scale(transform, glm::vec3(radius * 2, radius * 2, 1.0f));
 	
 	GLint transformLoc = glGetUniformLocation(shaderProgram, "transform");
