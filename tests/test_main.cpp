@@ -481,7 +481,7 @@ void run_visual_tests(){
                "========================================\n";
 
     InitWindow(900,600,"KonEngine Tests  [1-4=scene  F1=debug  Q=quit]",true);
-    SetTargetFPS(60);
+    // SetTargetFPS(60);
     DebugMode(true); // start with debug on so outlines are always visible
 
     Scene s1,s2,s3,s4;
