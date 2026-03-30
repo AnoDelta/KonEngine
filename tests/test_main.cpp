@@ -217,14 +217,25 @@ void test_physics(){
 
 void test_curves(){
     SECTION("Curves + AnimationPlayer");
-    for(auto[nm,e]:std::vector<std::pair<std::string,Ease>>{
-        {"Linear",Ease::Linear},{"EaseIn",Ease::EaseIn},{"EaseOut",Ease::EaseOut},
-        {"EaseInCubic",Ease::EaseInCubic},{"EaseOutElastic",Ease::EaseOutElastic},
-        {"EaseOutBounce",Ease::EaseOutBounce},{"EaseInBack",Ease::EaseInBack},
-    }){
-        TEST(nm+"(0)==0",near(Curves::Apply(e,0),0));
-        TEST(nm+"(1)==1",near(Curves::Apply(e,1),1));
+
+    // FIX: MSVC cannot implicitly construct std::pair<std::string, Ease> from
+    // braces inside a std::vector initializer list. Use a plain named array
+    // with an explicit typedef instead.
+    using EasePair = std::pair<std::string, Ease>;
+    const EasePair easeCases[] = {
+        EasePair{"Linear",         Ease::Linear},
+        EasePair{"EaseIn",         Ease::EaseIn},
+        EasePair{"EaseOut",        Ease::EaseOut},
+        EasePair{"EaseInCubic",    Ease::EaseInCubic},
+        EasePair{"EaseOutElastic", Ease::EaseOutElastic},
+        EasePair{"EaseOutBounce",  Ease::EaseOutBounce},
+        EasePair{"EaseInBack",     Ease::EaseInBack},
+    };
+    for(const auto& ep : easeCases){
+        TEST(ep.first+"(0)==0", near(Curves::Apply(ep.second, 0), 0));
+        TEST(ep.first+"(1)==1", near(Curves::Apply(ep.second, 1), 1));
     }
+
     TEST("EaseIn slow",Curves::Apply(Ease::EaseIn,0.5f)<0.5f);
     TEST("EaseOut fast",Curves::Apply(Ease::EaseOut,0.5f)>0.5f);
     KeyframeTrack t;t.AddKey(0,0,Ease::Linear);t.AddKey(1,100,Ease::Linear);
@@ -252,15 +263,30 @@ static void sc1_setup(Scene& s){
     p->shape=ColliderShape::Circle;p->radius=22;p->x=450;p->y=300;
     p->debugDraw=true;p->debugColor=BLUE;
     p->Connect("on_collision_enter",[](Collider2D*){});
-    int wi=0;
-    for(auto[wx,wy,ww,wh]:std::vector<std::array<float,4>>{
-        {120,100,220,22},{600,140,22,180},{180,420,240,22},
-        {110,250,22,130},{530,390,180,22},{370,70,22,200}}){
-        auto* wall=s.Add<Collider2D>("wall"+std::to_string(wi++));
-        wall->shape=ColliderShape::Rectangle;
-        wall->x=wx;wall->y=wy;wall->width=ww;wall->height=wh;
-        wall->originX=0;wall->originY=0;
-        wall->debugDraw=true;wall->debugColor={.55f,.55f,.55f,1};
+
+    // FIX: MSVC cannot implicitly construct std::array<float,4> from nested
+    // braces inside a std::vector initializer list. Use a plain local struct.
+    struct WallDef { float x, y, w, h; };
+    const WallDef walls[] = {
+        {120, 100, 220,  22},
+        {600, 140,  22, 180},
+        {180, 420, 240,  22},
+        {110, 250,  22, 130},
+        {530, 390, 180,  22},
+        {370,  70,  22, 200},
+    };
+    int wi = 0;
+    for(const auto& wd : walls){
+        auto* wall = s.Add<Collider2D>("wall" + std::to_string(wi++));
+        wall->shape   = ColliderShape::Rectangle;
+        wall->x       = wd.x;
+        wall->y       = wd.y;
+        wall->width   = wd.w;
+        wall->height  = wd.h;
+        wall->originX = 0;
+        wall->originY = 0;
+        wall->debugDraw  = true;
+        wall->debugColor = {.55f,.55f,.55f,1};
     }
 }
 static void sc1_run(Scene& s,float dt){
@@ -287,8 +313,6 @@ static void sc1_run(Scene& s,float dt){
 }
 
 // ── Scene 2: Parent rotation — arms orbit hub using world-space positioning ──
-// Arms are SCENE-LEVEL nodes; we manually update their world positions each frame.
-// This ensures collision AND debug outlines both use correct world coords.
 static bool sc2_init=false;
 static float sc2_angle=0;
 static const float SC2_OFFSETS[4][2]={{110,0},{0,110},{-110,0},{0,-110}};
@@ -297,15 +321,12 @@ static const char* SC2_NAMES[4]={"arm0","arm1","arm2","arm3"};
 
 static void sc2_setup(Scene& s){
     if(sc2_init)return;sc2_init=true;
-    // Hub: just a position marker
     auto* hub=s.Add<Node2D>("hub"); hub->x=450;hub->y=300;
-    // Arms: scene-level so collision world registers them, positions updated each frame
     for(int i=0;i<4;i++){
         auto* arm=s.Add<Collider2D>(SC2_NAMES[i]);
         arm->shape=ColliderShape::Circle;arm->radius=18;
         arm->debugDraw=true;arm->debugColor=SC2_COLS[i];
     }
-    // Center marker
     auto* center=s.Add<Collider2D>("center");
     center->shape=ColliderShape::Circle;center->radius=8;
     center->x=450;center->y=300;
@@ -316,7 +337,6 @@ static void sc2_run(Scene& s,float dt){
     sc2_angle+=50.f*dt;
     float rad=sc2_angle*3.14159265f/180.f;
     float cr=std::cos(rad),sr=std::sin(rad);
-    // Update each arm to its world position (hub at 450,300 + rotated offset)
     for(int i=0;i<4;i++){
         if(auto* arm=dynamic_cast<Collider2D*>(s.GetNode(SC2_NAMES[i]))){
             float lx=SC2_OFFSETS[i][0],ly=SC2_OFFSETS[i][1];
@@ -325,13 +345,11 @@ static void sc2_run(Scene& s,float dt){
         }
     }
     s.Update(dt);
-    // Orbit ring
     for(int i=0;i<64;i++){
         float a1=i/64.f*6.2832f,a2=(i+1)/64.f*6.2832f;
         DrawLine(450+std::cos(a1)*110,300+std::sin(a1)*110,
                  450+std::cos(a2)*110,300+std::sin(a2)*110,{.2f,.2f,.2f,1});
     }
-    // Spoke lines from hub to arms
     for(int i=0;i<4;i++){
         if(auto* arm=dynamic_cast<Collider2D*>(s.GetNode(SC2_NAMES[i]))){
             DrawLine(450,300,arm->x,arm->y,{.3f,.3f,.3f,1});
@@ -339,7 +357,6 @@ static void sc2_run(Scene& s,float dt){
     }
     s.Draw();
 
-    int desc=0; // count collisions between arms
     int armCollisions=0;
     for(int i=0;i<4;i++){
         auto* arm=dynamic_cast<Collider2D*>(s.GetNode(SC2_NAMES[i]));
@@ -350,7 +367,7 @@ static void sc2_run(Scene& s,float dt){
     lbl("4 arms orbit at 50 deg/s — hitboxes follow correctly",14,32);
     lbl("Arm-arm collisions: "+std::to_string(armCollisions/2),14,52);
     lbl("R: toggle spin direction",14,72);
-    if(IsKeyPressed(Key::R)) sc2_angle=-sc2_angle; // crude toggle
+    if(IsKeyPressed(Key::R)) sc2_angle=-sc2_angle;
 }
 
 // ── Scene 3: Camera follow + dynamic spawn ───────────────────────────────────
@@ -482,7 +499,7 @@ void run_visual_tests(){
 
     InitWindow(900,600,"KonEngine Tests  [1-4=scene  F1=debug  Q=quit]",true);
     // SetTargetFPS(60);
-    DebugMode(true); // start with debug on so outlines are always visible
+    DebugMode(true);
 
     Scene s1,s2,s3,s4;
     int cur=1;
@@ -504,7 +521,6 @@ void run_visual_tests(){
             case 3:sc3_run(s3,dt);break;
             case 4:sc4_run(s4,dt);break;
         }
-        // Scene label top-right
         int W=GetWindowWidth();
         DrawRectangle(W-185,8,177,40,{0,0,0,.75f});
         DrawText(labels[cur],W-181,12,WHITE);
