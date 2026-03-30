@@ -11,6 +11,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+// -----------------------------------------------------------------------
+// Shaders — colorOnly=1 draws tint as solid color, 0 = textured+tint
+// -----------------------------------------------------------------------
 static const char* kVertSrc = R"(
 #version 330 core
 layout(location=0) in vec2 pos;
@@ -23,50 +26,73 @@ void main() {
 }
 )";
 
-// CHANGED: added tint uniform so the alpha track can reach the GPU
 static const char* kFragSrc = R"(
 #version 330 core
 in vec2 vUV;
 out vec4 fragColor;
 uniform sampler2D tex;
-uniform vec4 tint;
+uniform vec4  tint;
+uniform int   colorOnly;
 void main() {
-    fragColor = texture(tex, vUV) * tint;
+    if (colorOnly == 1)
+        fragColor = tint;
+    else
+        fragColor = texture(tex, vUV) * tint;
 }
 )";
 
 // -----------------------------------------------------------------------
-// Local curve + track sampling helpers
-// KonAnimator uses AnimData.hpp types (KFTrack / Keyframe / Ease) which
-// don't have a Sample() method and don't link against curves.hpp.
-// These mirror KeyframeTrack::Sample + Curves::Apply exactly.
+// Easing — complete implementation matching KonEngine curves.hpp exactly
 // -----------------------------------------------------------------------
 static float applyEase(Ease e, float t) {
+    using E = Ease;
     switch (e) {
-        case Ease::Linear:         return t;
-        case Ease::EaseIn:         return t * t;
-        case Ease::EaseOut:        return t * (2.0f - t);
-        case Ease::EaseInOut:      return t < 0.5f ? 2*t*t : -1+(4-2*t)*t;
-        case Ease::EaseInCubic:    return t*t*t;
-        case Ease::EaseOutCubic:   { float u=1-t; return 1-u*u*u; }
-        case Ease::EaseInOutCubic: return t<0.5f ? 4*t*t*t : 1-std::pow(-2*t+2,3)/2;
-        case Ease::EaseInBack:     { float c=1.70158f; return (c+1)*t*t*t-c*t*t; }
-        case Ease::EaseOutBack:    { float c=1.70158f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
-        case Ease::EaseInElastic:
-            if (t==0||t==1) return t;
-            return -std::pow(2,10*t-10)*std::sin((t*10-10.75f)*(2*3.14159265f)/3);
-        case Ease::EaseOutElastic:
-            if (t==0||t==1) return t;
-            return std::pow(2,-10*t)*std::sin((t*10-0.75f)*(2*3.14159265f)/3)+1;
-        case Ease::EaseOutBounce: {
-            float n=7.5625f,d=2.75f;
-            if (t<1/d)    return n*t*t;
-            if (t<2/d)    { t-=1.5f/d;  return n*t*t+0.75f; }
-            if (t<2.5f/d) { t-=2.25f/d; return n*t*t+0.9375f; }
-                            t-=2.625f/d; return n*t*t+0.984375f;
-        }
-        case Ease::EaseInBounce: return 1-applyEase(Ease::EaseOutBounce,1-t);
-        default: return t;
+    case E::Linear:         return t;
+    case E::EaseIn:         return t * t;
+    case E::EaseOut:        return t * (2.0f - t);
+    case E::EaseInOut:      return t < 0.5f ? 2*t*t : -1+(4-2*t)*t;
+
+    case E::EaseInCubic:    return t*t*t;
+    case E::EaseOutCubic:   { float u=1-t; return 1-u*u*u; }
+    case E::EaseInOutCubic: return t<0.5f ? 4*t*t*t : 1-std::pow(-2*t+2,3)/2;
+
+    case E::EaseInElastic:
+        if (t==0||t==1) return t;
+        return -std::pow(2,10*t-10)*std::sin((t*10-10.75f)*(2*3.14159265f)/3);
+    case E::EaseOutElastic:
+        if (t==0||t==1) return t;
+        return std::pow(2,-10*t)*std::sin((t*10-0.75f)*(2*3.14159265f)/3)+1;
+    case E::EaseInOutElastic:
+        if (t==0||t==1) return t;
+        { const float c=(2*3.14159265f)/4.5f;
+          return t<0.5f
+            ? -(std::pow(2, 20*t-10)*std::sin((20*t-11.125f)*c))/2
+            :  (std::pow(2,-20*t+10)*std::sin((20*t-11.125f)*c))/2+1; }
+
+    case E::EaseOutBounce: {
+        float n=7.5625f,d=2.75f;
+        if (t<1/d)    return n*t*t;
+        if (t<2/d)    { t-=1.5f/d;  return n*t*t+0.75f; }
+        if (t<2.5f/d) { t-=2.25f/d; return n*t*t+0.9375f; }
+                        t-=2.625f/d; return n*t*t+0.984375f; }
+    case E::EaseInBounce:
+        return 1-applyEase(E::EaseOutBounce,1-t);
+    case E::EaseInOutBounce:
+        return t<0.5f
+            ? (1-applyEase(E::EaseOutBounce,1-2*t))/2
+            : (1+applyEase(E::EaseOutBounce,2*t-1))/2;
+
+    case E::EaseInBack:
+        { float c=1.70158f; return (c+1)*t*t*t-c*t*t; }
+    case E::EaseOutBack:
+        { float c=1.70158f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
+    case E::EaseInOutBack:
+        { float c=1.70158f*1.525f;
+          return t<0.5f
+            ? (std::pow(2*t,2)*((c+1)*2*t-c))/2
+            : (std::pow(2*t-2,2)*((c+1)*(2*t-2)+c)+2)/2; }
+
+    default: return t;
     }
 }
 
@@ -80,7 +106,7 @@ static float sampleKFTrack(const KFTrack& track, float time) {
         const Keyframe& b = track.keys[i+1];
         if (time >= a.time && time <= b.time) {
             float span = b.time - a.time;
-            if (span == 0.0f) return b.value;
+            if (span == 0) return b.value;
             float t = (time - a.time) / span;
             return a.value + (b.value - a.value) * applyEase(a.curve, t);
         }
@@ -91,24 +117,23 @@ static float sampleKFTrack(const KFTrack& track, float time) {
 // -----------------------------------------------------------------------
 // Constructor / destructor
 // -----------------------------------------------------------------------
-PreviewWidget::PreviewWidget(QWidget* parent)
-    : QOpenGLWidget(parent)
-{
+PreviewWidget::PreviewWidget(QWidget* parent) : QOpenGLWidget(parent) {
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setFocusPolicy(Qt::StrongFocus);
     setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
 
     m_overlay = new QLabel(
-        "No animation loaded\n\nDrag → pan     Scroll → zoom\nDouble-click → reset     F → fullscreen",
-        this);
+        "No animation loaded\n\nDrag → pan     Scroll → zoom\n"
+        "Double-click → reset     F → fullscreen", this);
     m_overlay->setAlignment(Qt::AlignCenter);
     m_overlay->setStyleSheet("color: rgb(120,120,120); background: transparent;");
     m_overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-    m_overlay->setVisible(true);
 
     m_zoomLabel = new QLabel("100%", this);
-    m_zoomLabel->setStyleSheet("color: rgba(200,200,200,160); background: transparent; font-family: monospace; font-size: 8pt;");
+    m_zoomLabel->setStyleSheet(
+        "color: rgba(200,200,200,160); background: transparent; "
+        "font-family: monospace; font-size: 8pt;");
     m_zoomLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_zoomLabel->setVisible(false);
 
@@ -130,89 +155,62 @@ PreviewWidget::~PreviewWidget() {
 // Public API
 // -----------------------------------------------------------------------
 void PreviewWidget::setClip(AnimClip* clip) {
-    m_clip     = clip;
-    m_elapsed  = 0.0f;
-    m_curFrame = 0;
-    update();
+    m_clip = clip; m_elapsed = 0; m_curFrame = 0; update();
 }
-
 void PreviewWidget::setSpritesheetPath(const QString& path) {
     m_sheetPath = path;
-    makeCurrent();
-    loadTexture(path);
-    doneCurrent();
-    update();
+    makeCurrent(); loadTexture(path); doneCurrent(); update();
 }
-
 void PreviewWidget::play() {
     if (!m_clip) return;
     m_playing = true;
     m_lastMs  = QDateTime::currentMSecsSinceEpoch();
     m_timer->start();
 }
-
-void PreviewWidget::pause() {
-    m_playing = false;
-    m_timer->stop();
-}
-
+void PreviewWidget::pause() { m_playing = false; m_timer->stop(); }
 void PreviewWidget::stop() {
-    m_playing  = false;
-    m_elapsed  = 0.0f;
-    m_curFrame = 0;
-    m_timer->stop();
-    update();
-    emit elapsedChanged(0.0f);
-    emit frameChanged(0);
+    m_playing = false; m_elapsed = 0; m_curFrame = 0;
+    m_timer->stop(); update();
+    emit elapsedChanged(0); emit frameChanged(0);
 }
-
 void PreviewWidget::setPlayhead(float t) {
-    m_elapsed  = t;
-    m_curFrame = currentFrameForTime(t);
-    update();
-    emit elapsedChanged(t);
-    emit frameChanged(m_curFrame);
+    m_elapsed = t; m_curFrame = currentFrameForTime(t);
+    update(); emit elapsedChanged(t); emit frameChanged(m_curFrame);
 }
 
 // -----------------------------------------------------------------------
-// Fullscreen
+// Fullscreen / zoom
 // -----------------------------------------------------------------------
 void PreviewWidget::toggleFullscreen() {
     QWindow* win = window()->windowHandle();
     if (!win) return;
-    if (win->windowState() & Qt::WindowMaximized) {
+    if (win->windowState() & Qt::WindowMaximized)
         m_wasMaximized ? win->showMaximized() : win->showNormal();
-    } else {
+    else {
         m_wasMaximized = (win->windowState() & Qt::WindowMaximized) != 0;
         win->showMaximized();
     }
     setFocus();
 }
-
-// -----------------------------------------------------------------------
-// Zoom
-// -----------------------------------------------------------------------
-void PreviewWidget::applyZoom(float newZoom, QPointF anchor) {
-    newZoom = std::max(0.05f, std::min(newZoom, 64.0f));
-    float   ratio  = newZoom / m_zoom;
-    QPointF centre(width() * 0.5, height() * 0.5);
-    m_pan  = (anchor - centre) * (1.0 - ratio) + m_pan * ratio;
-    m_zoom = newZoom;
-    update();
+void PreviewWidget::applyZoom(float nz, QPointF anchor) {
+    nz = std::max(0.05f, std::min(nz, 64.0f));
+    float ratio = nz / m_zoom;
+    QPointF ctr(width()*.5, height()*.5);
+    m_pan  = (anchor - ctr) * (1.0 - ratio) + m_pan * ratio;
+    m_zoom = nz; update();
 }
 
 // -----------------------------------------------------------------------
-// Input events
+// Input
 // -----------------------------------------------------------------------
 void PreviewWidget::wheelEvent(QWheelEvent* e) {
-    float factor = e->angleDelta().y() > 0 ? 1.25f : 0.8f;
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-    applyZoom(m_zoom * factor, e->position());
+    float f = e->angleDelta().y() > 0 ? 1.25f : 0.8f;
+#if QT_VERSION >= QT_VERSION_CHECK(5,14,0)
+    applyZoom(m_zoom * f, e->position());
 #else
-    applyZoom(m_zoom * factor, e->posF());
+    applyZoom(m_zoom * f, e->posF());
 #endif
 }
-
 void PreviewWidget::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton) {
         m_dragging  = true;
@@ -221,34 +219,27 @@ void PreviewWidget::mousePressEvent(QMouseEvent* e) {
         setCursor(Qt::ClosedHandCursor);
     }
 }
-
 void PreviewWidget::mouseMoveEvent(QMouseEvent* e) {
-    if (m_dragging) {
-        m_pan = m_panAtDrag + QPointF(e->pos()) - m_dragStart;
-        update();
-    }
+    if (m_dragging) { m_pan = m_panAtDrag + QPointF(e->pos()) - m_dragStart; update(); }
 }
-
 void PreviewWidget::mouseReleaseEvent(QMouseEvent* e) {
-    if (e->button() == Qt::LeftButton) {
-        m_dragging = false;
-        setCursor(Qt::ArrowCursor);
-    }
+    if (e->button() == Qt::LeftButton) { m_dragging = false; setCursor(Qt::ArrowCursor); }
 }
-
-void PreviewWidget::mouseDoubleClickEvent(QMouseEvent*) {
-    resetView();
-}
-
+void PreviewWidget::mouseDoubleClickEvent(QMouseEvent*) { resetView(); }
 void PreviewWidget::keyPressEvent(QKeyEvent* e) {
     switch (e->key()) {
-    case Qt::Key_F:                        toggleFullscreen(); break;
-    case Qt::Key_Escape:                   toggleFullscreen(); break;
-    case Qt::Key_Plus: case Qt::Key_Equal: zoomIn();           break;
-    case Qt::Key_Minus:                    zoomOut();          break;
-    case Qt::Key_0:                        resetView();        break;
+    case Qt::Key_F: case Qt::Key_Escape: toggleFullscreen(); break;
+    case Qt::Key_Plus: case Qt::Key_Equal: zoomIn(); break;
+    case Qt::Key_Minus: zoomOut(); break;
+    case Qt::Key_0: resetView(); break;
     default: QOpenGLWidget::keyPressEvent(e);
     }
+}
+void PreviewWidget::resizeEvent(QResizeEvent* e) {
+    QOpenGLWidget::resizeEvent(e);
+    m_overlay->setGeometry(rect());
+    m_zoomLabel->adjustSize();
+    m_zoomLabel->move(width() - m_zoomLabel->width() - 6, 4);
 }
 
 // -----------------------------------------------------------------------
@@ -261,29 +252,27 @@ void PreviewWidget::initializeGL() {
     m_shader = compileShader();
     buildQuad();
 }
-
 void PreviewWidget::resizeGL(int, int) { update(); }
 
-void PreviewWidget::resizeEvent(QResizeEvent* e) {
-    QOpenGLWidget::resizeEvent(e);
-    m_overlay->setGeometry(rect());
-    m_zoomLabel->adjustSize();
-    m_zoomLabel->move(width() - m_zoomLabel->width() - 6, 4);
-}
-
 GLuint PreviewWidget::compileShader() {
-    auto compile = [this](GLenum type, const char* src) -> GLuint {
+    auto compile = [this](GLenum type, const char* src) {
         GLuint s = glCreateShader(type);
         glShaderSource(s, 1, &src, nullptr);
         glCompileShader(s);
         return s;
     };
-    GLuint vs   = compile(GL_VERTEX_SHADER,   kVertSrc);
-    GLuint fs   = compile(GL_FRAGMENT_SHADER, kFragSrc);
+    GLuint vs = compile(GL_VERTEX_SHADER,   kVertSrc);
+    GLuint fs = compile(GL_FRAGMENT_SHADER, kFragSrc);
     GLuint prog = glCreateProgram();
     glAttachShader(prog, vs); glAttachShader(prog, fs);
     glLinkProgram(prog);
     glDeleteShader(vs); glDeleteShader(fs);
+
+    // Cache uniform locations after linking
+    m_locProj      = glGetUniformLocation(prog, "proj");
+    m_locTint      = glGetUniformLocation(prog, "tint");
+    m_locTex       = glGetUniformLocation(prog, "tex");
+    m_locColorOnly = glGetUniformLocation(prog, "colorOnly");
     return prog;
 }
 
@@ -318,17 +307,16 @@ void PreviewWidget::loadTexture(const QString& path) {
 }
 
 // -----------------------------------------------------------------------
-// Tick / frame logic
+// Tick
 // -----------------------------------------------------------------------
 void PreviewWidget::onTick() {
     if (!m_clip || !m_playing) return;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     float  dt  = (now - m_lastMs) / 1000.0f;
     m_lastMs   = now;
-
     m_elapsed += dt;
     float dur = m_clip->totalDuration();
-    if (dur > 0.0f) {
+    if (dur > 0) {
         if (m_clip->loop) m_elapsed = std::fmod(m_elapsed, dur);
         else              m_elapsed = std::min(m_elapsed, dur);
     }
@@ -341,9 +329,8 @@ void PreviewWidget::onTick() {
 int PreviewWidget::currentFrameForTime(float t) const {
     if (!m_clip || m_clip->frames.empty()) return 0;
     float dur = m_clip->totalDuration();
-    float tt  = (m_clip->loop && dur > 0.0f) ?
-                std::fmod(t, dur) : std::min(t, dur);
-    float acc = 0.0f;
+    float tt  = (m_clip->loop && dur > 0) ? std::fmod(t, dur) : std::min(t, dur);
+    float acc = 0;
     for (int i = 0; i < (int)m_clip->frames.size(); i++) {
         acc += m_clip->frames[i].duration;
         if (tt < acc) return i;
@@ -364,8 +351,7 @@ void PreviewWidget::paintGL() {
     bool hasTracks  = m_clip && !m_clip->tracks.empty();
     bool hasContent = m_clip && m_shader && (hasFrames || hasTracks);
 
-    if (hasContent)
-        drawFrame(m_curFrame);
+    if (hasContent) drawFrame(m_curFrame);
 
     m_overlay->setVisible(!hasContent);
     if (hasContent) {
@@ -376,49 +362,79 @@ void PreviewWidget::paintGL() {
     }
 }
 
-// -----------------------------------------------------------------------
-// drawFrame — CHANGED: samples keyframe tracks and applies full transform
-// -----------------------------------------------------------------------
+void PreviewWidget::drawSolidRect(float x, float y, float w, float h,
+                                   float r, float g, float b, float a,
+                                   const float proj[16]) {
+    glUniform1i(m_locColorOnly, 1);
+    glUniform4f(m_locTint, r, g, b, a);
+
+    float verts[] = {
+        x,   y,   0,0,
+        x+w, y,   1,0,
+        x+w, y+h, 1,1,
+        x,   y+h, 0,1,
+    };
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glUniform1i(m_locColorOnly, 0);
+}
+
+void PreviewWidget::drawViewportBorder(const float proj[16]) {
+    if (m_vpW <= 0 || m_vpH <= 0) return;
+    int W = width(), H = height();
+    float hw = m_vpW * 0.5f * m_zoom;
+    float hh = m_vpH * 0.5f * m_zoom;
+    float cx = W * 0.5f + (float)m_pan.x();
+    float cy = H * 0.5f + (float)m_pan.y();
+
+    // Dim the area outside the viewport
+    float da = 0.35f;
+    drawSolidRect(0,      0,      cx-hw, (float)H,  0,0,0,da,proj); // left
+    drawSolidRect(cx+hw,  0,      (float)W-(cx+hw),(float)H, 0,0,0,da,proj); // right
+    drawSolidRect(cx-hw,  0,      hw*2,  cy-hh,  0,0,0,da,proj); // top strip
+    drawSolidRect(cx-hw,  cy+hh,  hw*2,  (float)H-(cy+hh), 0,0,0,da,proj); // bottom strip
+
+    // Bright border
+    float t = 1.5f;
+    float br=0.35f, bg=0.75f, bb=1.0f, ba=0.9f;
+    drawSolidRect(cx-hw-t, cy-hh-t, hw*2+t*2+t, t,     br,bg,bb,ba,proj);
+    drawSolidRect(cx-hw-t, cy+hh,   hw*2+t*2+t, t,     br,bg,bb,ba,proj);
+    drawSolidRect(cx-hw-t, cy-hh,   t,           hh*2,  br,bg,bb,ba,proj);
+    drawSolidRect(cx+hw,   cy-hh,   t,           hh*2,  br,bg,bb,ba,proj);
+
+    // Viewport size label
+    // (drawn via QLabel overlay — skip GL text for simplicity)
+}
+
 void PreviewWidget::drawFrame(int frameIdx) {
     if (!m_clip) return;
-
     int W = width(), H = height();
 
-    // ── Sample keyframe tracks at current elapsed time ───────────────────
-    float kx    = 0.0f;
-    float ky    = 0.0f;
-    float ksx   = 1.0f;
-    float ksy   = 1.0f;
-    float krot  = 0.0f;   // degrees
-    float alpha = 1.0f;
-
+    // Sample keyframe tracks
+    float kx=0, ky=0, ksx=1, ksy=1, krot=0, alpha=1;
     for (const auto& track : m_clip->tracks) {
         float v = sampleKFTrack(track, m_elapsed);
-        if      (track.name == "x")        kx    = v;
-        else if (track.name == "y")        ky    = v;
-        else if (track.name == "scaleX")   ksx   = v;
-        else if (track.name == "scaleY")   ksy   = v;
-        else if (track.name == "rotation") krot  = v;
-        else if (track.name == "alpha")    alpha = v;
+        if      (track.name=="x")        kx    = v;
+        else if (track.name=="y")        ky    = v;
+        else if (track.name=="scaleX")   ksx   = v;
+        else if (track.name=="scaleY")   ksy   = v;
+        else if (track.name=="rotation") krot  = v;
+        else if (track.name=="alpha")    alpha = v;
     }
 
-    // ── Base sprite size ─────────────────────────────────────────────────
-    float baseW = (m_clip->displayW  > 0.0f ? m_clip->displayW  : 64.0f)
-                  * m_clip->displayScale * m_zoom;
-    float baseH = (m_clip->displayH  > 0.0f ? m_clip->displayH  : 64.0f)
-                  * m_clip->displayScale * m_zoom;
-
+    float baseW = (m_clip->displayW  > 0 ? m_clip->displayW  : 64.0f) * m_clip->displayScale * m_zoom;
+    float baseH = (m_clip->displayH  > 0 ? m_clip->displayH  : 64.0f) * m_clip->displayScale * m_zoom;
     float dW = baseW * ksx;
     float dH = baseH * ksy;
-
-    // ── Sprite centre on screen ──────────────────────────────────────────
     float cx = W * 0.5f + (float)m_pan.x() + kx * m_zoom;
     float cy = H * 0.5f + (float)m_pan.y() + ky * m_zoom;
 
-    // ── UV coordinates ───────────────────────────────────────────────────
-    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
-    if (m_texID && !m_clip->frames.empty() &&
-        frameIdx >= 0 && frameIdx < (int)m_clip->frames.size()) {
+    float u0=0, v0=0, u1=1, v1=1;
+    bool hasTexture = m_texID && !m_clip->frames.empty() &&
+                      frameIdx >= 0 && frameIdx < (int)m_clip->frames.size();
+    if (hasTexture) {
         const auto& fr = m_clip->frames[frameIdx];
         u0 = fr.srcX             / (float)m_texW;
         v0 = fr.srcY             / (float)m_texH;
@@ -426,32 +442,22 @@ void PreviewWidget::drawFrame(int frameIdx) {
         v1 = (fr.srcY + fr.srcH) / (float)m_texH;
     }
 
-    // ── Rotated quad corners ─────────────────────────────────────────────
-    float hw  = dW * 0.5f;
-    float hh  = dH * 0.5f;
+    float hw = dW*.5f, hh = dH*.5f;
     float rad = krot * 3.14159265f / 180.0f;
-    float cr  = std::cos(rad);
-    float sr  = std::sin(rad);
-
-    auto rotated = [&](float lx, float ly, float& ox, float& oy) {
-        ox = cx + lx * cr - ly * sr;
-        oy = cy + lx * sr + ly * cr;
+    float cr = std::cos(rad), sr = std::sin(rad);
+    auto rot = [&](float lx, float ly, float& ox, float& oy){
+        ox = cx + lx*cr - ly*sr;
+        oy = cy + lx*sr + ly*cr;
     };
-
-    float x0,y0, x1,y1, x2,y2, x3,y3;
-    rotated(-hw, -hh, x0, y0);   // TL
-    rotated(+hw, -hh, x1, y1);   // TR
-    rotated(+hw, +hh, x2, y2);   // BR
-    rotated(-hw, +hh, x3, y3);   // BL
+    float x0,y0,x1,y1,x2,y2,x3,y3;
+    rot(-hw,-hh,x0,y0); rot(+hw,-hh,x1,y1);
+    rot(+hw,+hh,x2,y2); rot(-hw,+hh,x3,y3);
 
     float verts[] = {
-        x0, y0,  u0, v0,
-        x1, y1,  u1, v0,
-        x2, y2,  u1, v1,
-        x3, y3,  u0, v1,
+        x0,y0, u0,v0,  x1,y1, u1,v0,
+        x2,y2, u1,v1,  x3,y3, u0,v1,
     };
 
-    // ── Orthographic projection (top-left origin, y down) ────────────────
     float proj[16] = {
          2.0f/W,  0,      0, 0,
          0,      -2.0f/H, 0, 0,
@@ -459,19 +465,38 @@ void PreviewWidget::drawFrame(int frameIdx) {
         -1.0f,    1.0f,   0, 1
     };
 
-    // ── Draw ─────────────────────────────────────────────────────────────
     glUseProgram(m_shader);
-    glUniformMatrix4fv(glGetUniformLocation(m_shader, "proj"),  1, GL_FALSE, proj);
-    glUniform1i(glGetUniformLocation(m_shader, "tex"),  0);
-    glUniform4f(glGetUniformLocation(m_shader, "tint"), 1.0f, 1.0f, 1.0f, alpha);
+    glUniformMatrix4fv(m_locProj, 1, GL_FALSE, proj);
+    glUniform1i(m_locTex, 0);
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
 
-    glActiveTexture(GL_TEXTURE0);
-    if (m_texID) glBindTexture(GL_TEXTURE_2D, m_texID);
-
+    if (hasTexture) {
+        // Draw textured sprite
+        glUniform1i(m_locColorOnly, 0);
+        glUniform4f(m_locTint, 1,1,1, alpha);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_texID);
+    } else {
+        // No texture — draw a solid placeholder so track curves are still visible.
+        // Checkerboard-ish teal box so it's obviously a placeholder not a real sprite.
+        glUniform1i(m_locColorOnly, 1);
+        glUniform4f(m_locTint, 0.25f, 0.65f, 0.85f, alpha);
+    }
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+    // Thin white border around placeholder so it's clear it's a box
+    if (!hasTexture) {
+        // draw outline using colorOnly solid lines (reuse same quad verts, just change draw mode)
+        // Easiest: draw as line loop
+        glUniform4f(m_locTint, 1.0f, 1.0f, 1.0f, alpha * 0.8f);
+        glDrawArrays(GL_LINE_LOOP, 0, 4);
+    }
+
+    // Draw viewport border on top
+    drawViewportBorder(proj);
+
     glBindVertexArray(0);
 }
