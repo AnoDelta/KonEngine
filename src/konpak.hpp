@@ -1,46 +1,75 @@
 #pragma once
-// konpak.hpp -- KonPak archive format
-// Shared by the engine reader, CLI tool, and KonPaktor GUI.
+// konpak.hpp -- KonPak archive format v2
+// Single clean header. No duplicate definitions.
 //
-// Format: KPAK header + encrypted index + encrypted compressed data blobs
-// Compress first (zlib deflate), then encrypt (AES-256-CBC, PBKDF2 key).
+// Memory model: load() reads only the index (tiny).
+// getData() decrypts one file on demand and caches it.
+// pack() static method streams files one at a time — no full-archive RAM spike.
 //
-// Dependencies:
-//   - miniz.h  (single-header zlib, bundled)
-//   - On Linux: -lcrypto (OpenSSL)
-//   - On Windows: -lbcrypt (built-in)
+// Compression: uses miniz (bundled) when KONPAK_USE_MINIZ is defined,
+// otherwise falls back to system zlib.
 
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
-#include <sstream>
 #include <iostream>
-#include <algorithm>
 #include <stdexcept>
 #include <functional>
+#include <algorithm>
+#include <optional>
 #include <sys/stat.h>
-#ifdef _WIN32
-#include <direct.h>
+
+// -----------------------------------------------------------------------
+// Compression backend — miniz (bundled) or system zlib
+// -----------------------------------------------------------------------
+// Compression backend
+#if defined(KONPAK_USE_MINIZ)
+#  include "miniz.h"
+   // miniz.c amalgamated defines these zlib-compat names:
+   // If the include worked, compress2/Z_OK etc. are available.
+#  define KONPAK_HAS_COMPRESS
+#elif !defined(_WIN32) || !defined(__MINGW32__)
+#  include <zlib.h>
+#  define KONPAK_HAS_COMPRESS
 #endif
+// On MinGW cross-compile without zlib/miniz, compression is skipped (store-only)
 
 // -----------------------------------------------------------------------
-// zlib for compression
-// -----------------------------------------------------------------------
-#include <zlib.h>
-
-// -----------------------------------------------------------------------
-// AES-256-CBC + PBKDF2 via platform crypto
+// Platform crypto
 // -----------------------------------------------------------------------
 #ifdef _WIN32
-  #include <windows.h>
-  #include <bcrypt.h>
-  #pragma comment(lib, "bcrypt.lib")
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOGDI
+#    define NOGDI
+#  endif
+#  ifndef NOUSER
+#    define NOUSER
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#  undef DrawText
+#  undef Rectangle
+#  undef PlaySound
+#  undef LoadBitmap
+#  undef CreateFont
+#  undef CopyFile
+#  undef DeleteFile
+#  undef MoveFile
+#  include <bcrypt.h>
+#  pragma comment(lib, "bcrypt.lib")
+#  include <direct.h>
 #else
-  #include <openssl/evp.h>
-  #include <openssl/rand.h>
-  #include <openssl/sha.h>
+#  include <openssl/evp.h>
+#  include <openssl/rand.h>
+#  include <openssl/sha.h>
 #endif
 
 namespace KonPak {
@@ -48,22 +77,16 @@ namespace KonPak {
 // -----------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------
-static constexpr uint8_t  MAGIC[4]   = { 'K', 'P', 'A', 'K' };
-static constexpr uint8_t  VERSION    = 0x01;
-static constexpr uint8_t  FLAG_ENC   = 0x01;
-static constexpr uint8_t  FLAG_COMP  = 0x02;
-static constexpr int      SALT_SIZE  = 16;
-static constexpr int      IV_SIZE    = 16;
-static constexpr int      KEY_SIZE   = 32;  // AES-256
-static constexpr int      PBKDF2_ITER = 100000;
-static constexpr int      BLOCK_SIZE = 16;  // AES block
+static constexpr uint8_t MAGIC[4]    = { 'K', 'P', 'A', 'K' };
+static constexpr uint8_t VERSION     = 0x02;
+static constexpr uint8_t FLAG_ENC    = 0x01;
+static constexpr uint8_t FLAG_COMP   = 0x02;
+static constexpr int     SALT_SIZE   = 16;
+static constexpr int     IV_SIZE     = 16;
+static constexpr int     KEY_SIZE    = 32;
+static constexpr int     PBKDF2_ITER = 100000;
+static constexpr int     BLOCK_SIZE  = 16;
 
-// -----------------------------------------------------------------------
-// Compile-time key support
-// Define KON_PACK_KEY in your CMakeLists to bake a password into the binary:
-//   target_compile_definitions(MyGame PRIVATE KON_PACK_KEY="mygamekey")
-// Then use Pack::openWithBuiltinKey() instead of setting password manually.
-// -----------------------------------------------------------------------
 #ifdef KON_PACK_KEY
   static constexpr const char* BUILTIN_KEY = KON_PACK_KEY;
 #else
@@ -71,21 +94,18 @@ static constexpr int      BLOCK_SIZE = 16;  // AES block
 #endif
 
 // -----------------------------------------------------------------------
-// Entry — one file inside the pack
+// Index entry — metadata only, no data buffer
 // -----------------------------------------------------------------------
-struct Entry {
-    std::string path;        // relative path, e.g. "sprites/player.png"
-    uint64_t    offset  = 0; // byte offset in the DATA section
-    uint64_t    sizeRaw = 0; // original uncompressed size
-    uint64_t    sizePacked = 0; // size after compress+encrypt
-    std::vector<uint8_t> data; // in-memory data (raw, after decrypt+decompress)
+struct IndexEntry {
+    std::string path;
+    uint64_t    sizeRaw    = 0;
+    uint64_t    sizePacked = 0;
+    uint64_t    offset     = 0;
 };
 
 // -----------------------------------------------------------------------
 // Crypto helpers
 // -----------------------------------------------------------------------
-
-// Generate cryptographically random bytes
 inline void randomBytes(uint8_t* out, size_t len) {
 #ifdef _WIN32
     BCryptGenRandom(nullptr, out, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
@@ -94,307 +114,156 @@ inline void randomBytes(uint8_t* out, size_t len) {
 #endif
 }
 
-// PBKDF2-SHA256: password + salt -> 32-byte AES key
-inline void deriveKey(const std::string& password,
-                      const uint8_t* salt, int saltLen,
-                      uint8_t* keyOut) {
+inline void deriveKey(const std::string& pw,
+                      const uint8_t* salt, int saltLen, uint8_t* keyOut) {
 #ifdef _WIN32
-    // BCrypt PBKDF2
     BCRYPT_ALG_HANDLE hAlg = nullptr;
     BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM,
                                 nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG);
-    BCryptDeriveKeyPBKDF2(hAlg,
-        (PUCHAR)password.data(), (ULONG)password.size(),
-        (PUCHAR)salt, saltLen,
-        PBKDF2_ITER, keyOut, KEY_SIZE, 0);
+    BCryptDeriveKeyPBKDF2(hAlg, (PUCHAR)pw.data(), (ULONG)pw.size(),
+                          (PUCHAR)salt, saltLen, PBKDF2_ITER, keyOut, KEY_SIZE, 0);
     BCryptCloseAlgorithmProvider(hAlg, 0);
 #else
-    PKCS5_PBKDF2_HMAC(password.c_str(), (int)password.size(),
-                      salt, saltLen,
-                      PBKDF2_ITER, EVP_sha256(),
-                      KEY_SIZE, keyOut);
+    PKCS5_PBKDF2_HMAC(pw.c_str(), (int)pw.size(), salt, saltLen,
+                      PBKDF2_ITER, EVP_sha256(), KEY_SIZE, keyOut);
 #endif
 }
 
-// AES-256-CBC encrypt. Returns ciphertext (includes PKCS7 padding).
 inline std::vector<uint8_t> aesEncrypt(const uint8_t* data, size_t len,
                                         const uint8_t* key, const uint8_t* iv) {
     std::vector<uint8_t> out(len + BLOCK_SIZE);
-    int outLen1 = 0, outLen2 = 0;
 #ifdef _WIN32
-    BCRYPT_ALG_HANDLE hAlg = nullptr;
-    BCRYPT_KEY_HANDLE hKey = nullptr;
+    BCRYPT_ALG_HANDLE hAlg=nullptr; BCRYPT_KEY_HANDLE hKey=nullptr;
     BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0);
-    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE,
-                      (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
+    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
                       sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
-    BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0,
-                               (PUCHAR)key, KEY_SIZE, 0);
-    ULONG result = 0;
-    std::vector<uint8_t> ivCopy(iv, iv + IV_SIZE);
-    BCryptEncrypt(hKey, (PUCHAR)data, (ULONG)len,
-                  nullptr, ivCopy.data(), IV_SIZE,
-                  out.data(), (ULONG)out.size(), &result,
-                  BCRYPT_BLOCK_PADDING);
+    BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0, (PUCHAR)key, KEY_SIZE, 0);
+    ULONG result=0;
+    std::vector<uint8_t> ivCopy(iv, iv+IV_SIZE);
+    BCryptEncrypt(hKey, (PUCHAR)data, (ULONG)len, nullptr,
+                  ivCopy.data(), IV_SIZE, out.data(), (ULONG)out.size(),
+                  &result, BCRYPT_BLOCK_PADDING);
     out.resize(result);
-    BCryptDestroyKey(hKey);
-    BCryptCloseAlgorithmProvider(hAlg, 0);
+    BCryptDestroyKey(hKey); BCryptCloseAlgorithmProvider(hAlg, 0);
 #else
+    int l1=0, l2=0;
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
-    EVP_EncryptUpdate(ctx, out.data(), &outLen1, data, (int)len);
-    EVP_EncryptFinal_ex(ctx, out.data() + outLen1, &outLen2);
+    EVP_EncryptUpdate(ctx, out.data(), &l1, data, (int)len);
+    EVP_EncryptFinal_ex(ctx, out.data()+l1, &l2);
     EVP_CIPHER_CTX_free(ctx);
-    out.resize(outLen1 + outLen2);
+    out.resize(l1+l2);
 #endif
     return out;
 }
 
-// AES-256-CBC decrypt.
 inline std::vector<uint8_t> aesDecrypt(const uint8_t* data, size_t len,
                                         const uint8_t* key, const uint8_t* iv) {
     std::vector<uint8_t> out(len);
-    int outLen1 = 0, outLen2 = 0;
 #ifdef _WIN32
-    BCRYPT_ALG_HANDLE hAlg = nullptr;
-    BCRYPT_KEY_HANDLE hKey = nullptr;
+    BCRYPT_ALG_HANDLE hAlg=nullptr; BCRYPT_KEY_HANDLE hKey=nullptr;
     BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0);
-    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE,
-                      (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
+    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
                       sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
-    BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0,
-                               (PUCHAR)key, KEY_SIZE, 0);
-    ULONG result = 0;
-    std::vector<uint8_t> ivCopy(iv, iv + IV_SIZE);
-    BCryptDecrypt(hKey, (PUCHAR)data, (ULONG)len,
-                  nullptr, ivCopy.data(), IV_SIZE,
-                  out.data(), (ULONG)out.size(), &result,
-                  BCRYPT_BLOCK_PADDING);
+    BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0, (PUCHAR)key, KEY_SIZE, 0);
+    ULONG result=0;
+    std::vector<uint8_t> ivCopy(iv, iv+IV_SIZE);
+    BCryptDecrypt(hKey, (PUCHAR)data, (ULONG)len, nullptr,
+                  ivCopy.data(), IV_SIZE, out.data(), (ULONG)out.size(),
+                  &result, BCRYPT_BLOCK_PADDING);
     out.resize(result);
-    BCryptDestroyKey(hKey);
-    BCryptCloseAlgorithmProvider(hAlg, 0);
+    BCryptDestroyKey(hKey); BCryptCloseAlgorithmProvider(hAlg, 0);
 #else
+    int l1=0, l2=0;
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
-    EVP_DecryptUpdate(ctx, out.data(), &outLen1, data, (int)len);
-    EVP_DecryptFinal_ex(ctx, out.data() + outLen1, &outLen2);
+    EVP_DecryptUpdate(ctx, out.data(), &l1, data, (int)len);
+    EVP_DecryptFinal_ex(ctx, out.data()+l1, &l2);
     EVP_CIPHER_CTX_free(ctx);
-    out.resize(outLen1 + outLen2);
+    out.resize(l1+l2);
 #endif
     return out;
 }
 
-// -----------------------------------------------------------------------
-// Compress / decompress (zlib deflate via miniz)
-// -----------------------------------------------------------------------
-inline std::vector<uint8_t> compress(const uint8_t* data, size_t len) {
+inline std::vector<uint8_t> kompressData(const uint8_t* data, size_t len) {
+#ifdef KONPAK_HAS_COMPRESS
     uLongf outLen = compressBound((uLongf)len);
     std::vector<uint8_t> out(outLen);
-    if (::compress2(out.data(), &outLen,
-                    data, (uLongf)len,
-                    Z_BEST_COMPRESSION) != Z_OK)
+    if (::compress2(out.data(), &outLen, data, (uLongf)len, Z_BEST_COMPRESSION) != Z_OK)
         throw std::runtime_error("KonPak: compression failed");
     out.resize(outLen);
     return out;
+#else
+    // No compression library available — store as-is
+    return std::vector<uint8_t>(data, data + len);
+#endif
 }
 
-inline std::vector<uint8_t> decompress(const uint8_t* data, size_t len,
-                                        uint64_t originalSize) {
+inline std::vector<uint8_t> decompressData(const uint8_t* data, size_t len,
+                                             uint64_t originalSize) {
+#ifdef KONPAK_HAS_COMPRESS
     std::vector<uint8_t> out(originalSize);
     uLongf outLen = (uLongf)originalSize;
-    if (::uncompress(out.data(), &outLen,
-                     data, (uLongf)len) != Z_OK)
+    if (::uncompress(out.data(), &outLen, data, (uLongf)len) != Z_OK)
         throw std::runtime_error("KonPak: decompression failed");
     return out;
+#else
+    // No compression — data was stored as-is
+    return std::vector<uint8_t>(data, data + len);
+#endif
 }
 
 // -----------------------------------------------------------------------
-// Pack — the main archive object
+// Pack
 // -----------------------------------------------------------------------
 struct Pack {
     std::string password;
-    std::vector<Entry> entries;
 
-    // ---- Find an entry by path ----
+    // Index — loaded on open(), tiny (paths + offsets only)
+    std::vector<IndexEntry> index;
+
+    // Compat: entries mirrors index metadata for old GUI/CLI code.
+    // data field is intentionally empty — call getData() to load a file.
+    struct Entry {
+        std::string          path;
+        uint64_t             sizeRaw    = 0;
+        uint64_t             sizePacked = 0;
+        uint64_t             offset     = 0;
+        std::vector<uint8_t> data;       // empty unless explicitly loaded
+    };
+    mutable std::vector<Entry> entries;
+
+    // ---- Index lookup ----
+    const IndexEntry* findIndex(const std::string& path) const {
+        for (auto& e : index) if (e.path == path) return &e;
+        return nullptr;
+    }
+
+    // ---- Old API: find entry by path ----
     Entry* find(const std::string& path) {
-        for (auto& e : entries)
-            if (e.path == path) return &e;
+        for (auto& e : entries) if (e.path == path) return &e;
         return nullptr;
     }
-
     const Entry* find(const std::string& path) const {
-        for (auto& e : entries)
-            if (e.path == path) return &e;
+        for (auto& e : entries) if (e.path == path) return &e;
         return nullptr;
     }
 
-    // ---- List all paths ----
     std::vector<std::string> list() const {
-        std::vector<std::string> paths;
-        for (auto& e : entries) paths.push_back(e.path);
-        return paths;
+        std::vector<std::string> out;
+        for (auto& e : index) out.push_back(e.path);
+        return out;
     }
 
-    // ---- Add or replace a file from disk ----
-    void addFile(const std::string& diskPath, const std::string& packPath) {
-        std::ifstream f(diskPath, std::ios::binary);
-        if (!f.is_open())
-            throw std::runtime_error("KonPak: cannot open: " + diskPath);
-        std::vector<uint8_t> data(
-            (std::istreambuf_iterator<char>(f)),
-            std::istreambuf_iterator<char>());
-        addData(packPath, data);
-    }
-
-    // ---- Add or replace from memory ----
-    void addData(const std::string& packPath,
-                 const std::vector<uint8_t>& data) {
-        Entry* existing = find(packPath);
-        if (existing) {
-            existing->data    = data;
-            existing->sizeRaw = data.size();
-        } else {
-            Entry e;
-            e.path    = packPath;
-            e.sizeRaw = data.size();
-            e.data    = data;
-            entries.push_back(std::move(e));
-        }
-    }
-
-    // ---- Remove a file ----
-    bool remove(const std::string& packPath) {
-        auto it = std::find_if(entries.begin(), entries.end(),
-            [&](const Entry& e) { return e.path == packPath; });
-        if (it == entries.end()) return false;
-        entries.erase(it);
-        return true;
-    }
-
-    // ---- Extract one file to disk ----
-    void extractFile(const std::string& packPath,
-                     const std::string& diskPath) const {
-        const Entry* e = find(packPath);
-        if (!e) throw std::runtime_error("KonPak: not found: " + packPath);
-        std::ofstream f(diskPath, std::ios::binary);
-        f.write(reinterpret_cast<const char*>(e->data.data()), e->data.size());
-    }
-
-    // ---- Get raw bytes of a file (for engine use) ----
-    const std::vector<uint8_t>& getData(const std::string& packPath) const {
-        const Entry* e = find(packPath);
-        if (!e) throw std::runtime_error("KonPak: not found: " + packPath);
-        return e->data;
-    }
-
-    // ---- Save to .konpak file ----
-    void save(const std::string& outPath) const {
-        if (password.empty())
-            throw std::runtime_error("KonPak: password not set");
-
-        // Generate salt and IV
-        uint8_t salt[SALT_SIZE], iv[IV_SIZE];
-        randomBytes(salt, SALT_SIZE);
-        randomBytes(iv, IV_SIZE);
-
-        // Derive key
-        uint8_t key[KEY_SIZE];
-        deriveKey(password, salt, SALT_SIZE, key);
-
-        // Build index + data blobs
-        // Index format (before encryption):
-        //   [uint32] entry count
-        //   per entry:
-        //     [uint16] path len + path bytes
-        //     [uint64] sizeRaw
-        //     [uint64] sizePacked (filled after we build data)
-
-        // First pass: compress+encrypt all data, record sizes
-        struct PackedEntry {
-            std::string path;
-            uint64_t    sizeRaw;
-            std::vector<uint8_t> blob; // compressed+encrypted
-        };
-
-        std::vector<PackedEntry> packed;
-        packed.reserve(entries.size());
-        uint64_t dataOffset = 0;
-
-        for (auto& e : entries) {
-            PackedEntry pe;
-            pe.path    = e.path;
-            pe.sizeRaw = e.sizeRaw;
-            // compress then encrypt
-            auto compressed = compress(e.data.data(), e.data.size());
-            pe.blob         = aesEncrypt(compressed.data(), compressed.size(),
-                                         key, iv);
-            packed.push_back(std::move(pe));
-        }
-
-        // Build index bytes
-        std::vector<uint8_t> indexBytes;
-        auto writeU16 = [&](uint16_t v) {
-            indexBytes.push_back(v & 0xFF);
-            indexBytes.push_back((v >> 8) & 0xFF);
-        };
-        auto writeU64 = [&](uint64_t v) {
-            for (int i = 0; i < 8; i++)
-                indexBytes.push_back((v >> (i*8)) & 0xFF);
-        };
-        auto writeU32 = [&](uint32_t v) {
-            for (int i = 0; i < 4; i++)
-                indexBytes.push_back((v >> (i*8)) & 0xFF);
-        };
-
-        writeU32((uint32_t)packed.size());
-        uint64_t offset = 0;
-        for (auto& pe : packed) {
-            writeU16((uint16_t)pe.path.size());
-            for (char c : pe.path) indexBytes.push_back((uint8_t)c);
-            writeU64(pe.sizeRaw);
-            writeU64((uint64_t)pe.blob.size());
-            writeU64(offset);
-            offset += pe.blob.size();
-        }
-
-        // Encrypt the index
-        auto encIndex = aesEncrypt(indexBytes.data(), indexBytes.size(),
-                                    key, iv);
-
-        // Write file
-        std::ofstream out(outPath, std::ios::binary);
-        if (!out.is_open())
-            throw std::runtime_error("KonPak: cannot write: " + outPath);
-
-        // Header
-        out.write(reinterpret_cast<const char*>(MAGIC), 4);
-        out.write(reinterpret_cast<const char*>(&VERSION), 1);
-        uint8_t flags = FLAG_ENC | FLAG_COMP;
-        out.write(reinterpret_cast<const char*>(&flags), 1);
-        out.write(reinterpret_cast<const char*>(salt), SALT_SIZE);
-        out.write(reinterpret_cast<const char*>(iv), IV_SIZE);
-
-        // Index size + encrypted index
-        uint32_t idxSize = (uint32_t)encIndex.size();
-        out.write(reinterpret_cast<const char*>(&idxSize), 4);
-        out.write(reinterpret_cast<const char*>(encIndex.data()), encIndex.size());
-
-        // Data blobs
-        for (auto& pe : packed)
-            out.write(reinterpret_cast<const char*>(pe.blob.data()),
-                      pe.blob.size());
-    }
-
-    // ---- Load from .konpak file ----
+    // ---- Open: read header + index only. O(index) not O(data). ----
     void load(const std::string& inPath) {
         if (password.empty())
             throw std::runtime_error("KonPak: password not set");
 
+        m_filePath = inPath;
         std::ifstream in(inPath, std::ios::binary);
-        if (!in.is_open())
-            throw std::runtime_error("KonPak: cannot open: " + inPath);
+        if (!in) throw std::runtime_error("KonPak: cannot open: " + inPath);
 
-        // Read header
         uint8_t magic[4];
         in.read(reinterpret_cast<char*>(magic), 4);
         if (memcmp(magic, MAGIC, 4) != 0)
@@ -403,129 +272,248 @@ struct Pack {
         uint8_t version, flags;
         in.read(reinterpret_cast<char*>(&version), 1);
         in.read(reinterpret_cast<char*>(&flags), 1);
+        (void)version; (void)flags;
 
-        uint8_t salt[SALT_SIZE], iv[IV_SIZE];
-        in.read(reinterpret_cast<char*>(salt), SALT_SIZE);
-        in.read(reinterpret_cast<char*>(iv), IV_SIZE);
+        in.read(reinterpret_cast<char*>(m_salt), SALT_SIZE);
+        in.read(reinterpret_cast<char*>(m_iv),   IV_SIZE);
+        deriveKey(password, m_salt, SALT_SIZE, m_key);
 
-        // Derive key
-        uint8_t key[KEY_SIZE];
-        deriveKey(password, salt, SALT_SIZE, key);
-
-        // Read + decrypt index
         uint32_t idxSize = 0;
         in.read(reinterpret_cast<char*>(&idxSize), 4);
-        std::vector<uint8_t> encIndex(idxSize);
-        in.read(reinterpret_cast<char*>(encIndex.data()), idxSize);
-        auto indexBytes = aesDecrypt(encIndex.data(), encIndex.size(), key, iv);
+        std::vector<uint8_t> encIdx(idxSize);
+        in.read(reinterpret_cast<char*>(encIdx.data()), idxSize);
+        auto idxBytes = aesDecrypt(encIdx.data(), encIdx.size(), m_key, m_iv);
 
-        // Parse index
         size_t pos = 0;
-        auto readU16 = [&]() -> uint16_t {
-            uint16_t v = indexBytes[pos] | (indexBytes[pos+1] << 8);
-            pos += 2; return v;
-        };
-        auto readU32 = [&]() -> uint32_t {
-            uint32_t v = 0;
-            for (int i = 0; i < 4; i++) v |= (uint32_t)indexBytes[pos+i] << (i*8);
-            pos += 4; return v;
-        };
-        auto readU64 = [&]() -> uint64_t {
-            uint64_t v = 0;
-            for (int i = 0; i < 8; i++) v |= (uint64_t)indexBytes[pos+i] << (i*8);
-            pos += 8; return v;
-        };
+        auto ru16 = [&]{ uint16_t v=idxBytes[pos]|(uint16_t(idxBytes[pos+1])<<8); pos+=2; return v; };
+        auto ru32 = [&]{ uint32_t v=0; for(int i=0;i<4;i++) v|=uint32_t(idxBytes[pos+i])<<(i*8); pos+=4; return v; };
+        auto ru64 = [&]{ uint64_t v=0; for(int i=0;i<8;i++) v|=uint64_t(idxBytes[pos+i])<<(i*8); pos+=8; return v; };
 
-        uint32_t count = readU32();
-        struct IndexEntry { std::string path; uint64_t sizeRaw, sizePacked, offset; };
-        std::vector<IndexEntry> idx(count);
-        for (auto& ie : idx) {
-            uint16_t pathLen = readU16();
-            ie.path.resize(pathLen);
-            for (char& c : ie.path) c = (char)indexBytes[pos++];
-            ie.sizeRaw    = readU64();
-            ie.sizePacked = readU64();
-            ie.offset     = readU64();
-        }
+        uint32_t count = ru32();
+        index.clear();   index.reserve(count);
+        entries.clear(); entries.reserve(count);
 
-        // Remember where data section starts
-        uint64_t dataStart = (uint64_t)in.tellg();
+        for (uint32_t i = 0; i < count; i++) {
+            IndexEntry ie;
+            uint16_t plen = ru16();
+            ie.path.resize(plen);
+            for (char& c : ie.path) c = char(idxBytes[pos++]);
+            ie.sizeRaw    = ru64();
+            ie.sizePacked = ru64();
+            ie.offset     = ru64();
+            index.push_back(ie);
 
-        // Read, decrypt, decompress each entry
-        entries.clear();
-        for (auto& ie : idx) {
-            in.seekg((std::streamoff)(dataStart + ie.offset));
-            std::vector<uint8_t> blob(ie.sizePacked);
-            in.read(reinterpret_cast<char*>(blob.data()), ie.sizePacked);
-
-            auto decompData = aesDecrypt(blob.data(), blob.size(), key, iv);
-            auto raw        = decompress(decompData.data(), decompData.size(),
-                                         ie.sizeRaw);
             Entry e;
-            e.path    = ie.path;
-            e.sizeRaw = ie.sizeRaw;
-            e.sizePacked = ie.sizePacked;
-            e.offset  = ie.offset;
-            e.data    = std::move(raw);
+            e.path = ie.path; e.sizeRaw = ie.sizeRaw;
+            e.sizePacked = ie.sizePacked; e.offset = ie.offset;
             entries.push_back(std::move(e));
         }
+
+        m_dataStart = uint64_t(in.tellg());
+        m_isOpen    = true;
+        m_cache.clear();
     }
 
-    // ---- Open using the compile-time baked key (KON_PACK_KEY) ----
-    // Use this in release game builds so the player is never prompted.
     void openWithBuiltinKey(const std::string& path) {
-        if (BUILTIN_KEY == nullptr)
-            throw std::runtime_error(
-                "KonPak: no builtin key -- compile with -DKON_PACK_KEY=...");
+        if (!BUILTIN_KEY) throw std::runtime_error("KonPak: no builtin key");
         password = BUILTIN_KEY;
         load(path);
     }
 
-    // ---- Extract all files to a directory at startup ----
-    // Useful pattern: extract everything once on launch, then use loose files.
-    void extractAllTo(const std::string& outDir) const {
-        for (auto& e : entries) {
-            // Reconstruct directory structure
-            std::string fullPath = outDir + "/" + e.path;
-            // Create parent dirs
-            std::string dir = fullPath;
-            size_t pos = dir.rfind('/');
-            if (pos != std::string::npos) {
-                dir = dir.substr(0, pos);
-                // mkdir -p equivalent (portable C++17)
-                std::string tmp;
-                for (char c : dir) {
-                    tmp += c;
-                    if (c == '/') {
-                        #ifdef _WIN32
-                        _mkdir(tmp.c_str());
-                        #else
-                        mkdir(tmp.c_str(), 0755);
-                        #endif
-                    }
-                }
-                #ifdef _WIN32
-                _mkdir(dir.c_str());
-                #else
-                mkdir(dir.c_str(), 0755);
-                #endif
-            }
-            extractFile(e.path, fullPath);
-        }
+    // ---- Read one file on demand. Caches it. ----
+    const std::vector<uint8_t>& getData(const std::string& path) const {
+        auto it = m_cache.find(path);
+        if (it != m_cache.end()) return it->second;
+
+        const IndexEntry* ie = findIndex(path);
+        if (!ie) throw std::runtime_error("KonPak: not found: " + path);
+
+        std::ifstream in(m_filePath, std::ios::binary);
+        if (!in) throw std::runtime_error("KonPak: cannot reopen: " + m_filePath);
+
+        in.seekg(std::streamoff(m_dataStart + ie->offset));
+        std::vector<uint8_t> blob(ie->sizePacked);
+        in.read(reinterpret_cast<char*>(blob.data()), ie->sizePacked);
+
+        auto dec = aesDecrypt(blob.data(), blob.size(), m_key, m_iv);
+        auto raw = decompressData(dec.data(), dec.size(), ie->sizeRaw);
+        m_cache[path] = std::move(raw);
+        return m_cache[path];
     }
 
-    // ---- Verify password without fully loading ----
-    static bool checkPassword(const std::string& filePath,
-                               const std::string& password) {
-        try {
-            Pack p;
-            p.password = password;
-            p.load(filePath);
-            return true;
-        } catch (...) {
-            return false;
+    void clearEntry(const std::string& path) { m_cache.erase(path); }
+    void clearCache()                         { m_cache.clear(); }
+    bool isOpen() const                       { return m_isOpen; }
+
+    // ---- Extract one file to disk ----
+    void extractFile(const std::string& packPath, const std::string& diskPath) const {
+        const auto& data = getData(packPath);
+        std::ofstream f(diskPath, std::ios::binary);
+        if (!f) throw std::runtime_error("KonPak: cannot write: " + diskPath);
+        f.write(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+
+    // ---- Old API: addFile / addData / remove / save ----
+    void addFile(const std::string& diskPath, const std::string& packPath) {
+        m_pending[packPath] = diskPath;
+        _updateEntrySizeFromDisk(packPath, diskPath);
+    }
+
+    void addData(const std::string& packPath, const std::vector<uint8_t>& data) {
+        char tmp[L_tmpnam]; std::tmpnam(tmp);
+        std::string tmpPath(tmp);
+        { std::ofstream f(tmpPath, std::ios::binary);
+          f.write(reinterpret_cast<const char*>(data.data()), data.size()); }
+        m_pending[packPath] = tmpPath;
+        m_tempFiles.push_back(tmpPath);
+        bool found = false;
+        for (auto& e : entries) if (e.path==packPath){ e.sizeRaw=data.size(); found=true; break; }
+        if (!found) { Entry e; e.path=packPath; e.sizeRaw=data.size(); entries.push_back(e); }
+    }
+
+    bool remove(const std::string& packPath) {
+        m_removed.insert(packPath);
+        m_pending.erase(packPath);
+        auto it = std::find_if(entries.begin(), entries.end(),
+            [&](const Entry& e){ return e.path==packPath; });
+        if (it==entries.end()) return false;
+        entries.erase(it);
+        return true;
+    }
+
+    void save(const std::string& outPath) const {
+        if (password.empty()) throw std::runtime_error("KonPak: password not set");
+
+        std::vector<std::pair<std::string,std::string>> files;
+        if (m_isOpen) {
+            for (auto& ie : index) {
+                if (m_removed.count(ie.path)) continue;
+                if (m_pending.count(ie.path)) continue;
+                char tmp[L_tmpnam]; std::tmpnam(tmp);
+                std::string tmpPath(tmp);
+                extractFile(ie.path, tmpPath);
+                files.push_back({tmpPath, ie.path});
+                m_tempFiles.push_back(tmpPath);
+            }
         }
+        for (auto& [pp, dp] : m_pending) files.push_back({dp, pp});
+
+        pack(outPath, files, password);
+
+        for (auto& t : m_tempFiles) ::remove(t.c_str());
+        m_tempFiles.clear();
+        m_pending.clear();
+        m_removed.clear();
+    }
+
+    // ---- Streaming pack — never holds more than one file in RAM ----
+    static void pack(const std::string& outPath,
+                     const std::vector<std::pair<std::string,std::string>>& files,
+                     const std::string& pw,
+                     std::function<void(int,int,const std::string&)> progress = {}) {
+
+        if (pw.empty()) throw std::runtime_error("KonPak: password required");
+
+        uint8_t salt[SALT_SIZE], iv[IV_SIZE], key[KEY_SIZE];
+        randomBytes(salt, SALT_SIZE);
+        randomBytes(iv,   IV_SIZE);
+        deriveKey(pw, salt, SALT_SIZE, key);
+
+        struct BlobMeta { std::string path; uint64_t sizeRaw, sizePacked, offset; };
+        std::vector<BlobMeta> metas;
+        metas.reserve(files.size());
+        uint64_t offset = 0;
+
+        std::string tmpPath = outPath + ".kptmp";
+        {
+            std::ofstream tmp(tmpPath, std::ios::binary);
+            if (!tmp) throw std::runtime_error("KonPak: cannot write tmp");
+
+            for (int i = 0; i < (int)files.size(); i++) {
+                if (progress) progress(i, (int)files.size(), files[i].second);
+
+                std::ifstream f(files[i].first, std::ios::binary);
+                if (!f) throw std::runtime_error("KonPak: cannot open: " + files[i].first);
+
+                std::vector<uint8_t> raw(
+                    (std::istreambuf_iterator<char>(f)),
+                    std::istreambuf_iterator<char>());
+
+                auto comp = kompressData(raw.data(), raw.size());
+                auto enc  = aesEncrypt(comp.data(), comp.size(), key, iv);
+
+                BlobMeta m; m.path=files[i].second; m.sizeRaw=raw.size();
+                m.sizePacked=enc.size(); m.offset=offset;
+                metas.push_back(m);
+                offset += enc.size();
+
+                tmp.write(reinterpret_cast<const char*>(enc.data()), enc.size());
+            }
+        }
+
+        std::vector<uint8_t> idxBytes;
+        auto wu16=[&](uint16_t v){ idxBytes.push_back(v&0xFF); idxBytes.push_back(v>>8); };
+        auto wu32=[&](uint32_t v){ for(int i=0;i<4;i++) idxBytes.push_back((v>>(i*8))&0xFF); };
+        auto wu64=[&](uint64_t v){ for(int i=0;i<8;i++) idxBytes.push_back((v>>(i*8))&0xFF); };
+        wu32((uint32_t)metas.size());
+        for (auto& m : metas) {
+            wu16((uint16_t)m.path.size());
+            for (char c : m.path) idxBytes.push_back((uint8_t)c);
+            wu64(m.sizeRaw); wu64(m.sizePacked); wu64(m.offset);
+        }
+        auto encIdx = aesEncrypt(idxBytes.data(), idxBytes.size(), key, iv);
+
+        std::ofstream out(outPath, std::ios::binary);
+        if (!out) throw std::runtime_error("KonPak: cannot write: " + outPath);
+
+        out.write(reinterpret_cast<const char*>(MAGIC), 4);
+        out.write(reinterpret_cast<const char*>(&VERSION), 1);
+        uint8_t flags = FLAG_ENC | FLAG_COMP;
+        out.write(reinterpret_cast<const char*>(&flags), 1);
+        out.write(reinterpret_cast<const char*>(salt), SALT_SIZE);
+        out.write(reinterpret_cast<const char*>(iv),   IV_SIZE);
+        uint32_t idxSz = (uint32_t)encIdx.size();
+        out.write(reinterpret_cast<const char*>(&idxSz), 4);
+        out.write(reinterpret_cast<const char*>(encIdx.data()), encIdx.size());
+
+        // Stream blobs from tmp into final — 4MB at a time
+        {
+            std::ifstream tmp(tmpPath, std::ios::binary);
+            static constexpr size_t CHUNK = 4*1024*1024;
+            std::vector<char> buf(CHUNK);
+            while (tmp.read(buf.data(), CHUNK) || tmp.gcount()>0)
+                out.write(buf.data(), tmp.gcount());
+        }
+        ::remove(tmpPath.c_str());
+    }
+
+    static bool checkPassword(const std::string& filePath, const std::string& pw) {
+        try { Pack p; p.password=pw; p.load(filePath); return true; }
+        catch (...) { return false; }
+    }
+
+private:
+    std::string m_filePath;
+    bool        m_isOpen    = false;
+    uint64_t    m_dataStart = 0;
+    uint8_t     m_salt[SALT_SIZE] = {};
+    uint8_t     m_iv[IV_SIZE]     = {};
+    uint8_t     m_key[KEY_SIZE]   = {};
+
+    mutable std::unordered_map<std::string, std::vector<uint8_t>> m_cache;
+    mutable std::unordered_map<std::string, std::string>          m_pending;
+    mutable std::unordered_set<std::string>                       m_removed;
+    mutable std::vector<std::string>                              m_tempFiles;
+
+    void _updateEntrySizeFromDisk(const std::string& packPath, const std::string& diskPath) {
+        std::ifstream f(diskPath, std::ios::binary | std::ios::ate);
+        uint64_t sz = f.is_open() ? (uint64_t)f.tellg() : 0;
+        for (auto& e : entries) if (e.path==packPath){ e.sizeRaw=sz; return; }
+        Entry e; e.path=packPath; e.sizeRaw=sz; entries.push_back(e);
     }
 };
+
+// Convenience alias so old code using KonPak::Entry still compiles
+using Entry = Pack::Entry;
 
 } // namespace KonPak

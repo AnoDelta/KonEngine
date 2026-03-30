@@ -92,16 +92,36 @@ void Present() {
 
 	if (s_debugMode) {
 		static float dbgTimer=0; static int dbgFPS=0, dbgFrames=0;
+		static float dbgDt=0;
 		dbgFrames++;
-		dbgTimer += GetDeltaTime();
+		dbgDt    = GetDeltaTime();
+		dbgTimer += dbgDt;
 		if (dbgTimer >= 1.0f) {
 			dbgFPS=dbgFrames; dbgFrames=0; dbgTimer=0;
 			std::cout << "[KonEngine DEBUG]  FPS: " << dbgFPS
+			          << "  dt: " << dbgDt
 			          << "  Mouse: (" << (int)GetMouseX() << ", " << (int)GetMouseY() << ")"
-			          << "  dt: " << GetDeltaTime() << "\n";
+			          << "\n";
 		}
 
+		// Debug overlay — screen-space HUD
 		int W=window->getWidth(), H=window->getHeight();
+		{
+			// Build stats string using only snprintf — no std::string allocation
+			char buf[256];
+			snprintf(buf, sizeof(buf),
+				"FPS: %d  dt: %.4f  Mouse: (%d, %d)  Zoom: %.2f",
+				dbgFPS, dbgDt,
+				(int)GetMouseX(), (int)GetMouseY(),
+				s_hasCameraThisFrame ? s_lastCamera.zoom : 1.0f);
+			// Semi-transparent background strip
+			window->drawRectangle(0, 0, (float)W, 18, 0,0,0,0.65f);
+			// Text drawn via engine font system
+			extern void DrawText(const char*, float, float, Color);
+			Color cyan = {0.3f, 1.0f, 0.9f, 1.0f};
+			DrawText(buf, 4, 2, cyan);
+		}
+
 		float t=2.0f;
 		window->drawRectangle(0,       0,       (float)W, t,      1,0,0,1);
 		window->drawRectangle(0,       (float)H-t, (float)W, t,   1,0,0,1);
@@ -207,9 +227,14 @@ void Window::beginCamera2D(const Camera2D& cam){renderer->BeginCamera2D(cam);}
 void Window::endCamera2D(){renderer->EndCamera2D();}
 
 void BeginCamera2D(const Camera2D& cam) {
-	s_lastCamera = cam;
+	if (!window) return;
+	// Clamp zoom — extreme values cause world rotation/freeze artifacts
+	Camera2D safe = cam;
+	if (safe.zoom < 0.05f) safe.zoom = 0.05f;
+	if (safe.zoom > 50.0f) safe.zoom = 50.0f;
+	s_lastCamera         = safe;
 	s_hasCameraThisFrame = true;
-	if (window) window->beginCamera2D(cam);
+	window->beginCamera2D(safe);
 }
 void EndCamera2D() { if (window) window->endCamera2D(); }
 

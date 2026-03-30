@@ -7,6 +7,7 @@
 #include <vector>
 #include <iostream>
 #include "../window/window.hpp"
+#include <cstdint>
 
 static Font defaultFont;
 static bool defaultFontLoaded = false;

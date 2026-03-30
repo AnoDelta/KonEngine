@@ -32,14 +32,15 @@ file(GLOB_RECURSE LIB_SRCS
 list(FILTER LIB_SRCS EXCLUDE REGEX ".*anim_compiler\\.cpp$")
 list(FILTER LIB_SRCS EXCLUDE REGEX ".*/src/main\\.cpp$")
 
-add_library(KonEngine STATIC ${LIB_SRCS})
+add_library(KonEngine STATIC
+    ${LIB_SRCS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/asset_manager.cpp
+)
 target_include_directories(KonEngine PUBLIC src src/glad/include src/stb)
 target_link_libraries(KonEngine PUBLIC glfw glm::glm)
 
 if(WIN32)
-	find_package(ZLIB REQUIRED)
-	target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm ZLIB::ZLIB)
-	target_include_directories(KonEngine PUBLIC ${ZLIB_INCLUDE_DIRS})
+    target_link_libraries(KonEngine PRIVATE opengl32 gdi32 winmm)
 else()
     target_link_libraries(KonEngine PRIVATE GL dl pthread X11 Xrandr Xi)
 endif()
@@ -62,7 +63,40 @@ endif()
 option(KON_PACK_SUPPORT "Build with .konpak asset encryption support" OFF)
 if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
     if(WIN32)
-        target_link_libraries(KonEngine PUBLIC bcrypt)
+        if(CMAKE_CROSSCOMPILING)
+            # Cross-compile (MXE): bcrypt is always available.
+            # For zlib/compression: use bundled miniz if present, otherwise
+            # build without compression (store-only mode — packs still work,
+            # just larger). Install mingw zlib to get full compression:
+            #   sudo emerge cross-x86_64-w64-mingw32/zlib
+            set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/KonPaktor/third_party")
+            if(EXISTS "${MINIZ_DIR}/miniz.h")
+                # Verify it's not a 404 page (real miniz.h is >10000 bytes)
+                file(SIZE "${MINIZ_DIR}/miniz.h" MINIZ_SIZE)
+                if(MINIZ_SIZE GREATER 10000)
+                    target_include_directories(KonEngine PUBLIC "${MINIZ_DIR}")
+                    target_compile_definitions(KonEngine PUBLIC KONPAK_USE_MINIZ)
+                    message(STATUS "KonPak: using bundled miniz (cross-compile)")
+                else()
+                    message(STATUS "KonPak: miniz.h invalid (${MINIZ_SIZE} bytes) — store-only mode")
+                endif()
+            else()
+                message(STATUS "KonPak: no miniz.h — store-only mode (compression disabled)")
+            endif()
+            # bcrypt.h location for MXE
+            find_path(BCRYPT_INCLUDE_DIR bcrypt.h
+                HINTS ${CMAKE_FIND_ROOT_PATH}/include
+                      /usr/lib/mingw64-toolchain/x86_64-w64-mingw32/include
+                NO_DEFAULT_PATH)
+            if(BCRYPT_INCLUDE_DIR)
+                target_include_directories(KonEngine PRIVATE ${BCRYPT_INCLUDE_DIR})
+            endif()
+            target_link_libraries(KonEngine PUBLIC bcrypt)
+        else()
+            # Native Windows build (MSVC or MinGW with vcpkg)
+            find_package(ZLIB REQUIRED)
+            target_link_libraries(KonEngine PUBLIC bcrypt ZLIB::ZLIB)
+        endif()
     else()
         find_package(OpenSSL REQUIRED)
         find_package(ZLIB    REQUIRED)

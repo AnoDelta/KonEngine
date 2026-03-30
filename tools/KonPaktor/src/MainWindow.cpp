@@ -429,7 +429,7 @@ void MainWindow::openInKonAnimator(const std::string& packPath) {
 // Preview
 // -----------------------------------------------------------------------
 void MainWindow::previewEntry(const std::string& packPath) {
-    const KonPak::Entry* e = m_pack.find(packPath);
+    const KonPak::Pack::Entry* e = m_pack.find(packPath);
     if (!e) { m_preview->showEmpty(); return; }
 
     QString name = QString::fromStdString(packPath);
@@ -438,7 +438,7 @@ void MainWindow::previewEntry(const std::string& packPath) {
     // Image
     if (ext == "png" || ext == "jpg" || ext == "jpeg" ||
         ext == "bmp" || ext == "tga" || ext == "gif") {
-        m_preview->showImage(e->data, name);
+        m_preview->showImage(m_pack.getData(packPath), name);
         return;
     }
 
@@ -446,7 +446,7 @@ void MainWindow::previewEntry(const std::string& packPath) {
     if (ext == "wav" || ext == "ogg" || ext == "mp3" || ext == "flac") {
         QString tmpPath = QDir::temp().filePath(
             "KonPaktor_preview_" + QFileInfo(name).fileName());
-        m_preview->showAudio(e->data, name, tmpPath);
+        m_preview->showAudio(m_pack.getData(packPath), name, tmpPath);
         return;
     }
 

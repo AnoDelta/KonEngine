@@ -9,6 +9,7 @@
 #include <iostream>
 #include <fstream>
 #include "../asset_manager.hpp"
+#include <cstring>
 
 class AnimationPlayer : public Node {
 public:
