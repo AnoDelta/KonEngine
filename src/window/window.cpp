@@ -28,7 +28,7 @@ struct Window::Impl {
 	GLFWwindow* handle;
 	WindowCallbackData callbackData;
 	float clearR = 0, clearG = 0, clearB = 0;
-	bool vsyncEnabled = true;
+	bool vsyncEnabled = false;
 
 	Impl(int width, int height, const std::string& title, bool canResize, OpenGLRenderer* renderer) {
 #if defined(GLFW_PLATFORM_X11) && !defined(_WIN32)
@@ -44,7 +44,7 @@ struct Window::Impl {
 		if (!handle) { std::cerr << "Failed to create GLFW window\n"; glfwTerminate(); return; }
 		glfwMakeContextCurrent(handle);
 		glfwShowWindow(handle);
-		glfwSwapInterval(1);
+		glfwSwapInterval(0);
 		callbackData = { renderer, handle, this };
 		glfwSetWindowUserPointer(handle, &callbackData);
 		glfwSetWindowRefreshCallback(handle, [](GLFWwindow* win) {
