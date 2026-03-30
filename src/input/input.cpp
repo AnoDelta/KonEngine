@@ -15,7 +15,7 @@ void InitInput(GLFWwindow* window) {
     inputWindow = window;
 
     glfwSetScrollCallback(window, [](GLFWwindow*, double, double yOffset) {
-        mouseScrollY = (float)yOffset;
+        mouseScrollY += (float)yOffset;
     });
 }
 

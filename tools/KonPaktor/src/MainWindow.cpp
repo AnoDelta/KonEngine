@@ -11,6 +11,11 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QEventLoop>
+#include <QTimer>
+#include <QMutex>
+#include <QThread>
+#include <QProgressBar>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
@@ -259,6 +264,12 @@ private:
 
 #include "MainWindow.moc"
 
+
+
+// -----------------------------------------------------------------------
+// SaveWorker — runs Pack::save() on a background thread and emits
+// progress signals that are safely delivered to the UI thread via Qt.
+// -----------------------------------------------------------------------
 // -----------------------------------------------------------------------
 // MainWindow
 // -----------------------------------------------------------------------
@@ -587,14 +598,69 @@ void MainWindow::onOpenPack() {
 
 void MainWindow::onSavePack() {
     if (m_currentPath.isEmpty()) { onSavePackAs(); return; }
-    try {
-        m_pack.save(m_currentPath.toStdString());
-        setDirty(false);
-    } catch (std::exception& e) {
+    int total = (int)m_pack.entries.size();
+
+    QDialog dlg(this, Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+    dlg.setWindowTitle("KonPaktor");
+    dlg.setFixedSize(420, 90);
+    dlg.setModal(true);
+    auto* vlay  = new QVBoxLayout(&dlg);
+    auto* label = new QLabel("Preparing...", &dlg);
+    label->setAlignment(Qt::AlignCenter);
+    auto* bar   = new QProgressBar(&dlg);
+    bar->setRange(0, total > 0 ? total : 1);
+    bar->setValue(0);
+    bar->setFormat("%v / %m  (%p%)");
+    bar->setTextVisible(true);
+    vlay->addWidget(label);
+    vlay->addWidget(bar);
+    dlg.show();
+    QApplication::processEvents();
+
+    // Run worker on a thread and drive the UI with a real nested event loop.
+    // A real QEventLoop lets the Wayland compositor deliver frame callbacks
+    // so the bar actually repaints -- processEvents() busy-wait does not.
+    auto* worker = new SaveWorker(&m_pack, m_currentPath, this);
+
+    QEventLoop loop;
+    QTimer ticker;
+    ticker.setInterval(16);  // ~60fps update rate
+
+    connect(&ticker, &QTimer::timeout, [&]() {
+        int cur = worker->current.load();
+        int tot = worker->total.load();
+        std::string name;
+        { std::lock_guard<std::mutex> lk(worker->nameMutex); name = worker->currentName; }
+        bar->setRange(0, tot > 0 ? tot : 1);
+        bar->setValue(cur);
+        label->setText(QString::fromStdString(name));
+        if (worker->finished.load())
+            loop.quit();
+    });
+
+    ticker.start();
+    worker->start();
+    loop.exec();  // blocks here, but the event loop runs normally
+
+    ticker.stop();
+    bar->setValue(bar->maximum());
+    label->setText("Done.");
+    QApplication::processEvents();
+
+    QString saveError = QString::fromStdString(worker->errorMsg);
+    worker->deleteLater();
+    dlg.hide();
+
+    if (!saveError.isEmpty()) {
         QMessageBox::critical(this, "KonPaktor",
-            QString("Failed to save:\n%1").arg(e.what()));
+            QString("Failed to save: %1").arg(saveError));
+        return;
     }
+    setDirty(false);
 }
+
+
+
 
 void MainWindow::onSavePackAs() {
     QString path = QFileDialog::getSaveFileName(
@@ -602,14 +668,69 @@ void MainWindow::onSavePackAs() {
         "KonPak Archives (*.konpak);;All Files (*)");
     if (path.isEmpty()) return;
     if (!path.endsWith(".konpak")) path += ".konpak";
-    try {
-        m_pack.save(path.toStdString());
-        setCurrentFile(path);
-    } catch (std::exception& e) {
+    int total = (int)m_pack.entries.size();
+
+    QDialog dlg(this, Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+    dlg.setWindowTitle("KonPaktor");
+    dlg.setFixedSize(420, 90);
+    dlg.setModal(true);
+    auto* vlay  = new QVBoxLayout(&dlg);
+    auto* label = new QLabel("Preparing...", &dlg);
+    label->setAlignment(Qt::AlignCenter);
+    auto* bar   = new QProgressBar(&dlg);
+    bar->setRange(0, total > 0 ? total : 1);
+    bar->setValue(0);
+    bar->setFormat("%v / %m  (%p%)");
+    bar->setTextVisible(true);
+    vlay->addWidget(label);
+    vlay->addWidget(bar);
+    dlg.show();
+    QApplication::processEvents();
+
+    // Run worker on a thread and drive the UI with a real nested event loop.
+    // A real QEventLoop lets the Wayland compositor deliver frame callbacks
+    // so the bar actually repaints -- processEvents() busy-wait does not.
+    auto* worker = new SaveWorker(&m_pack, path, this);
+
+    QEventLoop loop;
+    QTimer ticker;
+    ticker.setInterval(16);  // ~60fps update rate
+
+    connect(&ticker, &QTimer::timeout, [&]() {
+        int cur = worker->current.load();
+        int tot = worker->total.load();
+        std::string name;
+        { std::lock_guard<std::mutex> lk(worker->nameMutex); name = worker->currentName; }
+        bar->setRange(0, tot > 0 ? tot : 1);
+        bar->setValue(cur);
+        label->setText(QString::fromStdString(name));
+        if (worker->finished.load())
+            loop.quit();
+    });
+
+    ticker.start();
+    worker->start();
+    loop.exec();  // blocks here, but the event loop runs normally
+
+    ticker.stop();
+    bar->setValue(bar->maximum());
+    label->setText("Done.");
+    QApplication::processEvents();
+
+    QString saveError = QString::fromStdString(worker->errorMsg);
+    worker->deleteLater();
+    dlg.hide();
+
+    if (!saveError.isEmpty()) {
         QMessageBox::critical(this, "KonPaktor",
-            QString("Failed to save:\n%1").arg(e.what()));
+            QString("Failed to save: %1").arg(saveError));
+        return;
     }
+    setCurrentFile(path);
 }
+
+
+
 
 // -----------------------------------------------------------------------
 // Add files
@@ -620,18 +741,32 @@ void MainWindow::addFilesToPack(const QStringList& paths) {
         if (!promptPassword("Set Pack Password", pw)) return;
         m_pack.password = pw;
     }
+
+    QProgressDialog prog("Adding files...", QString(), 0, paths.size(), this);
+    prog.setWindowTitle("KonPaktor");
+    prog.setWindowModality(Qt::WindowModal);
+    prog.setMinimumDuration(0);
+    prog.setValue(0);
+
     int added = 0;
-    for (auto& diskPath : paths) {
-        QString packPath = askPackPath(diskPath);
+    for (int i = 0; i < paths.size(); ++i) {
+        prog.setValue(i);
+        prog.setLabelText(
+            QString("Reading %1 / %2 - %3")
+                .arg(i+1).arg(paths.size())
+                .arg(QFileInfo(paths[i]).fileName()));
+        QApplication::processEvents();
+        QString packPath = askPackPath(paths[i]);
         if (packPath.isEmpty()) continue;
         try {
-            m_pack.addFile(diskPath.toStdString(), packPath.toStdString());
+            m_pack.addFile(paths[i].toStdString(), packPath.toStdString());
             added++;
         } catch (std::exception& e) {
             QMessageBox::warning(this, "KonPaktor",
-                QString("Failed to add %1:\n%2").arg(diskPath).arg(e.what()));
+                QString("Failed to add %1: %2").arg(paths[i]).arg(e.what()));
         }
     }
+    prog.setValue(paths.size());
     if (added > 0) { refreshTree(); setDirty(true); }
 }
 

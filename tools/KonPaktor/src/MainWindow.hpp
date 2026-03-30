@@ -12,10 +12,49 @@
 #include <QDragEnterEvent>
 #include <QMediaPlayer>
 #include <QString>
+#include <mutex>
+#include <atomic>
 #include <string>
 #include "konpak.hpp"
 
 class PreviewPanel;
+
+
+#include <QThread>
+
+class SaveWorker : public QThread {
+    Q_OBJECT
+public:
+    std::atomic<int>  current{0};
+    std::atomic<int>  total{0};
+    std::atomic<bool> finished{false};
+    std::string       currentName;
+    std::string       errorMsg;
+    std::mutex        nameMutex;
+
+    SaveWorker(const KonPak::Pack* pack, const QString& path, QObject* parent = nullptr)
+        : QThread(parent), m_pack(pack), m_path(path) {}
+
+    void run() override {
+        try {
+            total = (int)m_pack->entries.size();
+            m_pack->save(m_path.toStdString(),
+                [this](int cur, int tot, const std::string& name) {
+                    { std::lock_guard<std::mutex> lk(nameMutex); currentName = name; }
+                    current = cur;
+                    total   = tot;
+                });
+            finished = true;
+        } catch (std::exception& ex) {
+            errorMsg = ex.what();
+            finished = true;
+        }
+    }
+
+private:
+    const KonPak::Pack* m_pack;
+    QString             m_path;
+};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT

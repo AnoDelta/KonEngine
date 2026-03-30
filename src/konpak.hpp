@@ -381,7 +381,8 @@ struct Pack {
         return true;
     }
 
-    void save(const std::string& outPath) const {
+    void save(const std::string& outPath,
+          std::function<void(int,int,const std::string&)> onProgress = nullptr) const {
         if (password.empty()) throw std::runtime_error("KonPak: password not set");
 
         std::vector<std::pair<std::string,std::string>> files;

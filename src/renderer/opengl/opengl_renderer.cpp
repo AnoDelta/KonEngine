@@ -533,7 +533,8 @@ void OpenGLRenderer::BeginCamera2D(const Camera2D& cam) {
     glm::mat4 view = glm::mat4(1.0f);
     view = glm::translate(view, glm::vec3(hw, hh, 0.0f));
     view = glm::rotate(view, glm::radians(cam.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
-    view = glm::scale(view, glm::vec3(cam.zoom, cam.zoom, 1.0f));
+    float zoom_clamped = cam.zoom < 0.01f ? 0.01f : cam.zoom;
+    view = glm::scale(view, glm::vec3(zoom_clamped, zoom_clamped, 1.0f));
     view = glm::translate(view, glm::vec3(-cam.x, -cam.y, 0.0f));
 
     glm::mat4 cameraProjection = projectionMatrix * view;
