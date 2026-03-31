@@ -18,7 +18,14 @@ public:
     Program parse() {
         Program prog;
         prog.filename = m_filename;
+        size_t prevPos = (size_t)-1;
         while (!atEnd()) {
+            if (m_pos == prevPos) {
+                m_errors.push_back("parser stuck at: " + peek().value);
+                advance();
+                continue;
+            }
+            prevPos = m_pos;
             try {
                 prog.stmts.push_back(parseTopLevel());
             } catch (std::exception& e) {

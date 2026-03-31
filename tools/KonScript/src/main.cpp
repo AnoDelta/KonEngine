@@ -324,6 +324,7 @@ int main(int argc, char** argv) {
     // ── Lex ───────────────────────────────────────────────────────────────
     KonScript::Lexer lexer(src, path);
     auto tokens = lexer.tokenize();
+    std::cout << "[1/4] Lexing... OK\n" << std::flush;
     if (lexer.hasErrors()) {
         for (auto& e : lexer.errors()) std::cerr << e.message << "\n";
         return 1;
@@ -341,6 +342,7 @@ int main(int argc, char** argv) {
     // ── Parse ─────────────────────────────────────────────────────────────
     KonScript::Parser parser(std::move(tokens), path);
     auto prog = parser.parse();
+    std::cout << "[2/4] Parsing... OK\n" << std::flush;
     if (parser.hasErrors()) {
         for (auto& e : parser.errors()) std::cerr << e << "\n";
         return 1;
@@ -354,6 +356,7 @@ int main(int argc, char** argv) {
     // ── Typecheck ─────────────────────────────────────────────────────────
     KonScript::TypeChecker checker;
     checker.check(prog);
+    std::cout << "[3/4] Type checking... OK\n" << std::flush;
     if (checker.hasErrors()) {
         for (auto& e : checker.errors())
             std::cerr << path << ":" << e.line << ":" << e.col
@@ -724,6 +727,7 @@ int main(int argc, char** argv) {
                         + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread -lm";
         }
 
+        std::cout << "[4/4] Compiling & linking...\n" << std::flush;
         int r = std::system(compileCmd.c_str());
         if (r != 0) {
             std::cerr << "konscript: compile failed\n"
