@@ -1,0 +1,656 @@
+#include "KonEditor.hpp"
+#include <QMenuBar>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QComboBox>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QApplication>
+#include <QSettings>
+#include <QFile>
+#include <QFileInfo>
+#include <functional>
+#include <QDialog>
+#include <QFormLayout>
+#include <QSpinBox>
+#include <QCheckBox>
+#include <QDialogButtonBox>
+#include <QLineEdit>
+#include <QRegularExpression>
+#include <QStatusBar>
+#include <QGroupBox>
+#include <QTextStream>
+#include <QDir>
+
+// ── Dark theme ────────────────────────────────────────────────────────────
+static void applyDarkTheme() {
+    qApp->setStyle("Fusion");
+    QPalette p;
+    p.setColor(QPalette::Window,          QColor(28,28,28));
+    p.setColor(QPalette::WindowText,      QColor(220,220,220));
+    p.setColor(QPalette::Base,            QColor(20,20,20));
+    p.setColor(QPalette::AlternateBase,   QColor(34,34,34));
+    p.setColor(QPalette::Text,            QColor(220,220,220));
+    p.setColor(QPalette::Button,          QColor(44,44,44));
+    p.setColor(QPalette::ButtonText,      QColor(220,220,220));
+    p.setColor(QPalette::Highlight,       QColor(0,120,215));
+    p.setColor(QPalette::HighlightedText, Qt::white);
+    p.setColor(QPalette::ToolTipBase,     QColor(38,38,38));
+    p.setColor(QPalette::ToolTipText,     QColor(220,220,220));
+    qApp->setPalette(p);
+    qApp->setStyleSheet(R"(
+        QMainWindow, QWidget { background: #1c1c1c; }
+        QMenuBar { background: #242424; color: #ccc; border-bottom: 1px solid #333; }
+        QMenuBar::item:selected { background: #333; }
+        QMenu { background: #262626; color: #ccc; border: 1px solid #3a3a3a; }
+        QMenu::item:selected { background: #0078d7; color: #fff; }
+        QMenu::separator { background: #3a3a3a; height: 1px; }
+        QToolBar { background: #242424; border-bottom: 1px solid #333; spacing: 4px; padding: 2px; }
+        QToolBar::separator { background: #3a3a3a; width: 1px; margin: 4px 2px; }
+        QTabWidget::pane { border: 1px solid #333; }
+        QTabBar::tab { background: #262626; color: #999; padding: 5px 12px;
+                       border: 1px solid #333; border-bottom: none; min-width: 60px; }
+        QTabBar::tab:selected { background: #1c1c1c; color: #fff;
+                                border-bottom: 2px solid #0078d7; }
+        QTabBar::tab:hover:!selected { background: #2e2e2e; color: #ccc; }
+        QSplitter::handle { background: #2e2e2e; }
+        QSplitter::handle:horizontal { width: 1px; }
+        QSplitter::handle:vertical { height: 1px; }
+        QStatusBar { background: #0e2a47; color: #7ab3d8; font-size: 11px; }
+        QStatusBar::item { border: none; }
+        QPushButton { background: #363636; color: #ddd; border: 1px solid #4a4a4a;
+                      padding: 4px 12px; border-radius: 3px; }
+        QPushButton:hover { background: #424242; border-color: #666; }
+        QPushButton:pressed { background: #0078d7; color: #fff; }
+        QPushButton:disabled { color: #555; border-color: #3a3a3a; }
+        QComboBox { background: #363636; color: #ddd; border: 1px solid #4a4a4a;
+                    padding: 3px 8px; border-radius: 3px; }
+        QComboBox::drop-down { border: none; }
+        QComboBox QAbstractItemView { background: #262626; color: #ddd;
+                                       selection-background-color: #0078d7; }
+        QLineEdit, QSpinBox, QDoubleSpinBox {
+            background: #1e1e1e; color: #ddd; border: 1px solid #4a4a4a;
+            padding: 3px 6px; border-radius: 3px; }
+        QTreeWidget { background: #181818; color: #ddd; border: none; }
+        QTreeWidget::item { padding: 2px; }
+        QTreeWidget::item:selected { background: #0078d7; }
+        QTreeWidget::item:hover { background: #2a2a2a; }
+        QScrollBar:vertical { background: #1c1c1c; width: 8px; }
+        QScrollBar::handle:vertical { background: #3a3a3a; border-radius: 4px; min-height: 20px; }
+        QScrollBar::handle:vertical:hover { background: #555; }
+        QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+        QCheckBox { color: #ddd; }
+        QCheckBox::indicator { width: 14px; height: 14px; background: #1e1e1e;
+                               border: 1px solid #555; border-radius: 2px; }
+        QCheckBox::indicator:checked { background: #0078d7; border-color: #0078d7; }
+        QLabel { color: #ccc; }
+        QGroupBox { color: #888; border: 1px solid #3a3a3a; border-radius: 4px;
+                    margin-top: 8px; padding-top: 4px; }
+        QGroupBox::title { subcontrol-origin: margin; left: 8px; }
+    )");
+}
+
+// ── KonEditor ─────────────────────────────────────────────────────────────
+KonEditor::KonEditor(QWidget* parent) : QMainWindow(parent) {
+    setWindowTitle("KonEditor");
+    setMinimumSize(1280, 720);
+    resize(1440, 900);
+    applyDarkTheme();
+
+    m_project = new ProjectManager(this);
+    setupMenuBar();
+    setupToolBar();
+    setupLayout();
+    setupStatusBar();
+
+    // Restore last project
+    QSettings s("AnoDelta", "KonEditor");
+    QString last = s.value("lastProject").toString();
+    if (!last.isEmpty() && QFile::exists(last))
+        openProject(last);
+}
+
+KonEditor::~KonEditor() {
+    if (m_gameProcess && m_gameProcess->state() != QProcess::NotRunning)
+        m_gameProcess->kill();
+}
+
+void KonEditor::setupMenuBar() {
+    // File
+    auto* file = menuBar()->addMenu("&File");
+    file->addAction("&New Project",   this, &KonEditor::onNewProject,   QKeySequence::New);
+    file->addAction("&Open Project",  this, &KonEditor::onOpenProject,  QKeySequence::Open);
+    file->addAction("&Save",          this, &KonEditor::onSaveProject,  QKeySequence::Save);
+    file->addSeparator();
+    file->addAction("&Quit", qApp, &QApplication::quit, QKeySequence::Quit);
+
+    // Project
+    auto* proj = menuBar()->addMenu("&Project");
+    proj->addAction("⚙ Project Settings", this, &KonEditor::onProjectSettings);
+
+    // Build
+    auto* build = menuBar()->addMenu("&Build");
+    build->addAction("Build",    this, &KonEditor::onBuild, QKeySequence("Ctrl+B"));
+    build->addAction("Run",      this, &KonEditor::onRun,   QKeySequence("Ctrl+R"));
+    build->addAction("Stop",     this, &KonEditor::onStop,  QKeySequence("Ctrl+."));
+}
+
+void KonEditor::setupToolBar() {
+    auto* tb = addToolBar("Main");
+    tb->setMovable(false);
+    tb->setIconSize({16,16});
+
+    // Target selector
+    tb->addWidget(new QLabel("  Target: "));
+    auto* target = new QComboBox();
+    target->addItems({"linux64","windows64"});
+    target->setFixedWidth(100);
+    connect(target, &QComboBox::currentTextChanged,
+            [this](const QString& t){ m_buildTarget = t; });
+    tb->addWidget(target);
+    tb->addSeparator();
+
+    // Build
+    auto* buildAct = tb->addAction("⚙  Build");
+    connect(buildAct, &QAction::triggered, this, &KonEditor::onBuild);
+
+    // Run
+    m_runAction = tb->addAction("▶  Run");
+    connect(m_runAction, &QAction::triggered, this, &KonEditor::onRun);
+
+    // Stop
+    m_stopAction = tb->addAction("■  Stop");
+    m_stopAction->setEnabled(false);
+    connect(m_stopAction, &QAction::triggered, this, &KonEditor::onStop);
+}
+
+void KonEditor::setupLayout() {
+    auto* central = new QWidget(this);
+    auto* rootLayout = new QVBoxLayout(central);
+    rootLayout->setContentsMargins(0,0,0,0);
+    rootLayout->setSpacing(0);
+    setCentralWidget(central);
+
+    // Outer vertical splitter: [top area] / [bottom]
+    m_mainSplitter = new QSplitter(Qt::Vertical);
+
+    // Inner horizontal splitter: [left] / [center] / [right]
+    m_rootSplitter = new QSplitter(Qt::Horizontal);
+
+    // ── Left panel: Scene Tree + File Browser ────────────────────────────
+    m_leftPanel = new QWidget();
+    m_leftPanel->setMinimumWidth(200);
+    m_leftPanel->setMaximumWidth(320);
+    auto* leftLayout = new QVBoxLayout(m_leftPanel);
+    leftLayout->setContentsMargins(0,0,0,0);
+    leftLayout->setSpacing(0);
+
+    // Tab switcher at top of left panel
+    m_leftTabs = new QTabBar();
+    m_leftTabs->addTab("Scene");
+    m_leftTabs->addTab("Files");
+    m_leftTabs->setStyleSheet(
+        "QTabBar { background: #242424; }"
+        "QTabBar::tab { background: #242424; color: #888; padding: 5px 16px; "
+        "               border: none; border-bottom: 2px solid transparent; }"
+        "QTabBar::tab:selected { color: #fff; border-bottom: 2px solid #0078d7; }"
+        "QTabBar::tab:hover:!selected { color: #bbb; }");
+    leftLayout->addWidget(m_leftTabs);
+
+    m_leftStack = new QStackedWidget();
+    m_sceneTree = new SceneTree();
+    m_assetBrowser = new AssetBrowser();
+    m_leftStack->addWidget(m_sceneTree);   // index 0
+    m_leftStack->addWidget(m_assetBrowser); // index 1
+    leftLayout->addWidget(m_leftStack);
+
+    connect(m_leftTabs, &QTabBar::currentChanged,
+            m_leftStack, &QStackedWidget::setCurrentIndex);
+
+    m_rootSplitter->addWidget(m_leftPanel);
+
+    // ── Center: Script / Viewport ─────────────────────────────────────────
+    m_centerTabs = new QTabWidget();
+    m_viewport     = new Viewport();
+    m_scriptEditor = new ScriptEditor();
+    m_centerTabs->addTab(m_viewport,     "Viewport");
+    m_centerTabs->addTab(m_scriptEditor, "Script");
+    m_rootSplitter->addWidget(m_centerTabs);
+
+    // ── Right: Inspector ──────────────────────────────────────────────────
+    m_inspector = new Inspector();
+    m_inspector->setMinimumWidth(220);
+    m_inspector->setMaximumWidth(340);
+    m_rootSplitter->addWidget(m_inspector);
+
+    // Wire scene tree → inspector now that inspector exists
+    connect(m_sceneTree, &SceneTree::nodeSelected,
+            m_inspector, &Inspector::showNode);
+
+    // Reload script tab when inspector edits a file
+    connect(m_inspector, &Inspector::scriptFileChanged,
+            [this](const QString& path){
+                m_scriptEditor->reloadFile(path);
+            });
+
+    // Wire inspector open/attach script signals
+    connect(m_inspector, &Inspector::propertyChanged,
+            [this](const QString& node, const QString& prop, const QString& val){
+                if (prop == "__openScript__") {
+                    m_scriptEditor->openFile(val);
+                    m_centerTabs->setCurrentWidget(m_scriptEditor);
+                } else if (prop == "__attachScript__") {
+                    m_sceneTree->attachScriptToSelected();
+                }
+            });
+
+    connect(m_sceneTree, &SceneTree::nodeSelected,
+            m_viewport, &Viewport::selectNode);
+
+    connect(m_sceneTree, &SceneTree::nodeSelectedWithScript,
+            this, [this](const QString& name, const QString& type, const QString& script){
+                m_inspector->showNodeFromFile(name, type, script);
+                syncInspectorPosition(name);
+            });
+
+    // Remember last loaded scene per project
+    connect(m_sceneTree, &SceneTree::sceneLoaded,
+            [this](const QString& path){
+                if (m_project->isOpen())
+                    QSettings("AnoDelta","KonEditor").setValue(
+                        "lastScene/" + m_project->path(), path);
+                m_statusLabel->setText("  Scene: " + QFileInfo(path).fileName()
+                    + "  |  " + m_project->name());
+                QTimer::singleShot(100, this, [this]{ rebuildViewport(); });
+            });
+
+    // Rebuild viewport when scene changes
+    connect(m_sceneTree, &SceneTree::sceneChanged, [this]{
+        rebuildViewport();
+    });
+
+    connect(m_sceneTree, &SceneTree::nodeAdded,
+            [this](const QString& name, const QString& type) {
+                // Add a default node to viewport
+                ViewportNode vn;
+                vn.name = name;
+                vn.type = type;
+                vn.x    = 0;
+                vn.y    = 0;
+                vn.w    = (type == "CollisionShape2D") ? 64 : 48;
+                vn.h    = (type == "CollisionShape2D") ? 64 : 48;
+                if (type == "Camera2D" || type == "CameraNode2D") {
+                    vn.camW = 800; vn.camH = 600; vn.zoom = 1.0f;
+                }
+                auto nodes = m_viewport->nodes();
+                nodes.append(vn);
+                m_viewport->setNodes(nodes);
+                m_centerTabs->setCurrentWidget(m_viewport);
+            });
+
+    connect(m_viewport, &Viewport::nodeMoved,
+            this, [this](const QString& name, float x, float y) {
+                m_inspector->updatePosition(name, x, y);
+                m_sceneTree->updateNodePosition(name, x, y);
+            });
+
+    // Write to script only when drag ends (not every frame)
+    connect(m_viewport, &Viewport::nodeMovedFinal,
+            this, [this](const QString& name, float x, float y) {
+                m_inspector->writePropertyToFile("x", QString::number(x, 'f', 1));
+                m_inspector->writePropertyToFile("y", QString::number(y, 'f', 1));
+            });
+
+    connect(m_viewport, &Viewport::nodeSelected,
+            this, [this](const QString& name){
+                if (name.isEmpty()) return;
+                // Select in scene tree
+                m_sceneTree->selectNodeByName(name);
+                // Show in inspector
+                syncInspectorPosition(name);
+            });
+
+    m_rootSplitter->setStretchFactor(0, 0);
+    m_rootSplitter->setStretchFactor(1, 1);
+    m_rootSplitter->setStretchFactor(2, 0);
+    m_rootSplitter->setSizes({240, 900, 280});
+    m_mainSplitter->addWidget(m_rootSplitter);
+
+    // ── Bottom: Build + Output ────────────────────────────────────────────
+    m_bottomTabs = new QTabWidget();
+    m_bottomTabs->setMaximumHeight(200);
+    m_buildPanel   = new BuildPanel();
+    m_debugConsole = new DebugConsole();
+    m_bottomTabs->addTab(m_buildPanel,   "Build");
+    m_bottomTabs->addTab(m_debugConsole, "Output");
+    m_mainSplitter->addWidget(m_bottomTabs);
+
+    m_mainSplitter->setStretchFactor(0, 1);
+    m_mainSplitter->setStretchFactor(1, 0);
+    m_mainSplitter->setSizes({680, 180});
+
+    rootLayout->addWidget(m_mainSplitter);
+
+    // Wire asset browser → open file in script editor
+    connect(m_assetBrowser, &AssetBrowser::fileDoubleClicked,
+            [this](const QString& path){
+                if (path.endsWith(".konscene") ||
+                    (path.endsWith(".ks") && path.contains("/scenes/"))) {
+                    // Load scene into scene tree
+                    m_sceneTree->loadScene(path);
+                    m_leftTabs->setCurrentIndex(0);
+                    m_statusLabel->setText("  Scene: " + QFileInfo(path).fileName());
+                } else if (path.endsWith(".ks")) {
+                    m_scriptEditor->openFile(path);
+                    m_centerTabs->setCurrentWidget(m_scriptEditor);
+                } else {
+                    // Everything else — try to open as text
+                    QStringList textExts = {
+                        ".txt",".md",".json",".cfg",".ini",".konproj"
+                    };
+                    for (auto& ext : textExts) {
+                        if (path.endsWith(ext)) {
+                            m_scriptEditor->openFile(path);
+                            m_centerTabs->setCurrentWidget(m_scriptEditor);
+                            break;
+                        }
+                    }
+                }
+            });
+
+    // Wire build panel game started
+    connect(m_buildPanel, &BuildPanel::gameStarted,
+            [this](QProcess* proc){
+                m_gameProcess = proc;
+                updateRunButtons(true);
+                m_statusLabel->setText("  Running...");
+                connect(proc, &QProcess::readyReadStandardOutput,
+                        this, &KonEditor::onGameProcessOutput);
+                connect(proc, &QProcess::readyReadStandardError,
+                        this, &KonEditor::onGameProcessOutput);
+                connect(proc,
+                    static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+                    this, [this](int code){ onGameProcessFinished(code); });
+            });
+}
+
+void KonEditor::setupStatusBar() {
+    m_statusLabel = new QLabel("  No project open");
+    statusBar()->addWidget(m_statusLabel);
+}
+
+void KonEditor::updateTitle() {
+    setWindowTitle((m_project->isOpen() ? m_project->name() : "KonEditor") + " — KonEditor");
+}
+
+void KonEditor::updateRunButtons(bool running) {
+    m_runAction->setEnabled(!running);
+    m_stopAction->setEnabled(running);
+}
+
+void KonEditor::openProject(const QString& path) {
+    if (!m_project->open(path)) {
+        QMessageBox::warning(this, "Error", "Failed to open: " + path);
+        return;
+    }
+    updateTitle();
+    QString dir = QFileInfo(path).absolutePath();
+    m_assetBrowser->setRoot(dir);
+    m_scriptEditor->setProjectRoot(dir);
+    m_sceneTree->setProjectRoot(dir);
+    m_statusLabel->setText("  " + m_project->name() + "  |  " + dir);
+    QSettings("AnoDelta","KonEditor").setValue("lastProject", path);
+
+    // Load last scene — try .ks first, fall back to .konscene
+    QString lastScene = QSettings("AnoDelta","KonEditor").value(
+        "lastScene/" + path).toString();
+    if (lastScene.isEmpty() || !QFile::exists(lastScene)) {
+        QString ksScene   = dir + "/scenes/Main.ks";
+        QString jsonScene = dir + "/scenes/Main.konscene";
+        if      (QFile::exists(ksScene))   lastScene = ksScene;
+        else if (QFile::exists(jsonScene)) lastScene = jsonScene;
+    }
+    if (!lastScene.isEmpty() && QFile::exists(lastScene)) {
+        m_sceneTree->loadScene(lastScene);
+        QTimer::singleShot(100, this, [this]{ rebuildViewport(); });
+    } else {
+        m_sceneTree->newScene();
+    }
+}
+
+void KonEditor::onNewProject() {
+    QString dir = QFileDialog::getExistingDirectory(this, "Choose Folder");
+    if (dir.isEmpty()) return;
+    if (m_project->create(dir)) {
+        updateTitle();
+        openProject(m_project->path());
+    }
+}
+
+void KonEditor::onOpenProject() {
+    QString f = QFileDialog::getOpenFileName(this, "Open Project", "",
+        "KonScript Project (*.konproj)");
+    if (!f.isEmpty()) openProject(f);
+}
+
+void KonEditor::onSaveProject() {
+    if (!m_project->isOpen()) return;
+    m_scriptEditor->saveAll();
+    m_project->save();
+}
+
+void KonEditor::onProjectSettings() {
+    if (!m_project->isOpen()) {
+        QMessageBox::information(this, "Project Settings", "Open a project first.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Project Settings");
+    dlg.setMinimumWidth(380);
+    dlg.setStyleSheet("QDialog { background: #1e1e1e; }");
+
+    auto* layout = new QVBoxLayout(&dlg);
+
+    // General
+    auto* genGroup = new QGroupBox("General");
+    auto* genForm  = new QFormLayout(genGroup);
+    auto* nameEdit = new QLineEdit(m_project->name());
+    auto* verEdit  = new QLineEdit(m_project->json().value("version").toString("0.1.0"));
+    genForm->addRow("Project Name:", nameEdit);
+    genForm->addRow("Version:", verEdit);
+    layout->addWidget(genGroup);
+
+    // Window
+    auto* winGroup = new QGroupBox("Window");
+    auto* winForm  = new QFormLayout(winGroup);
+    auto* widthSpin  = new QSpinBox(); widthSpin->setRange(320,7680); widthSpin->setValue(m_project->json().value("width").toInt(800));
+    auto* heightSpin = new QSpinBox(); heightSpin->setRange(240,4320); heightSpin->setValue(m_project->json().value("height").toInt(600));
+    auto* fpsSpin    = new QSpinBox(); fpsSpin->setRange(1,999); fpsSpin->setValue(m_project->json().value("fps").toInt(60));
+    auto* vsyncCheck = new QCheckBox(); vsyncCheck->setChecked(m_project->json().value("vsync").toBool(true));
+    auto* titleEdit  = new QLineEdit(m_project->json().value("windowTitle").toString(m_project->name()));
+    winForm->addRow("Width:",  widthSpin);
+    winForm->addRow("Height:", heightSpin);
+    winForm->addRow("FPS:",    fpsSpin);
+    winForm->addRow("VSync:",  vsyncCheck);
+    winForm->addRow("Title:",  titleEdit);
+    layout->addWidget(winGroup);
+
+    // Main scene
+    auto* sceneGroup = new QGroupBox("Entry Point");
+    auto* sceneForm  = new QFormLayout(sceneGroup);
+    auto* entryEdit  = new QLineEdit(m_project->json().value("entry").toString("src/main.ks"));
+    auto* browseBtn  = new QPushButton("Browse...");
+    browseBtn->setFixedWidth(80);
+    auto* entryRow = new QHBoxLayout();
+    entryRow->addWidget(entryEdit);
+    entryRow->addWidget(browseBtn);
+    sceneForm->addRow("Entry file:", entryRow);
+    connect(browseBtn, &QPushButton::clicked, [&]{
+        QString f = QFileDialog::getOpenFileName(&dlg, "Entry File",
+            m_project->rootDir(), "KonScript (*.ks);;All (*)");
+        if (!f.isEmpty()) {
+            // Make relative
+            entryEdit->setText(QDir(m_project->rootDir()).relativeFilePath(f));
+        }
+    });
+    layout->addWidget(sceneGroup);
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout->addWidget(btns);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    // Save settings
+    auto json = m_project->json();
+    json["name"]        = nameEdit->text();
+    json["version"]     = verEdit->text();
+    json["width"]       = widthSpin->value();
+    json["height"]      = heightSpin->value();
+    json["fps"]         = fpsSpin->value();
+    json["vsync"]       = vsyncCheck->isChecked();
+    json["windowTitle"] = titleEdit->text();
+    json["entry"]       = entryEdit->text();
+    m_project->setJson(json);
+    m_project->save();
+    updateTitle();
+
+    // Patch main.ks InitWindow call
+    QString mainKsPath = m_project->rootDir() + "/" + entryEdit->text();
+    if (QFile::exists(mainKsPath)) {
+        QFile f(mainKsPath);
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString src = f.readAll();
+            f.close();
+            // Replace InitWindow args
+            QRegularExpression re(R"(InitWindow\s*\([^)]+\))");
+            QString newCall = QString("InitWindow(%1, %2, \"%3\")")
+                .arg(widthSpin->value())
+                .arg(heightSpin->value())
+                .arg(titleEdit->text());
+            src.replace(re, newCall);
+            // Replace SetTargetFPS
+            QRegularExpression re2(R"(SetTargetFPS\s*\([^)]+\))");
+            src.replace(re2, QString("SetTargetFPS(%1)").arg(fpsSpin->value()));
+            // Save vsync to project — user sets SetVsync() manually or
+            // editor patches it only if already present in main.ks
+            QString vsyncVal = vsyncCheck->isChecked() ? "true" : "false";
+            QRegularExpression re3(R"(SetVsync\s*\([^)]+\))");
+            if (re3.match(src).hasMatch())
+                src.replace(re3, QString("SetVsync(%1)").arg(vsyncVal));
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text))
+                QTextStream(&f) << src;
+        }
+        m_scriptEditor->openFile(mainKsPath);
+        m_centerTabs->setCurrentWidget(m_scriptEditor);
+    }
+}
+
+void KonEditor::onBuild() {
+    if (!m_project->isOpen()) {
+        m_buildPanel->appendLog("No project open.");
+        m_bottomTabs->setCurrentWidget(m_buildPanel);
+        return;
+    }
+    m_bottomTabs->setCurrentWidget(m_buildPanel);
+    m_buildPanel->build(m_project->entryFile(), m_buildTarget, m_project->outDir());
+}
+
+void KonEditor::onRun() {
+    if (!m_project->isOpen()) return;
+    m_bottomTabs->setCurrentWidget(m_buildPanel);
+    m_buildPanel->build(m_project->entryFile(), m_buildTarget,
+                        m_project->outDir(), true);
+}
+
+void KonEditor::onStop() {
+    if (m_gameProcess && m_gameProcess->state() != QProcess::NotRunning) {
+        m_gameProcess->kill();
+        m_debugConsole->appendOutput("[Editor] Game stopped.");
+        updateRunButtons(false);
+        m_statusLabel->setText("  Stopped");
+    }
+}
+
+void KonEditor::onGameProcessOutput() {
+    if (!m_gameProcess) return;
+    QString out = m_gameProcess->readAllStandardOutput();
+    QString err = m_gameProcess->readAllStandardError();
+    if (!out.isEmpty()) m_debugConsole->appendOutput(out);
+    if (!err.isEmpty()) m_debugConsole->appendOutput("[err] " + err);
+    m_bottomTabs->setCurrentWidget(m_debugConsole);
+}
+
+void KonEditor::syncInspectorPosition(const QString& name) {
+    auto* tw = m_sceneTree->treeWidget();
+    if (!tw || tw->topLevelItemCount() == 0) return;
+    // Iterative search — no std::function needed
+    QList<QTreeWidgetItem*> stack;
+    stack.append(tw->topLevelItem(0));
+    while (!stack.isEmpty()) {
+        auto* item = stack.takeLast();
+        if (item->data(0, Qt::UserRole+1).toString() == name) {
+            QVariant vx = item->data(0, Qt::UserRole+3);
+            QVariant vy = item->data(0, Qt::UserRole+4);
+            m_inspector->updatePosition(name,
+                vx.isValid() ? vx.toFloat() : 0.0f,
+                vy.isValid() ? vy.toFloat() : 0.0f);
+            return;
+        }
+        for (int i = 0; i < item->childCount(); i++)
+            stack.append(item->child(i));
+    }
+}
+
+void KonEditor::rebuildViewport() {
+    QList<ViewportNode> nodes;
+    // Walk the scene tree recursively
+    std::function<void(QTreeWidgetItem*)> walk = [&](QTreeWidgetItem* item) {
+        if (!item) return;
+        QString name = item->data(0, Qt::UserRole + 1).toString();
+        QString type = item->data(0, Qt::UserRole).toString();
+        if (type == "Scene" || name.isEmpty()) {
+            for (int i = 0; i < item->childCount(); i++)
+                walk(item->child(i));
+            return;
+        }
+        ViewportNode vn;
+        vn.name = name;
+        vn.type = type;
+        // Restore saved position
+        QVariant vx = item->data(0, Qt::UserRole + 3);
+        QVariant vy = item->data(0, Qt::UserRole + 4);
+        vn.x = vx.isValid() ? vx.toFloat() : 0.0f;
+        vn.y = vy.isValid() ? vy.toFloat() : 0.0f;
+        vn.w    = (type == "CollisionShape2D") ? 64 :
+                  (type == "Camera2D") ? 32 : 48;
+        vn.h    = vn.w;
+        if (type == "Camera2D" || type == "CameraNode2D") {
+            vn.camW = m_project->isOpen() ?
+                m_project->json().value("width").toInt(800) : 800;
+            vn.camH = m_project->isOpen() ?
+                m_project->json().value("height").toInt(600) : 600;
+            vn.zoom = 1.0f;
+        }
+        nodes.append(vn);
+        for (int i = 0; i < item->childCount(); i++)
+            walk(item->child(i));
+    };
+
+    auto* sceneTree = m_sceneTree->treeWidget();
+    if (sceneTree && sceneTree->topLevelItemCount() > 0)
+        walk(sceneTree->topLevelItem(0));
+
+    m_viewport->setNodes(nodes);
+    m_viewport->setGameResolution(
+        m_project->isOpen() ? m_project->json().value("width").toInt(800) : 800,
+        m_project->isOpen() ? m_project->json().value("height").toInt(600) : 600);
+}
+
+void KonEditor::onGameProcessFinished(int code) {
+    updateRunButtons(false);
+    m_statusLabel->setText(QString("  Finished (exit %1)").arg(code));
+    m_gameProcess = nullptr;
+}
