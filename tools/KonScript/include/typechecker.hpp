@@ -458,7 +458,7 @@ private:
         reg("IsDebugMode",   {}, Bool);
 		reg("GetWindowWidth",  {}, I32);
 		reg("GetWindowHeight", {}, I32);
-		reg("SetVsync",        {Bool}, Void);
+		reg("SetVsync",         {Bool}, Void);
 
         // Input
         reg("KeyDown",       {I32}, Bool);
@@ -547,14 +547,13 @@ private:
         {
             Symbol s;
             s.name       = "Scene";
-            s.isFunc     = true; // Scene() constructor
+            s.isFunc     = true;
             s.returnType = SceneT;
             s.type       = SceneT;
             m_globalSymbols["Scene"] = s;
         }
-
-        // scene.update(dt), scene.draw(), scene.add()
-        // These are method calls on Scene — handled by opaque struct passthrough
+        // Register scene free functions so calls are validated
+        reg("RunEngine", {SceneT}, Void);
 
         // RunEngine() — replaces manual game loop
         reg("RunEngine",     {}, Void);
@@ -565,15 +564,21 @@ private:
         reg("GetParent",     {}, Type::make(Type::Kind::Node, "Node"));
         reg("Destroy",       {}, Void);
 
-        // Camera2D — opaque struct, members accessed via unknown passthrough
+        // Camera2D is a plain struct (x, y, zoom, rotation)
         {
             Symbol ctor;
             ctor.name       = "Camera2D";
             ctor.isFunc     = true;
+            ctor.paramTypes = {F64, F64, F64, F64}; // x, y, zoom, rotation
             ctor.returnType = Type::make(Type::Kind::Struct, "Camera2D");
             ctor.type       = ctor.returnType;
             m_globalSymbols["Camera2D"] = ctor;
         }
+        // BeginCamera2D takes a Camera2D struct
+        reg("BeginCamera2D", {Type::make(Type::Kind::Struct, "Camera2D")}, Void);
+        reg("EndCamera2D",   {}, Void);
+        reg("GetWorldMouseX", {Type::make(Type::Kind::Struct, "Camera2D")}, F64);
+        reg("GetWorldMouseY", {Type::make(Type::Kind::Struct, "Camera2D")}, F64);
     }
 
     // -----------------------------------------------------------------------
@@ -769,6 +774,10 @@ private:
     }
 
     void checkNodeDecl(const NodeDecl* n, Scope* scope) {
+        // Catch: node Camera2D : Camera2D — name same as base type
+        if (n->name == n->base)
+            error("node '" + n->name + "' cannot have the same name as its base type '" +
+                  n->base + "'. Use a different name (e.g. 'MyCam : Camera2D').", 0, 0);
         // Build a scope with the node's fields and inherited Node2D properties
         Scope nodeScope; nodeScope.parent = scope;
 

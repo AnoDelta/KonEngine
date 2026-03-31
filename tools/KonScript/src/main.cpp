@@ -354,23 +354,25 @@ int main(int argc, char** argv) {
     }
 
     // ── Typecheck ─────────────────────────────────────────────────────────
-    // Pre-register symbols from included .ks files so typechecker knows them
+    // Pre-register symbols from included .ks files
     KonScript::TypeChecker checker;
-    std::string srcDir2 = fs::path(path).parent_path().string();
-    for (auto& s : prog.stmts) {
-        if (s->kind != KonScript::Stmt::Kind::Include) continue;
-        auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
-        if (inc->isSystem || inc->path == "engine") continue;
-        std::string incPath = inc->path;
-        if (incPath.find('/') == std::string::npos)
-            incPath = srcDir2 + "/" + incPath;
-        if (!fs::exists(incPath)) continue;
-        std::string incSrc = readFile(incPath);
-        KonScript::Lexer lx(incSrc, incPath);
-        auto toks = lx.tokenize();
-        KonScript::Parser px(std::move(toks), incPath);
-        auto incProg = px.parse();
-        checker.addInclude(incProg);
+    {
+        std::string srcDir2 = fs::path(path).parent_path().string();
+        for (auto& s : prog.stmts) {
+            if (s->kind != KonScript::Stmt::Kind::Include) continue;
+            auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+            if (inc->isSystem || inc->path == "engine") continue;
+            std::string incPath = inc->path;
+            if (incPath.find('/') == std::string::npos)
+                incPath = srcDir2 + "/" + incPath;
+            if (!fs::exists(incPath)) continue;
+            std::string incSrc = readFile(incPath);
+            KonScript::Lexer lx(incSrc, incPath);
+            auto toks = lx.tokenize();
+            KonScript::Parser px(std::move(toks), incPath);
+            auto incProg = px.parse();
+            checker.addInclude(incProg);
+        }
     }
     checker.check(prog);
     std::cout << "[3/4] Type checking... OK\n" << std::flush;
@@ -442,6 +444,33 @@ int main(int argc, char** argv) {
         out << cpp;
         std::cout << (engineTarget ? "[engine] " : "[standalone] ")
                   << path << " -> " << outPath << "\n";
+
+        // Also transpile each included .ks file to .ks.cpp next to main
+        std::string cppDir = fs::path(outPath).parent_path().string();
+        for (auto& s : prog.stmts) {
+            if (s->kind != KonScript::Stmt::Kind::Include) continue;
+            auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+            if (inc->isSystem || inc->path == "engine") continue;
+            std::string incPath = inc->path;
+            if (incPath.find('/') == std::string::npos)
+                incPath = fs::path(path).parent_path().string() + "/" + incPath;
+            if (!fs::exists(incPath)) continue;
+            std::string incSrc = readFile(incPath);
+            KonScript::Lexer lx(incSrc, incPath);
+            auto toks = lx.tokenize();
+            KonScript::Parser px(std::move(toks), incPath);
+            auto incProg = px.parse();
+            KonScript::Codegen cgInc;
+            cgInc.setTarget(KonScript::Codegen::Target::Engine);
+            std::string incCppSrc = cgInc.generate(incProg);
+            std::string incOutPath = cppDir + "/" +
+                fs::path(incPath).filename().string() + ".cpp";
+            std::ofstream fo(incOutPath);
+            if (fo.is_open()) {
+                fo << incCppSrc;
+                std::cout << "[engine] " << incPath << " -> " << incOutPath << "\n";
+            }
+        }
         return 0;
     }
 
