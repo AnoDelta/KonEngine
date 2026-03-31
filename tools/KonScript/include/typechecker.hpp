@@ -201,6 +201,12 @@ public:
     const std::vector<Error>& errors() const { return m_errors; }
     bool hasErrors() const { return !m_errors.empty(); }
 
+    // Pre-register top-level declarations from included .ks files
+    // Call this for each included file BEFORE calling check()
+    void addInclude(const Program& inc) {
+        collectDeclarations(inc);
+    }
+
     void check(const Program& prog) {
         // First pass: collect all top-level declarations
         collectDeclarations(prog);
@@ -216,17 +222,24 @@ public:
         for (auto& [name, sym] : m_globalSymbols)
             global.define(sym);
 
+        // Check all top-level function and node bodies
         for (auto& stmt : prog.stmts) {
-            // Skip func/node decls -- bodies are checked in checkFuncDecl
-            // called from collectDeclarations context. Re-checking here
-            // causes infinite recursion via mutual calls.
-            if (stmt->kind == Stmt::Kind::FuncDecl ||
-                stmt->kind == Stmt::Kind::NodeDecl  ||
-                stmt->kind == Stmt::Kind::ClassDecl ||
-                stmt->kind == Stmt::Kind::Include)
-                continue;
-            m_checking.clear();
-            checkStmt(stmt.get(), &global, Type::void_());
+            if (stmt->kind == Stmt::Kind::FuncDecl) {
+                auto* f = static_cast<FuncDecl*>(stmt.get());
+                m_checking.clear();
+                checkFuncDecl(f, &global);
+            } else if (stmt->kind == Stmt::Kind::NodeDecl) {
+                auto* n = static_cast<NodeDecl*>(stmt.get());
+                m_checking.clear();
+                checkNodeDecl(n, &global);
+            } else if (stmt->kind == Stmt::Kind::ClassDecl) {
+                continue; // ClassDecl bodies not checked yet
+            } else if (stmt->kind == Stmt::Kind::Include) {
+                continue; // includes are resolved at codegen time
+            } else {
+                m_checking.clear();
+                checkStmt(stmt.get(), &global, Type::void_());
+            }
         }
     }
 
@@ -335,7 +348,16 @@ private:
                 auto* n = static_cast<NodeDecl*>(stmt.get());
                 // Register as a node type
                 m_nodeTypes.insert(n->name);
-                // Register methods as symbols scoped to node (simplified)
+                // Register as a constructor function so "let p = Player(...)" works
+                {
+                    Symbol ctor;
+                    ctor.name       = n->name;
+                    ctor.isFunc     = true;
+                    ctor.returnType = Type::make(Type::Kind::Node, n->name);
+                    ctor.type       = ctor.returnType;
+                    m_globalSymbols[n->name] = ctor;
+                }
+                // Register methods
                 for (auto& m : n->methods) {
                     Symbol sym;
                     sym.name = n->name + "::" + m->name;
@@ -463,6 +485,23 @@ private:
         reg("PauseMusic",    {}, Void);
         reg("ResumeMusic",   {}, Void);
         reg("SetMusicVolume",{}, Void);
+
+        // Engine namespace objects — registered as opaque struct instances
+        // so member calls like AssetManager.init() type-check without errors
+        auto regObj = [&](const std::string& name) {
+            Symbol s;
+            s.name = name;
+            s.type = Type::make(Type::Kind::Struct, name);
+            s.mut  = false;
+            s.isFunc = false;
+            m_globalSymbols[name] = s;
+        };
+        regObj("AssetManager");
+        regObj("SceneManager");
+        regObj("PhysicsWorld");
+        regObj("InputManager");
+        regObj("AudioManager");
+        regObj("Renderer");
     }
 
     // -----------------------------------------------------------------------
@@ -854,9 +893,13 @@ private:
                     if (it != m_structs.end()) {
                         for (auto& [fname, ftype] : it->second.fields)
                             if (fname == m->member) return ftype;
-                        error("struct '" + obj.name + "' has no field '" +
-                              m->member + "'", e->line, e->col);
+                        // Only error if it has known fields — opaque engine
+                        // objects (AssetManager etc.) have no field list
+                        if (!it->second.fields.empty())
+                            error("struct '" + obj.name + "' has no field '" +
+                                  m->member + "'", e->line, e->col);
                     }
+                    // Unknown struct (opaque engine object) — let it through
                 }
                 // For node/class members we return unknown (no full class model yet)
                 return Type::unknown();
