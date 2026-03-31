@@ -33,6 +33,10 @@ public:
     void setTarget(Target t) { m_target = t; }
     Target target() const    { return m_target; }
 
+    // When true: rewrite #include "foo.ks" → #include "foo.ks.cpp" (cmake --cpp mode)
+    // When false: skip .ks includes entirely (konscript unity build handles them)
+    void setRewriteKsIncludes(bool v) { m_rewriteKsIncludes = v; }
+
     std::string generate(const Program& prog) {
         m_out.str("");
         m_indent = 0;
@@ -101,6 +105,7 @@ private:
     std::ostringstream m_out;
     int                m_indent = 0;
     Target             m_target = Target::Standalone;
+    bool               m_rewriteKsIncludes = false;
     std::vector<Error> m_errors;
     std::unordered_set<std::string> m_enumNames;
 
@@ -250,9 +255,14 @@ private:
 
     void genInclude(const Stmt* s) {
         auto* i = static_cast<const IncludeStmt*>(s);
-        // .ks files are compiled separately by the konscript pipeline
-        if (!i->isSystem && i->path.size() > 3 && i->path.substr(i->path.size()-3) == ".ks") return;
         if (i->path == "engine") return; // already included at top
+        if (!i->isSystem && i->path.size() > 3 && i->path.substr(i->path.size()-3) == ".ks") {
+            if (m_rewriteKsIncludes)
+                // cmake --cpp mode: rewrite player.ks → player.ks.cpp
+                line("#include \"" + i->path + ".cpp\"");
+            // else: unity build — skip, pipeline handles it
+            return;
+        }
         if (i->isSystem) {
             line("#include <" + i->path + ">");
         } else {

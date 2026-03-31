@@ -405,6 +405,7 @@ int main(int argc, char** argv) {
         cg.setTarget(engineTarget
             ? KonScript::Codegen::Target::Engine
             : KonScript::Codegen::Target::Standalone);
+        cg.setRewriteKsIncludes(true); // cmake/--cpp mode: rewrite .ks → .ks.cpp
         std::string cpp = cg.generate(prog);
         if (cg.hasErrors()) {
             for (auto& e : cg.errors()) std::cerr << "codegen: " << e.message << "\n";
