@@ -9,10 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # -------------------------------------------------------------------------
-  # Linux — build konscript + engine libs + toolchain, package release
-  # -------------------------------------------------------------------------
-  konscript-release-linux:
+  konscript-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,93 +24,52 @@ jobs:
             libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
             libxinerama-dev libxcursor-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
-            mingw-w64 \
-            xz-utils wget
+            mingw-w64 xz-utils wget
 
-      - name: Build konscript (Linux binary)
+      - name: Build konscript
         working-directory: tools/KonScript
         run: ./build.sh
 
-      - name: Download llvm-mingw (Windows cross-compile toolchain)
+      - name: Download llvm-mingw
         working-directory: tools/KonScript
         run: |
-          LLVM_MINGW_VER="20240929"
-          FILE="llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-20.04-x86_64.tar.xz"
-          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/${FILE}"
+          VER="20240929"
+          FILE="llvm-mingw-${VER}-ucrt-ubuntu-20.04-x86_64.tar.xz"
+          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${VER}/${FILE}"
           mkdir -p toolchain/llvm-mingw
           wget -q "$URL" -O /tmp/llvm-mingw.tar.xz
           tar -xf /tmp/llvm-mingw.tar.xz -C toolchain/llvm-mingw --strip-components=1
 
-      - name: Build engine libs (linux64 + windows64)
+      - name: Build engine libs
         working-directory: tools/KonScript
         run: |
           chmod +x build-engine-lib.sh
           ./build-engine-lib.sh --windows
 
-      - name: Package Linux release
+      - name: Package
         working-directory: tools/KonScript
         run: |
-          STAGING="staging-linux"
-          mkdir -p "$STAGING"
-
-          # konscript binary
-          cp konscript "$STAGING/"
-
-          # ksc frontend runner
-          cp install.sh "$STAGING/"
-
-          # toolchain — engine libs + headers for both platforms
-          mkdir -p "$STAGING/toolchain/engine/linux64"
-          mkdir -p "$STAGING/toolchain/engine/windows64"
-          cp -r toolchain/engine/linux64/  "$STAGING/toolchain/engine/linux64/"
-          cp -r toolchain/engine/windows64/ "$STAGING/toolchain/engine/windows64/"
-
-          # llvm-mingw (for Windows cross-compile from Linux)
-          cp -r toolchain/llvm-mingw/ "$STAGING/toolchain/llvm-mingw/"
-
-          # bundled llvm tools (llc, ld.lld, clang++ etc.)
-          mkdir -p "$STAGING/toolchain/llvm/bin"
-          for tool in llc ld.lld lld-link clang++ llvm-ar; do
-            BIN=$(command -v $tool 2>/dev/null || true)
-            [ -n "$BIN" ] && cp "$BIN" "$STAGING/toolchain/llvm/bin/" || true
+          TAG="${{ github.ref_name }}"
+          mkdir -p staging
+          cp konscript staging/
+          cp build-engine-lib.sh bundle-toolchain.sh staging/
+          cp -r toolchain/engine staging/
+          cp -r toolchain/llvm-mingw staging/
+          mkdir -p staging/toolchain/llvm/bin
+          for t in llc ld.lld lld-link clang++ llvm-ar; do
+            BIN=$(command -v $t 2>/dev/null || true)
+            [ -n "$BIN" ] && cp "$BIN" staging/toolchain/llvm/bin/ || true
           done
+          tar -czf "KonScript-${TAG}-linux-x86_64.tar.gz" -C staging .
 
-          # docs + scripts
-          cp build-engine-lib.sh bundle-toolchain.sh "$STAGING/"
-          [ -f DOCS.md ] && cp DOCS.md "$STAGING/" || true
-
-          # README
-          cat > "$STAGING/README.md" << 'EOREADME'
-          # KonScript ${{ github.ref_name }} — Linux
-
-          ## Usage
-            konscript game.ks                    # build Linux binary
-            konscript --target windows64 game.ks  # cross-compile for Windows
-            konscript --cpp game.ks               # transpile to C++
-            konscript --llvm game.ks              # emit LLVM IR
-
-          ## Setup (first time)
-            chmod +x konscript
-            sudo cp konscript /usr/local/bin/
-
-          ## Rebuild engine libs
-            ./build-engine-lib.sh           # linux64
-            ./build-engine-lib.sh --windows # + windows64
-          EOREADME
-
-          tar -czf "KonScript-${{ github.ref_name }}-linux-x86_64.tar.gz" -C "$STAGING" .
-
-      - name: Upload Linux release
+      - name: Upload
         uses: softprops/action-gh-release@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: tools/KonScript/KonScript-${{ github.ref_name }}-linux-x86_64.tar.gz
           generate_release_notes: true
+          files: tools/KonScript/KonScript-${{ github.ref_name }}-linux-x86_64.tar.gz
 
-  # -------------------------------------------------------------------------
-  # Windows — build konscript.exe + engine libs, package release
-  # -------------------------------------------------------------------------
-  konscript-release-windows:
+  konscript-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,101 +77,75 @@ jobs:
           submodules: recursive
 
       - name: Install LLVM
-        run: choco install llvm -y
+        run: choco install llvm --yes
 
       - name: Build konscript.exe
         working-directory: tools/KonScript
-        shell: cmd
         run: |
-          mkdir build-win
-          cd build-win
-          cmake .. -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --config Release
-          copy Release\konscript.exe ..\konscript.exe
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+          copy build\Release\konscript.exe konscript.exe
 
-      - name: Download llvm-mingw for Windows
+      - name: Download llvm-mingw
         shell: pwsh
         working-directory: tools/KonScript
         run: |
-          $ver = "20240929"
+          $ver  = "20240929"
           $file = "llvm-mingw-$ver-ucrt-x86_64.zip"
-          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/$file"
+          $url  = "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/$file"
           New-Item -ItemType Directory -Force -Path toolchain/llvm-mingw | Out-Null
           Invoke-WebRequest $url -OutFile "$env:TEMP\llvm-mingw.zip"
-          Expand-Archive "$env:TEMP\llvm-mingw.zip" -DestinationPath "$env:TEMP\llvm-mingw-extract"
-          $inner = Get-ChildItem "$env:TEMP\llvm-mingw-extract" | Select-Object -First 1
+          Expand-Archive "$env:TEMP\llvm-mingw.zip" -DestinationPath "$env:TEMP\llvm-mingw-src"
+          $inner = Get-ChildItem "$env:TEMP\llvm-mingw-src" | Select-Object -First 1
           Copy-Item "$($inner.FullName)\*" "toolchain/llvm-mingw/" -Recurse
 
-      - name: Build engine libs (windows64)
+      - name: Build engine lib (windows64)
         shell: pwsh
         working-directory: tools/KonScript
         run: |
-          $mingwBin = "toolchain/llvm-mingw/bin"
-          $cc  = "$mingwBin/x86_64-w64-mingw32-clang++"
-          $ar  = "$mingwBin/llvm-ar"
-          $engineRoot = "../../"
-          $outDir = "toolchain/engine/windows64"
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          New-Item -ItemType Directory -Force -Path "toolchain/_build/engine_win" | Out-Null
-
-          # Collect sources
-          $srcs = Get-ChildItem -Recurse -Filter "*.cpp" ../../src |
-            Where-Object { $_.Name -notmatch "anim_compiler" }
-          $gladC = "../../src/glad/src/glad.c"
-
+          $cc  = "toolchain/llvm-mingw/bin/x86_64-w64-mingw32-clang++"
+          $ar  = "toolchain/llvm-mingw/bin/llvm-ar"
+          $out = "toolchain/engine/windows64"
+          $bld = "toolchain/_build/engine_win"
+          New-Item -ItemType Directory -Force -Path $out, $bld | Out-Null
+          $srcs = Get-ChildItem -Recurse ../../src -Filter "*.cpp" |
+                  Where-Object { $_.Name -notmatch "anim_compiler" }
           $objs = @()
-          foreach ($src in $srcs) {
-            $obj = "toolchain/_build/engine_win/$($src.BaseName).o"
-            & $cc -std=c++17 -O2 -DNDEBUG `
-              -I"../../src" -I"../../src/glad/include" -I"../../src/stb" `
-              -I"../../libs/glfw/include" -I"../../libs/glm" `
-              -c $src.FullName -o $obj 2>$null
-            if (Test-Path $obj) { $objs += $obj }
+          foreach ($s in $srcs) {
+            $o = "$bld/$($s.BaseName).o"
+            & $cc -std=c++17 -O2 -DNDEBUG -I../../src -I../../src/glad/include `
+              -I../../src/stb -I../../libs/glfw/include -I../../libs/glm `
+              -c $s.FullName -o $o 2>$null
+            if (Test-Path $o) { $objs += $o }
           }
-          # glad
-          $gladObj = "toolchain/_build/engine_win/glad.o"
-          & $cc -O2 -DNDEBUG -I"../../src/glad/include" -x c -c $gladC -o $gladObj 2>$null
-          if (Test-Path $gladObj) { $objs += $gladObj }
+          $go = "$bld/glad.o"
+          & $cc -O2 -DNDEBUG -I../../src/glad/include -x c -c ../../src/glad/src/glad.c -o $go 2>$null
+          if (Test-Path $go) { $objs += $go }
+          & $ar rcs "$out/libKonEngine.a" $objs
+          New-Item -ItemType Directory -Force -Path "$out/include" | Out-Null
+          Copy-Item ../../src/KonEngine.hpp "$out/include/"
+          Get-ChildItem -Recurse ../../src -Filter "*.hpp" | ForEach-Object {
+            $rel = $_.FullName.Substring((Resolve-Path ../../src).Path.Length + 1)
+            $dst = "$out/include/$rel"
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+            Copy-Item $_.FullName $dst
+          }
+          Copy-Item -Recurse ../../libs/glm/glm "$out/include/glm"
+          New-Item -ItemType Directory -Force -Path "$out/include/GLFW" | Out-Null
+          Copy-Item ../../libs/glfw/include/GLFW/* "$out/include/GLFW/"
 
-          & $ar rcs "$outDir/libKonEngine.a" $objs
-
-          # Copy headers
-          New-Item -ItemType Directory -Force -Path "$outDir/include" | Out-Null
-          Copy-Item "../../src/KonEngine.hpp" "$outDir/include/"
-          Copy-Item -Recurse "../../src/*" "$outDir/include/" -Filter "*.hpp"
-          Copy-Item -Recurse "../../libs/glm/glm" "$outDir/include/glm"
-          New-Item -ItemType Directory -Force -Path "$outDir/include/GLFW" | Out-Null
-          Copy-Item "../../libs/glfw/include/GLFW/*" "$outDir/include/GLFW/"
-
-      - name: Package Windows release
+      - name: Package
         shell: pwsh
         working-directory: tools/KonScript
         run: |
-          $staging = "staging-windows"
-          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          $tag = "${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item konscript.exe staging/
+          Copy-Item -Recurse toolchain/engine/windows64 staging/engine-windows64
+          Copy-Item -Recurse toolchain/llvm-mingw staging/llvm-mingw
+          Compress-Archive -Path staging/* -DestinationPath "KonScript-${tag}-windows-x86_64.zip"
 
-          Copy-Item konscript.exe $staging/
-          Copy-Item build-engine-lib.sh $staging/ -ErrorAction SilentlyContinue
-
-          New-Item -ItemType Directory -Force -Path "$staging/toolchain/engine/windows64" | Out-Null
-          Copy-Item -Recurse "toolchain/engine/windows64/*" "$staging/toolchain/engine/windows64/"
-          Copy-Item -Recurse "toolchain/llvm-mingw" "$staging/toolchain/llvm-mingw"
-
-          @"
-# KonScript ${{ github.ref_name }} — Windows
-
-## Usage (PowerShell / cmd)
-  konscript.exe game.ks                    # build Windows binary
-  konscript.exe --cpp game.ks              # transpile to C++
-
-## Setup
-  Copy konscript.exe somewhere on your PATH, or use it from this folder.
-"@ | Out-File "$staging/README.md" -Encoding utf8
-
-          Compress-Archive -Path "$staging/*" `
-            -DestinationPath "KonScript-${{ github.ref_name }}-windows-x86_64.zip"
-
-      - name: Upload Windows release
+      - name: Upload
         uses: softprops/action-gh-release@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
