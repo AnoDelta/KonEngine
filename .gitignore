@@ -145,3 +145,21 @@ $RECYCLE.BIN/
 /tools/KonPaktor/build/konpak
 /tools/KonPaktor/build/KonPaktor
 *.konpak
+
+# -----------------------------------------------------------------------
+# KonScript bundled toolchain (built by bundle-toolchain.sh, not committed)
+# Rebuild with: cd tools/KonScript && ./bundle-toolchain.sh
+# -----------------------------------------------------------------------
+tools/KonScript/toolchain/
+
+# KonScript compiler binary (built by build.sh)
+tools/KonScript/konscript
+tools/KonScript/ksc
+
+# KonScript generated intermediate files
+tools/KonScript/*.ll
+tools/KonScript/*.o
+tools/KonScript/hello
+
+# KonScript test/temp files
+tools/KonScript/hello.ks
