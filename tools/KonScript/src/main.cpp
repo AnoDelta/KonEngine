@@ -10,6 +10,8 @@
 #include <vector>
 #include <algorithm>
 #include <filesystem>
+#include <functional>
+#include <unordered_set>
 #include <climits>
 #include <cstdlib>
 #include <ctime>
@@ -357,22 +359,29 @@ int main(int argc, char** argv) {
     // Pre-register symbols from included .ks files
     KonScript::TypeChecker checker;
     {
-        std::string srcDir2 = fs::path(path).parent_path().string();
-        for (auto& s : prog.stmts) {
-            if (s->kind != KonScript::Stmt::Kind::Include) continue;
-            auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
-            if (inc->isSystem || inc->path == "engine") continue;
-            std::string incPath = inc->path;
-            if (incPath.find('/') == std::string::npos)
-                incPath = srcDir2 + "/" + incPath;
-            if (!fs::exists(incPath)) continue;
-            std::string incSrc = readFile(incPath);
-            KonScript::Lexer lx(incSrc, incPath);
-            auto toks = lx.tokenize();
-            KonScript::Parser px(std::move(toks), incPath);
-            auto incProg = px.parse();
-            checker.addInclude(incProg);
-        }
+        std::unordered_set<std::string> tcVisited;
+        std::function<void(const KonScript::Program&, const std::string&)> prepass;
+        prepass = [&](const KonScript::Program& p, const std::string& base) {
+            for (auto& s : p.stmts) {
+                if (s->kind != KonScript::Stmt::Kind::Include) continue;
+                auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+                if (inc->isSystem || inc->path == "engine") continue;
+                std::string incPath = inc->path;
+                if (!fs::path(incPath).is_absolute())
+                    incPath = fs::path(base).parent_path().string() + "/" + incPath;
+                incPath = fs::weakly_canonical(incPath).string();
+                if (!fs::exists(incPath) || tcVisited.count(incPath)) continue;
+                tcVisited.insert(incPath);
+                std::string incSrc = readFile(incPath);
+                KonScript::Lexer lx(incSrc, incPath);
+                auto toks = lx.tokenize();
+                KonScript::Parser px(std::move(toks), incPath);
+                auto incProg = px.parse();
+                prepass(incProg, incPath);
+                checker.addInclude(incProg);
+            }
+        };
+        prepass(prog, path);
     }
     checker.check(prog);
     std::cout << "[3/4] Type checking... OK\n" << std::flush;
@@ -452,7 +461,7 @@ int main(int argc, char** argv) {
             auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
             if (inc->isSystem || inc->path == "engine") continue;
             std::string incPath = inc->path;
-            if (incPath.find('/') == std::string::npos)
+            if (!fs::path(incPath).is_absolute())
                 incPath = fs::path(path).parent_path().string() + "/" + incPath;
             if (!fs::exists(incPath)) continue;
             std::string incSrc = readFile(incPath);
@@ -501,23 +510,38 @@ int main(int argc, char** argv) {
         std::vector<std::pair<std::string, std::string>> toCompile; // {ks path, cpp path}
         std::vector<std::string> allCppFiles;
 
-        // Walk the AST to find .ks includes
+        // Walk includes recursively, collecting all .ks files in order
         std::vector<std::string> ksIncludes;
-        for (auto& s : prog.stmts) {
-            if (s->kind == KonScript::Stmt::Kind::Include) {
-                auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
-                if (!inc->isSystem && inc->path != "engine") {
-                    // Resolve relative to source file
-                    std::string incPath = inc->path;
-                    if (incPath.find('/') == std::string::npos)
-                        incPath = srcDir + "/" + incPath;
-                    if (fs::exists(incPath))
-                        ksIncludes.push_back(incPath);
-                }
-            }
-        }
+        std::unordered_set<std::string> visited;
 
-        // Transpile each included .ks file first
+        std::function<void(const KonScript::Program&, const std::string&)> collectIncludes;
+        collectIncludes = [&](const KonScript::Program& p, const std::string& base) {
+            for (auto& s : p.stmts) {
+                if (s->kind != KonScript::Stmt::Kind::Include) continue;
+                auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+                if (inc->isSystem || inc->path == "engine") continue;
+                std::string incPath = inc->path;
+                // Always resolve relative to the including file's directory
+                if (!fs::path(incPath).is_absolute())
+                    incPath = fs::path(base).parent_path().string() + "/" + incPath;
+                incPath = fs::weakly_canonical(incPath).string();
+                if (!fs::exists(incPath) || visited.count(incPath)) continue;
+                visited.insert(incPath);
+                // Parse this file and recurse into its includes first
+                std::string incSrc = readFile(incPath);
+                KonScript::Lexer lx(incSrc, incPath);
+                auto toks = lx.tokenize();
+                KonScript::Parser px(std::move(toks), incPath);
+                auto incProg = px.parse();
+                collectIncludes(incProg, incPath); // depth-first
+                ksIncludes.push_back(incPath);
+                // Also register with typechecker
+                checker.addInclude(incProg);
+            }
+        };
+        collectIncludes(prog, path);
+
+        // Transpile each included .ks file in order (dependencies first)
         for (auto& incPath : ksIncludes) {
             std::string incStem = fs::path(incPath).stem().string();
             std::string incCpp  = tmpDir + "/" + incStem + ".cpp";

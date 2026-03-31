@@ -937,17 +937,6 @@ private:
             {"Min",                "std::min"},
             {"Max",                "std::max"},
         };
-        // Zero-arg builtins that look like identifiers but must have ()
-        static const std::unordered_set<std::string> zeroArgBuiltins = {
-            "WindowShouldClose","GetDeltaTime","GetFPS","GetTime",
-            "GetMouseX","GetMouseY","GetMouseScroll",
-            "GetWindowWidth","GetWindowHeight",
-            "IsDebugMode","EndCamera2D","Present","PollEvents",
-        };
-        if (zeroArgBuiltins.count(e->name) && e->args.empty()) {
-            write(e->name + "()");
-            return;
-        }
         auto it = builtins.find(e->name);
         write(it != builtins.end() ? it->second : e->name);
     }

@@ -308,6 +308,7 @@ private:
 		if (name == "AnimationPlayer") return Type::make(Type::Kind::Struct, "AnimationPlayer");
 		if (name == "Collider2D")    return Type::make(Type::Kind::Struct, "Collider2D");
 		if (name == "Camera2D")      return Type::make(Type::Kind::Struct, "Camera2D"); // opaque engine struct
+		if (name == "CameraNode2D")  return Type::make(Type::Kind::Node,   "CameraNode2D");
 		if (name == "TileMap")       return Type::make(Type::Kind::Struct, "TileMap");
 		// Input types
 		if (name == "Key")           return Type::make(Type::Kind::Struct, "Key");
@@ -564,6 +565,16 @@ private:
         reg("GetParent",     {}, Type::make(Type::Kind::Node, "Node"));
         reg("Destroy",       {}, Void);
 
+        // CameraNode2D — a node that acts as the scene camera
+        {
+            Symbol ctor;
+            ctor.name       = "CameraNode2D";
+            ctor.isFunc     = true;
+            ctor.returnType = Type::make(Type::Kind::Struct, "CameraNode2D");
+            ctor.type       = ctor.returnType;
+            m_globalSymbols["CameraNode2D"] = ctor;
+        }
+
         // Camera2D is a plain struct (x, y, zoom, rotation)
         {
             Symbol ctor;
@@ -774,6 +785,12 @@ private:
     }
 
     void checkNodeDecl(const NodeDecl* n, Scope* scope) {
+        // Extra fields for CameraNode2D base
+        if (n->base == "CameraNode2D") {
+            Symbol zoomSym; zoomSym.name = "zoom";     zoomSym.type = Type::make(Type::Kind::F64);  zoomSym.mut = true; scope->define(zoomSym);
+            Symbol rotSym;  rotSym.name  = "rotation"; rotSym.type  = Type::make(Type::Kind::F64);  rotSym.mut = true; scope->define(rotSym);
+            Symbol curSym;  curSym.name  = "current";  curSym.type  = Type::make(Type::Kind::Bool); curSym.mut = true; scope->define(curSym);
+        }
         // Catch: node Camera2D : Camera2D — name same as base type
         if (n->name == n->base)
             error("node '" + n->name + "' cannot have the same name as its base type '" +

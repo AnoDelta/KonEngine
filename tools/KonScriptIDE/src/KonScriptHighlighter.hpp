@@ -62,9 +62,46 @@ public:
         // Built-in functions
         QTextCharFormat builtinFmt = fmt(clrBuiltin);
         for (auto& b : {
+            // Core
             "Print","Printf","ToString","Len","Push","Pop","Assert",
-            "DrawText","DrawRect","DrawCircle","DrawLine",
-            "LoadTexture","PlaySound","PlayMusic"
+            // Window
+            "InitWindow","WindowShouldClose","SetTargetFPS","SetVsync",
+            "GetWindowWidth","GetWindowHeight","GetScreenWidth","GetScreenHeight",
+            "Present","PollEvents","CloseWindow",
+            "BeginCamera2D","EndCamera2D","GetWorldMouseX","GetWorldMouseY",
+            "DebugMode","IsDebugMode","SetVsync",
+            "GetTime","GetDeltaTime","GetFPS",
+            // Draw
+            "ClearBackground","DrawText","DrawRect","DrawRectangle",
+            "DrawCircle","DrawLine","DrawTexture","DrawSprite",
+            "DrawTextureEx","DrawRectLines","DrawCircleLines",
+            "SetDrawColor","BeginCamera","EndCamera",
+            // Textures
+            "LoadTexture","UnloadTexture",
+            // Input - Keyboard
+            "KeyDown","KeyPressed","KeyReleased","IsKeyDown","IsKeyPressed","IsKeyReleased",
+            "GetKeyPressed","GetCharPressed",
+            // Input - Mouse
+            "IsMouseButtonDown","IsMouseButtonPressed","IsMouseButtonReleased",
+            "GetMouseX","GetMouseY","GetMousePosition",
+            "GetMouseDeltaX","GetMouseDeltaY","GetMouseWheelMove",
+            "SetMousePosition","ShowCursor","HideCursor",
+            // Input - Gamepad
+            "IsGamepadAvailable","IsGamepadButtonDown","IsGamepadButtonPressed",
+            "GetGamepadAxisValue",
+            // Audio
+            "LoadSound","UnloadSound","PlaySound","StopSound","PauseSound",
+            "SetSoundVolume","SetSoundPitch",
+            "LoadMusic","UnloadMusic","PlayMusic","StopMusic","PauseMusic",
+            "ResumeMusic","UpdateMusic","SetMusicVolume","IsMusicPlaying",
+            // Camera
+            "SetCameraTarget","SetCameraZoom","SetCameraRotation",
+            "GetCameraTarget","GetCameraZoom","ScreenToWorld","WorldToScreen",
+            // Math
+            "Abs","Min","Max","Clamp","Lerp","Floor","Ceil","Round",
+            "Sqrt","Sin","Cos","Tan","Atan2","Pow","Rand","RandF",
+            // Collision
+            "CheckCollisionRecs","CheckCollisionCircles","CheckCollisionPointRec"
         }) {
             addRule("\\b" + QString(b) + "\\b", builtinFmt);
         }

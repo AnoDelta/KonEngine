@@ -35,7 +35,7 @@ public:
     // Children
     template<typename T, typename... Args>
     T* AddChild(const std::string& childName, Args&&... args) {
-        auto node = std::make_unique<T>(std::forward<Args>(args)...);
+        auto node = std::make_unique<T>(childName, std::forward<Args>(args)...);
         node->name   = childName;
         node->parent = this;
         // Propagate the scene registration callback down

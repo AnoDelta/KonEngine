@@ -26,6 +26,8 @@ public:
     void selectNode(const QString& name);
     void clearNodes();
     QList<ViewportNode> nodes() const { return m_nodes; }
+    float nodeX(const QString& name) const { for (auto& n : m_nodes) if (n.name==name) return n.x; return 0; }
+    float nodeY(const QString& name) const { for (auto& n : m_nodes) if (n.name==name) return n.y; return 0; }
 
 signals:
     void nodeSelected(const QString& name);

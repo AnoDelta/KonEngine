@@ -3,6 +3,8 @@
 #include "collider2d.hpp"
 #include "../collision/collision_world.hpp"
 #include <cmath>
+#include <functional>
+#include "camera_node2d.hpp"
 
 bool IsDebugMode();
 
@@ -69,25 +71,32 @@ public:
     }
 
     void Draw() {
+        // Find active CameraNode2D — search recursively
+        CameraNode2D* activeCam = nullptr;
+        std::function<CameraNode2D*(Node*)> findCam = [&](Node* n) -> CameraNode2D* {
+            if (!n->active) return nullptr;
+            if (auto* cam = dynamic_cast<CameraNode2D*>(n))
+                if (cam->current) return cam;
+            for (auto& child : n->getChildren())
+                if (auto* found = findCam(child.get())) return found;
+            return nullptr;
+        };
+        for (auto& node : nodes) {
+            if (!activeCam) activeCam = findCam(node.get());
+        }
+
+        if (activeCam) BeginCamera2D(activeCam->toCamera2D());
+
         for (auto& node : nodes)
             if (node->active) {
                 node->Draw();
                 node->DrawChildren();
             }
 
+        if (activeCam) EndCamera2D();
+
         if (IsDebugMode()) {
-            // World-space grid — scales with camera when called inside BeginCamera2D
-            const float CELL = 64.f;
-            const int RANGE = 40;
-            float ext = RANGE * CELL;
-            Color minor{0.15f, 0.15f, 0.25f, 1.f};
-            Color axis {0.30f, 0.30f, 0.50f, 1.f};
-            for (int i = -RANGE; i <= RANGE; i++) {
-                float v = i * CELL;
-                DrawLine(v, -ext, v,  ext, (i == 0) ? axis : minor);
-                DrawLine(-ext, v, ext, v,  (i == 0) ? axis : minor);
-            }
-            // Auto-draw all collider outlines — Draw() handles world transform internally
+            // Auto-draw all collider outlines
             for (auto& node : nodes)
                 if (node->active)
                     drawDebug(node.get());

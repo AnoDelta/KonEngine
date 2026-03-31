@@ -3,6 +3,12 @@
 #include <QWidget>
 #include <QCompleter>
 #include <QStringListModel>
+#include <QTimer>
+#include <QProcess>
+#include <QDir>
+#include <QFile>
+#include <QTextStream>
+#include <QCoreApplication>
 #include "KonScriptHighlighter.hpp"
 
 // Forward declaration — LineNumberArea is defined in KonScriptEditor.cpp
@@ -16,6 +22,7 @@ class KonScriptEditor : public QPlainTextEdit {
     Q_OBJECT
 public:
     explicit KonScriptEditor(QWidget* parent = nullptr);
+    ~KonScriptEditor();
 
     void lineNumberAreaPaintEvent(QPaintEvent* event);
     int  lineNumberAreaWidth() const;
@@ -34,6 +41,9 @@ public:
     }
 
     void updateCompleterWords();
+    void runSyntaxCheck();
+    void setFilePath(const QString& path);
+    void onCheckFinished(int exitCode, QProcess::ExitStatus status);
 
 signals:
     void fileModified(bool modified);
@@ -42,6 +52,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
 
 private slots:
@@ -52,6 +63,7 @@ private slots:
 
 private:
     void    setupAppearance();
+    void    zoomEditor(int delta);
     void    setupCompleter();
     QString wordUnderCursor() const;
 
@@ -60,4 +72,8 @@ private:
     QCompleter*           m_completer       = nullptr;
     QStringListModel*     m_completerModel  = nullptr;
     QSet<int>             m_errorLines;
+    QTimer*               m_checkTimer      = nullptr;
+    QProcess*             m_checkProcess    = nullptr;
+    QString               m_checkTmpPath;
+    QString               m_filePath;
 };

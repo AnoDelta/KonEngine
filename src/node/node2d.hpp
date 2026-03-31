@@ -67,8 +67,11 @@ private:
                 // Recurse
                 if (doUpdate) { c->Update(dt); c->UpdateChildren(dt); }
                 else          { c->Draw();     c->DrawChildren();     }
-                // Restore
-                c->x = lx; c->y = ly; c->scaleX = lsx; c->scaleY = lsy;
+                // Restore — but keep any movement applied during Update
+                float dx = c->x - (x + lx * scaleX);
+                float dy = c->y - (y + ly * scaleY);
+                c->x = lx + dx; c->y = ly + dy;
+                c->scaleX = lsx; c->scaleY = lsy;
             } else {
                 if (doUpdate) { child->Update(dt); child->UpdateChildren(dt); }
                 else          { child->Draw();     child->DrawChildren();     }

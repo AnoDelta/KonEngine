@@ -241,6 +241,21 @@ void KonEditor::setupLayout() {
                     m_centerTabs->setCurrentWidget(m_scriptEditor);
                 } else if (prop == "__attachScript__") {
                     m_sceneTree->attachScriptToSelected();
+                } else if (prop == "x" || prop == "y") {
+                    // Update viewport immediately when x/y changes in inspector
+                    bool ok;
+                    float v = val.toFloat(&ok);
+                    auto nodes = m_viewport->nodes();
+                    for (auto& vn : nodes) {
+                        if (vn.name == node) {
+                            if (prop == "x") vn.x = v;
+                            else              vn.y = v;
+                        }
+                    }
+                    m_viewport->setNodes(nodes);
+                    m_sceneTree->updateNodePosition(node,
+                        prop == "x" ? v : m_viewport->nodeX(node),
+                        prop == "y" ? v : m_viewport->nodeY(node));
                 }
             });
 
@@ -267,6 +282,9 @@ void KonEditor::setupLayout() {
     // Rebuild viewport when scene changes
     connect(m_sceneTree, &SceneTree::sceneChanged, [this]{
         rebuildViewport();
+        // Mark title as dirty
+        QString title = windowTitle();
+            setWindowTitle("* " + title);
     });
 
     connect(m_sceneTree, &SceneTree::nodeAdded,
@@ -297,8 +315,11 @@ void KonEditor::setupLayout() {
     // Write to script only when drag ends (not every frame)
     connect(m_viewport, &Viewport::nodeMovedFinal,
             this, [this](const QString& name, float x, float y) {
-                m_inspector->writePropertyToFile("x", QString::number(x, 'f', 1));
-                m_inspector->writePropertyToFile("y", QString::number(y, 'f', 1));
+                // Write position to SCENE file with instance variable name
+                // e.g. spri.x = 100.0; in Main.ks Ready() block
+                QString scenePath = m_sceneTree->scenePath();
+                if (scenePath.isEmpty()) return;
+                writeInstancePosition(scenePath, name.toLower(), x, y);
             });
 
     connect(m_viewport, &Viewport::nodeSelected,
@@ -437,6 +458,10 @@ void KonEditor::onSaveProject() {
     if (!m_project->isOpen()) return;
     m_scriptEditor->saveAll();
     m_project->save();
+    // Also save scene
+    m_sceneTree->saveCurrentScene();
+    m_statusLabel->setText("  Saved  |  " + m_project->name());
+    updateTitle();  // clear dirty marker
 }
 
 void KonEditor::onProjectSettings() {
@@ -549,6 +574,7 @@ void KonEditor::onProjectSettings() {
 }
 
 void KonEditor::onBuild() {
+    if (m_project->isOpen()) { m_scriptEditor->saveAll(); m_sceneTree->saveCurrentScene(); }
     if (!m_project->isOpen()) {
         m_buildPanel->appendLog("No project open.");
         m_bottomTabs->setCurrentWidget(m_buildPanel);
@@ -560,6 +586,8 @@ void KonEditor::onBuild() {
 
 void KonEditor::onRun() {
     if (!m_project->isOpen()) return;
+    m_scriptEditor->saveAll();
+    m_sceneTree->saveCurrentScene();  // save scene before run
     m_bottomTabs->setCurrentWidget(m_buildPanel);
     m_buildPanel->build(m_project->entryFile(), m_buildTarget,
                         m_project->outDir(), true);
@@ -647,6 +675,39 @@ void KonEditor::rebuildViewport() {
     m_viewport->setGameResolution(
         m_project->isOpen() ? m_project->json().value("width").toInt(800) : 800,
         m_project->isOpen() ? m_project->json().value("height").toInt(600) : 600);
+}
+
+void KonEditor::writeInstancePosition(const QString& scenePath, const QString& varName, float x, float y) {
+    QFile f(scenePath);
+    QString src = QTextStream(&f).readAll();
+    f.close();
+
+    // Find Ready() block
+    QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
+    auto rm = reReady.match(src);
+
+    int start = rm.capturedEnd();
+    int depth = 1, pos = start;
+    while (pos < src.size() && depth > 0) {
+        if (src[pos] == QLatin1Char('{')) depth++;
+        else if (src[pos] == QLatin1Char('}')) depth--;
+        if (depth > 0) pos++;
+    }
+    QString body = src.mid(start, pos - start);
+
+    // Remove old assignments for this instance
+    QRegularExpression rxX(QString(R"(\n?[ \t]*%1\.x\s*=[^;]+;)").arg(varName));
+    QRegularExpression rxY(QString(R"(\n?[ \t]*%1\.y\s*=[^;]+;)").arg(varName));
+    body.remove(rxX);
+    body.remove(rxY);
+
+    // Prepend new positions
+    body.prepend(QString("\n        %1.y = %2;").arg(varName).arg(y, 0, 'f', 1));
+    body.prepend(QString("\n        %1.x = %2;").arg(varName).arg(x, 0, 'f', 1));
+
+    src.replace(start, pos - start, body);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        QTextStream(&f) << src;
 }
 
 void KonEditor::onGameProcessFinished(int code) {

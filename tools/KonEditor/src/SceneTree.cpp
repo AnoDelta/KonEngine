@@ -235,14 +235,15 @@ SceneTree::SceneTree(QWidget* parent) : QWidget(parent) {
 void SceneTree::setProjectRoot(const QString& root) { m_projectRoot = root; }
 
 void SceneTree::newScene() {
+    m_loading = true;  // prevent autoSave during init
     m_tree->clear();
-    // Single root Scene node
     auto* root = new QTreeWidgetItem(m_tree, {"🎬  Main"});
     root->setData(0, Qt::UserRole, "Scene");
     root->setData(0, Qt::UserRole + 1, "Main");
     root->setExpanded(true);
     m_sceneLoaded = true;
-    emit sceneChanged();
+    m_loading = false;
+    // Don't emit sceneChanged here — no need to save a blank scene
 }
 
 QTreeWidgetItem* SceneTree::addNode(QTreeWidgetItem* parent,
@@ -299,6 +300,14 @@ void SceneTree::onAddNode() {
         // Auto-save scene
         autoSaveScene();
     }
+
+    // Auto-select the new node so inspector shows it immediately
+    m_tree->setCurrentItem(newNode);
+    onItemClicked(newNode);
+
+    // Auto-select the new node so inspector shows it immediately
+    m_tree->setCurrentItem(newNode);
+    onItemClicked(newNode);
 
     emit nodeAdded(name, type);
     emit sceneChanged();
@@ -454,13 +463,14 @@ void SceneTree::updateNodePosition(const QString& name, float x, float y) {
 }
 
 void SceneTree::autoSaveScene() {
-    if (m_scenePath.isEmpty() && !m_projectRoot.isEmpty()) {
-        // First save — create scenes/ dir and default scene file
-        QDir().mkpath(m_projectRoot + "/scenes");
-        m_scenePath = m_projectRoot + "/scenes/Main.ks";
-    }
-    if (!m_scenePath.isEmpty())
-        saveScene(m_scenePath);
+    // Disabled — save only on explicit Ctrl+S
+}
+
+void SceneTree::saveCurrentScene() {
+    if (m_scenePath.isEmpty()) return;
+    auto* root = m_tree->topLevelItem(0);
+    if (!root || root->childCount() == 0) return;
+    saveScene(m_scenePath);
 }
 
 void SceneTree::onAttachScript() {
@@ -503,6 +513,7 @@ void SceneTree::loadScene(const QString& path) {
     QByteArray data = f.readAll();
     f.close();
 
+    m_loading = true;
     m_tree->clear();
     m_scenePath = path;
 
@@ -564,6 +575,7 @@ void SceneTree::loadScene(const QString& path) {
 
     rootItem->setExpanded(true);
     m_sceneLoaded = true;
+    m_loading = false;
     emit sceneLoaded(path);
 }
 
@@ -594,8 +606,14 @@ void SceneTree::saveScene(const QString& path) {
     };
     for (int i = 0; i < root->childCount(); i++)
         collectIncludes(root->child(i));
-    for (auto& inc : includes)
-        ks += "#include \"" + inc + "\"\n";
+    // Make includes relative to the scene file location, not project root
+    QString sceneDir = QFileInfo(path).absolutePath();
+    for (auto& inc : includes) {
+        // inc is already relative to project root — make it relative to scene dir
+        QString absInc = QDir(m_projectRoot).absoluteFilePath(inc);
+        QString relToScene = QDir(sceneDir).relativeFilePath(absInc);
+        ks += "#include \"" + relToScene + "\"\n";
+    }
     ks += "\n";
 
     // Write node class
@@ -629,8 +647,19 @@ void SceneTree::saveScene(const QString& path) {
             if (!includes.contains(rel)) includes.append(rel);
         }
         QString indent(depth * 4, ' ');
-        ks += indent + "let mut " + name.toLower() + ": " + type +
-              " = this.add(" + type + ", \"" + name + "\");\n";
+        // If node has a script, use the script's node name as type
+        QString useType = type;
+        if (!script.isEmpty()) {
+            QFile sf(script);
+            if (sf.open(QIODevice::ReadOnly)) {
+                QString src = QTextStream(&sf).readAll();
+                QRegularExpression re(R"(node\s+(\w+)\s*:)");
+                auto m = re.match(src);
+                if (m.hasMatch()) useType = m.captured(1);
+            }
+        }
+        ks += indent + "let mut " + name.toLower() + ": " + useType +
+              " = this.add(" + useType + ", \"" + name + "\");\n";
         for (int i = 0; i < item->childCount(); i++)
             writeNode(item->child(i), depth);
     };
@@ -666,8 +695,11 @@ void SceneTree::saveScene(const QString& path) {
 
     QFile f(path);
     QDir().mkpath(QFileInfo(path).absolutePath());
-    if (f.open(QIODevice::WriteOnly | QIODevice::Text))
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QTextStream(&f) << ks;
+        f.flush();
+        f.close();
+    }
     m_scenePath = path;
 }
 

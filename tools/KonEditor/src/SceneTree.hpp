@@ -15,8 +15,10 @@ public:
     void newScene();
     void setProjectRoot(const QString& root);
     void loadScene(const QString& path);
+    void saveCurrentScene();
     void saveScene(const QString& path);
     bool hasScene() const { return m_sceneLoaded; }
+    QString scenePath() const { return m_scenePath; }
     QTreeWidget* treeWidget() const { return m_tree; }
 
 signals:
@@ -43,6 +45,7 @@ public slots:
 private:
     QTreeWidget* m_tree        = nullptr;
     bool         m_sceneLoaded = false;
+    bool         m_loading     = false;
     QString      m_scenePath;
     QString      m_projectRoot;
     SceneFile    m_scene;

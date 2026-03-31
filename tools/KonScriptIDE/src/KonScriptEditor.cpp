@@ -1,4 +1,5 @@
 #include "KonScriptEditor.hpp"
+#include <QSettings>
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QKeyEvent>
@@ -59,10 +60,46 @@ static QStringList builtinWords() {
         "I8","I16","I32","I64","U8","U16","U32","U64",
         "F32","F64","Bool","Str","String","Char","Void","Int","Float",
         "Node","Node2D","Sprite2D","Collider2D","AnimationPlayer","Camera2D",
-        // Builtins
+        // Core builtins
         "Print","Printf","ToString","Len","Push","Pop","Assert",
-        "DrawText","DrawRect","DrawCircle","DrawLine",
-        "LoadTexture","PlaySound","PlayMusic",
+        // Window
+        "InitWindow","WindowShouldClose","SetTargetFPS","SetVSync",
+        "GetScreenWidth","GetScreenHeight","SetWindowTitle","SetWindowSize",
+        "Present","PollEvents","CloseWindow","GetTime","GetDeltaTime","GetFPS",
+        // Renderer / Draw
+        "ClearBackground","DrawText","DrawRect","DrawRectangle",
+        "DrawCircle","DrawLine","DrawTexture","DrawSprite",
+        "DrawTextureEx","DrawRectLines","DrawCircleLines",
+        "SetDrawColor","BeginCamera","EndCamera",
+        // Textures
+        "LoadTexture","UnloadTexture","GetTextureWidth","GetTextureHeight",
+        // Input — Keyboard
+        "IsKeyDown","IsKeyPressed","IsKeyReleased","IsKeyUp",
+        "GetKeyPressed","GetCharPressed",
+        // Input — Mouse
+        "IsMouseButtonDown","IsMouseButtonPressed","IsMouseButtonReleased",
+        "GetMouseX","GetMouseY","GetMousePosition",
+        "GetMouseDeltaX","GetMouseDeltaY","GetMouseWheelMove",
+        "SetMousePosition","ShowCursor","HideCursor",
+        // Input — Gamepad
+        "IsGamepadAvailable","IsGamepadButtonDown","IsGamepadButtonPressed",
+        "GetGamepadAxisValue",
+        // Audio
+        "LoadSound","UnloadSound","PlaySound","StopSound","PauseSound",
+        "SetSoundVolume","SetSoundPitch",
+        "LoadMusic","UnloadMusic","PlayMusic","StopMusic","PauseMusic",
+        "ResumeMusic","UpdateMusic","SetMusicVolume","IsMusicPlaying",
+        // Camera
+        "SetCameraTarget","SetCameraZoom","SetCameraRotation",
+        "GetCameraTarget","GetCameraZoom","ScreenToWorld","WorldToScreen",
+        // Math
+        "Abs","Min","Max","Clamp","Lerp","Floor","Ceil","Round",
+        "Sqrt","Sin","Cos","Tan","Atan2","Pow","Rand","RandF",
+        // Collision
+        "CheckCollisionRecs","CheckCollisionCircles","CheckCollisionPointRec",
+        // Nodes / Scene
+        "AddNode","RemoveNode","GetNode","SetNodePosition","GetNodePosition",
+        "SetNodeRotation","GetNodeRotation","SetNodeScale","GetNodeScale",
     };
 }
 
@@ -86,6 +123,15 @@ KonScriptEditor::KonScriptEditor(QWidget* parent)
             this, &KonScriptEditor::highlightCurrentLine);
     connect(this, &QPlainTextEdit::textChanged,
             this, &KonScriptEditor::updateCompleterWords);
+
+    // Real-time syntax check — debounced 800ms after typing stops
+    m_checkTimer = new QTimer(this);
+    m_checkTimer->setSingleShot(true);
+    m_checkTimer->setInterval(800);
+    connect(this, &QPlainTextEdit::textChanged, [this]{
+        m_checkTimer->start();
+    });
+    connect(m_checkTimer, &QTimer::timeout, this, &KonScriptEditor::runSyntaxCheck);
 
     updateLineNumberAreaWidth(0);
     highlightCurrentLine();
@@ -243,8 +289,17 @@ void KonScriptEditor::lineNumberAreaPaintEvent(QPaintEvent* event) {
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             bool isCur = (blockNum == curLine);
-            painter.setPen(isCur ? FG_LINE_CUR : FG_LINE_NUM);
-            QFont f = painter.font(); f.setBold(isCur); painter.setFont(f);
+            bool isErr = m_errorLines.contains(blockNum);
+            // Error lines: red background in gutter
+            if (isErr) {
+                painter.fillRect(0, top, m_lineNumberArea->width(), fontMetrics().height(),
+                                 QColor(0x6B, 0x00, 0x00));
+            }
+            painter.setPen(isErr ? QColor(0xFF, 0x55, 0x55)
+                         : isCur ? FG_LINE_CUR : FG_LINE_NUM);
+            QFont f = painter.font();
+            f.setBold(isCur || isErr);
+            painter.setFont(f);
             painter.drawText(0, top, m_lineNumberArea->width() - 8,
                              fontMetrics().height(), Qt::AlignRight,
                              QString::number(blockNum + 1));
@@ -275,7 +330,43 @@ void KonScriptEditor::highlightCurrentLine() {
 // -----------------------------------------------------------------------
 // Key press — autocomplete, auto-indent, tab expansion
 // -----------------------------------------------------------------------
+void KonScriptEditor::zoomEditor(int delta) {
+    QFont f = font();
+    int size = f.pointSize() + delta;
+    if (size < 6)  size = 6;
+    if (size > 72) size = 72;
+    f.setPointSize(size);
+    setFont(f);
+    setTabStopDistance(QFontMetrics(f).horizontalAdvance(' ') * 4);
+    QSettings("AnoDelta", "KonEditor").setValue("editorFontSize", size);
+}
+
+void KonScriptEditor::wheelEvent(QWheelEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier) {
+        int delta = event->angleDelta().y() > 0 ? 1 : -1;
+        zoomEditor(delta);
+        event->accept();
+        return;
+    }
+    QPlainTextEdit::wheelEvent(event);
+}
+
 void KonScriptEditor::keyPressEvent(QKeyEvent* event) {
+    // Ctrl+= or Ctrl++ to zoom in, Ctrl+- to zoom out
+    if (event->modifiers() & Qt::ControlModifier) {
+        if (event->key() == Qt::Key_Equal || event->key() == Qt::Key_Plus) {
+            zoomEditor(1); event->accept(); return;
+        }
+        if (event->key() == Qt::Key_Minus) {
+            zoomEditor(-1); event->accept(); return;
+        }
+        if (event->key() == Qt::Key_0) {
+            // Reset to default size
+            QFont f = font(); f.setPointSize(11); setFont(f);
+            setTabStopDistance(QFontMetrics(f).horizontalAdvance(' ') * 4);
+            event->accept(); return;
+        }
+    }
     // Let completer handle its navigation keys
     if (m_completer && m_completer->popup()->isVisible()) {
         switch (event->key()) {
@@ -374,6 +465,79 @@ void KonScriptEditor::keyPressEvent(QKeyEvent* event) {
         + m_completer->popup()->verticalScrollBar()->sizeHint().width() + 20);
     cr.setWidth(popupWidth);
     m_completer->complete(cr);
+}
+
+void KonScriptEditor::setFilePath(const QString& path) { m_filePath = path; }
+
+void KonScriptEditor::runSyntaxCheck() {
+    QString text = toPlainText().trimmed();
+    // Skip JSON
+    if (text.startsWith("{") || text.startsWith("[")) {
+        clearErrors();
+        return;
+    }
+
+    // Kill any running check
+    if (m_checkProcess) {
+        m_checkProcess->disconnect();
+        m_checkProcess->kill();
+        m_checkProcess->waitForFinished(500);
+        delete m_checkProcess;
+        m_checkProcess = nullptr;
+    }
+
+    // Write current content to a temp file
+    m_checkTmpPath = QDir::temp().filePath(
+        QString("_koncheck_%1.ks").arg(quintptr(this)));
+    QFile tmp(m_checkTmpPath);
+    if (!tmp.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    QTextStream(&tmp) << toPlainText();
+    tmp.close();
+
+    m_checkProcess = new QProcess(this);
+    m_checkProcess->setProcessChannelMode(QProcess::MergedChannels);
+
+    // Use finished signal with context = this to auto-disconnect if editor dies
+    connect(m_checkProcess,
+            static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+            this, &KonScriptEditor::onCheckFinished);
+
+    // Check the real file if available (so includes resolve)
+    // Fall back to temp file for unsaved content
+    QString checkTarget = m_filePath.isEmpty() ? m_checkTmpPath : m_filePath;
+    m_checkProcess->start("konscript", {"--check", checkTarget});
+    if (!m_checkProcess->waitForStarted(1000)) {
+        delete m_checkProcess;
+        m_checkProcess = nullptr;
+        QFile::remove(m_checkTmpPath);
+    }
+}
+
+void KonScriptEditor::onCheckFinished(int, QProcess::ExitStatus) {
+    if (!m_checkProcess) return;
+    QString out = m_checkProcess->readAllStandardOutput();
+    QSet<int> errLines;
+    QRegularExpression re(R"([^:
+]+:(\d+):\d+: error:)");
+    auto it = re.globalMatch(out);
+    while (it.hasNext())
+        errLines.insert(it.next().captured(1).toInt() - 1); // 0-based
+    setErrorLines(errLines);
+    QFile::remove(m_checkTmpPath);
+    m_checkProcess->deleteLater();
+    m_checkProcess = nullptr;
+}
+
+KonScriptEditor::~KonScriptEditor() {
+    if (m_checkTimer) m_checkTimer->stop();
+    if (m_checkProcess) {
+        m_checkProcess->disconnect();
+        m_checkProcess->kill();
+        m_checkProcess->waitForFinished(500);
+        delete m_checkProcess;
+        m_checkProcess = nullptr;
+    }
+    QFile::remove(m_checkTmpPath);
 }
 
 void KonScriptEditor::focusOutEvent(QFocusEvent* event) {

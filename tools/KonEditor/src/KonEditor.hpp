@@ -36,6 +36,7 @@ private slots:
     void onGameProcessFinished(int exitCode);
     void rebuildViewport();
     void syncInspectorPosition(const QString& name);
+    void writeInstancePosition(const QString& scenePath, const QString& varName, float x, float y);
 
 private:
     void setupMenuBar();
