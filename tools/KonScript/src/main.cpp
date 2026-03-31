@@ -8,31 +8,103 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <climits>
+#include <cstdlib>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
+namespace fs = std::filesystem;
+
+// -----------------------------------------------------------------------
+// Find the directory containing the konscript binary itself.
+// Used to locate the bundled toolchain from any working directory.
+// -----------------------------------------------------------------------
+static std::string selfDir() {
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    return fs::path(buf).parent_path().string();
+#else
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        return fs::path(buf).parent_path().string();
+    }
+    return ".";
+#endif
+}
+
+// -----------------------------------------------------------------------
+// Find the toolchain directory.
+// Search order:
+//   0. Path baked in at compile time by build.sh  (no env var needed)
+//   1. KONSCRIPT_TOOLCHAIN env var
+//   2. <binary_dir>/toolchain/               (installed layout)
+//   3. <binary_dir>/../tools/KonScript/toolchain/  (repo dev layout)
+//   4. ./toolchain/                          (CWD fallback)
+// -----------------------------------------------------------------------
+static std::string findToolchainDir() {
+    // 0. Baked in at compile time — works from any directory, no env var needed
+#ifdef KONSCRIPT_TOOLCHAIN_BUILTIN
+    {
+        std::string builtin = KONSCRIPT_TOOLCHAIN_BUILTIN;
+        if (fs::exists(builtin + "/llvm/bin/llc"))
+            return builtin;
+    }
+#endif
+
+    // 1. Env var override (useful for CI or switching toolchains)
+    const char* env = std::getenv("KONSCRIPT_TOOLCHAIN");
+    if (env && fs::exists(std::string(env) + "/llvm/bin/llc"))
+        return env;
+
+    std::string self = selfDir();
+
+    std::string next = self + "/toolchain";
+    if (fs::exists(next + "/llvm/bin/llc")) return next;
+
+    std::string repo = self + "/../tools/KonScript/toolchain";
+    if (fs::exists(repo + "/llvm/bin/llc"))
+        return fs::canonical(repo).string();
+
+    if (fs::exists("toolchain/llvm/bin/llc"))
+        return fs::canonical("toolchain").string();
+
+    return "";
+}
 
 // -----------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------
 static void usage() {
     std::cout <<
-        "KonScript v0.2.0\n\n"
+        "KonScript v0.3.0\n\n"
         "USAGE\n"
-        "  konscript <file.ks>                    compile → .cpp  (auto-detects engine/standalone)\n"
-        "  konscript <file.ks> -o out.cpp         compile → custom path\n"
-        "  konscript --llvm  <file.ks>            compile → .ll   (LLVM IR)\n"
-        "  konscript --llvm  <file.ks> -o out.ll  compile → custom .ll path\n"
-        "  konscript --target <triple> <file.ks>  set target triple for --llvm\n"
-        "                                          built-ins: linux64, windows64, wasm32\n"
-        "                                          or any LLVM triple e.g. aarch64-linux-gnu\n\n"
+        "  konscript <file.ks>                    build native binary  (default)\n"
+        "  konscript <file.ks> -o <name>          build with custom output name\n"
+        "  konscript --target <platform> <file.ks> cross-compile\n"
+        "      platforms: linux64  windows64  wasm32\n"
+        "                 or any LLVM triple e.g. aarch64-linux-gnu\n\n"
+        "OTHER MODES\n"
+        "  konscript --cpp  <file.ks>             transpile → .cpp\n"
+        "  konscript --llvm <file.ks>             emit → .ll (LLVM IR only)\n"
+        "  konscript --ir   <file.ks>             print IR to stdout\n\n"
         "DEBUG\n"
         "  konscript --lex   <file.ks>            dump tokens\n"
         "  konscript --parse <file.ks>            dump AST\n"
-        "  konscript --check <file.ks>            typecheck only\n"
-        "  konscript --ir    <file.ks>            emit IR and print to stdout (no file)\n\n"
+        "  konscript --check <file.ks>            typecheck only\n\n"
+        "ENVIRONMENT\n"
+        "  KONSCRIPT_TOOLCHAIN=<dir>              override toolchain directory\n\n"
         "EXAMPLES\n"
-        "  konscript game.ks                      → game.cpp\n"
-        "  konscript --llvm game.ks               → game.ll  (linux64 target)\n"
-        "  konscript --llvm --target windows64 game.ks  → game.ll for Windows\n"
-        "  konscript --target aarch64-linux-gnu --llvm game.ks\n";
+        "  konscript hello.ks                     → ./hello\n"
+        "  konscript game.ks -o mygame            → ./mygame\n"
+        "  konscript --target windows64 game.ks   → ./game.exe\n"
+        "  konscript --cpp game.ks                → game.cpp\n"
+        "  konscript --llvm game.ks               → game.ll\n";
 }
 
 static std::string readFile(const std::string& path) {
@@ -54,19 +126,17 @@ static bool hasEngineInclude(const std::vector<KonScript::Token>& tokens) {
     return false;
 }
 
-// Resolve a user-supplied target name to an IRGen::Target
 static KonScript::IRGen::Target resolveTarget(const std::string& name) {
     if (name == "linux64"   || name == "linux")   return KonScript::IRGen::Target::linux64();
     if (name == "windows64" || name == "windows") return KonScript::IRGen::Target::windows64();
     if (name == "wasm32"    || name == "wasm")    return KonScript::IRGen::Target::wasm32();
-    // Treat as a raw LLVM triple — use linux64 datalayout as a reasonable default
     KonScript::IRGen::Target t = KonScript::IRGen::Target::linux64();
     t.triple = name;
     return t;
 }
 
 // -----------------------------------------------------------------------
-// AST printer (unchanged from v0.1.0)
+// AST printer
 // -----------------------------------------------------------------------
 static void printStmt(const KonScript::Stmt* s, int indent = 0) {
     std::string pad(indent * 2, ' ');
@@ -103,8 +173,7 @@ static void printStmt(const KonScript::Stmt* s, int indent = 0) {
     }
     case KonScript::Stmt::Kind::StructDecl: {
         auto* st = static_cast<const KonScript::StructDecl*>(s);
-        std::cout << pad << "struct " << st->name
-                  << " (" << st->fields.size() << " fields)\n";
+        std::cout << pad << "struct " << st->name << " (" << st->fields.size() << " fields)\n";
         break;
     }
     case KonScript::Stmt::Kind::Include: {
@@ -120,44 +189,27 @@ static void printStmt(const KonScript::Stmt* s, int indent = 0) {
 }
 
 // -----------------------------------------------------------------------
-// Shared pipeline: lex → parse → typecheck
-// Returns false and prints errors if any stage fails.
+// Shared: run IRGen and write .ll, return path or ""
 // -----------------------------------------------------------------------
-static bool runPipeline(
-    const std::string& src,
-    const std::string& path,
-    bool engineTarget,
-    KonScript::Program& progOut)
+static std::string runIRGen(
+    const KonScript::Program& prog,
+    const std::string& targetName,
+    const std::string& outDir,
+    const std::string& stem)
 {
-    // Lex
-    KonScript::Lexer lexer(src, path);
-    auto tokens = lexer.tokenize();
-    if (lexer.hasErrors()) {
-        for (auto& e : lexer.errors())
-            std::cerr << e.message << "\n";
-        return false;
+    KonScript::IRGen irgen;
+    irgen.setTarget(resolveTarget(targetName));
+    std::string ir = irgen.generate(prog);
+    if (irgen.hasErrors()) {
+        for (auto& e : irgen.errors())
+            std::cerr << prog.filename << ":" << e.line << ": irgen: " << e.message << "\n";
+        return "";
     }
-
-    // Parse
-    KonScript::Parser parser(std::move(tokens), path);
-    progOut = parser.parse();
-    if (parser.hasErrors()) {
-        for (auto& e : parser.errors())
-            std::cerr << e << "\n";
-        return false;
-    }
-
-    // Typecheck
-    KonScript::TypeChecker checker;
-    checker.check(progOut);
-    if (checker.hasErrors()) {
-        for (auto& e : checker.errors())
-            std::cerr << path << ":" << e.line << ":" << e.col
-                      << ": error: " << e.message << "\n";
-        return false;
-    }
-
-    return true;
+    std::string llFile = outDir + "/" + stem + ".ll";
+    std::ofstream f(llFile);
+    if (!f.is_open()) { std::cerr << "konscript: cannot write " << llFile << "\n"; return ""; }
+    f << ir;
+    return llFile;
 }
 
 // -----------------------------------------------------------------------
@@ -169,49 +221,40 @@ int main(int argc, char** argv) {
     std::string first = argv[1];
     if (first == "--help" || first == "-h") { usage(); return 0; }
 
-    // ── Parse flags ──────────────────────────────────────────────────────
+    // ── Parse flags ───────────────────────────────────────────────────────
     bool lexOnly   = false;
     bool parseOnly = false;
     bool checkOnly = false;
+    bool cppMode   = false;
     bool llvmMode  = false;
-    bool irDump    = false;  // --ir: print IR to stdout, don't write file
+    bool irDump    = false;
 
     std::string path;
     std::string outPath;
-    std::string targetName = "linux64";  // default LLVM target
+    std::string targetName = "linux64";
 
-    // Walk all args
     std::vector<std::string> args(argv + 1, argv + argc);
     for (size_t i = 0; i < args.size(); i++) {
         if      (args[i] == "--lex")   { lexOnly   = true; }
         else if (args[i] == "--parse") { parseOnly = true; }
         else if (args[i] == "--check") { checkOnly = true; }
+        else if (args[i] == "--cpp")   { cppMode   = true; }
         else if (args[i] == "--llvm")  { llvmMode  = true; }
-        else if (args[i] == "--ir")    { irDump    = true; llvmMode = true; }
-        else if (args[i] == "--target" && i + 1 < args.size()) {
-            targetName = args[++i];
-        }
-        else if (args[i] == "-o" && i + 1 < args.size()) {
-            outPath = args[++i];
-        }
-        else if (args[i][0] != '-') {
-            if (path.empty()) path = args[i];
-        }
+        else if (args[i] == "--ir")    { irDump = true; llvmMode = true; }
+        else if (args[i] == "--target" && i + 1 < args.size()) { targetName = args[++i]; }
+        else if (args[i] == "-o"       && i + 1 < args.size()) { outPath    = args[++i]; }
+        else if (args[i][0] != '-') { if (path.empty()) path = args[i]; }
     }
 
-    if (path.empty()) {
-        std::cerr << "konscript: no input file\n";
-        usage();
-        return 1;
-    }
+    if (path.empty()) { std::cerr << "konscript: no input file\n"; usage(); return 1; }
 
     std::string src = readFile(path);
 
-    // ── Lex-only mode ─────────────────────────────────────────────────────
-    KonScript::Lexer lexerPeek(src, path);
-    auto tokens = lexerPeek.tokenize();
-    if (lexerPeek.hasErrors()) {
-        for (auto& e : lexerPeek.errors()) std::cerr << e.message << "\n";
+    // ── Lex ───────────────────────────────────────────────────────────────
+    KonScript::Lexer lexer(src, path);
+    auto tokens = lexer.tokenize();
+    if (lexer.hasErrors()) {
+        for (auto& e : lexer.errors()) std::cerr << e.message << "\n";
         return 1;
     }
     if (lexOnly) {
@@ -224,37 +267,20 @@ int main(int argc, char** argv) {
 
     bool engineTarget = hasEngineInclude(tokens);
 
-    // ── Parse-only mode ───────────────────────────────────────────────────
-    if (parseOnly) {
-        KonScript::Parser parser(std::move(tokens), path);
-        auto prog = parser.parse();
-        if (parser.hasErrors()) {
-            for (auto& e : parser.errors()) std::cerr << e << "\n";
-            return 1;
-        }
-        std::cout << prog.stmts.size() << " top-level declarations:\n";
-        for (auto& s : prog.stmts) printStmt(s.get(), 1);
-        return 0;
-    }
-
-    // ── Full pipeline ─────────────────────────────────────────────────────
-    // Re-lex so we can move tokens into the parser
-    KonScript::Lexer lexer2(src, path);
-    auto tokens2 = lexer2.tokenize();
-
-    KonScript::Parser parser(std::move(tokens2), path);
+    // ── Parse ─────────────────────────────────────────────────────────────
+    KonScript::Parser parser(std::move(tokens), path);
     auto prog = parser.parse();
     if (parser.hasErrors()) {
         for (auto& e : parser.errors()) std::cerr << e << "\n";
         return 1;
     }
-
     if (parseOnly) {
         std::cout << prog.stmts.size() << " top-level declarations:\n";
         for (auto& s : prog.stmts) printStmt(s.get(), 1);
         return 0;
     }
 
+    // ── Typecheck ─────────────────────────────────────────────────────────
     KonScript::TypeChecker checker;
     checker.check(prog);
     if (checker.hasErrors()) {
@@ -263,77 +289,162 @@ int main(int argc, char** argv) {
                       << ": error: " << e.message << "\n";
         return 1;
     }
-    if (checkOnly) {
-        std::cout << path << ": OK\n";
+    if (checkOnly) { std::cout << path << ": OK\n"; return 0; }
+
+    // ── --ir: print IR to stdout ───────────────────────────────────────────
+    if (irDump) {
+        KonScript::IRGen irgen;
+        irgen.setTarget(resolveTarget(targetName));
+        std::string ir = irgen.generate(prog);
+        if (irgen.hasErrors()) {
+            for (auto& e : irgen.errors())
+                std::cerr << path << ":" << e.line << ": irgen: " << e.message << "\n";
+            return 1;
+        }
+        std::cout << ir;
         return 0;
     }
 
-    // ── LLVM IR mode ──────────────────────────────────────────────────────
+    // ── --llvm: emit .ll only ──────────────────────────────────────────────
     if (llvmMode) {
         KonScript::IRGen irgen;
         irgen.setTarget(resolveTarget(targetName));
         std::string ir = irgen.generate(prog);
-
         if (irgen.hasErrors()) {
             for (auto& e : irgen.errors())
-                std::cerr << path << ":" << e.line << ":" << e.col
-                          << ": irgen error: " << e.message << "\n";
+                std::cerr << path << ":" << e.line << ": irgen: " << e.message << "\n";
             return 1;
         }
-
-        // --ir: print to stdout only
-        if (irDump) {
-            std::cout << ir;
-            return 0;
-        }
-
-        // Default output: replace .ks with .ll
         if (outPath.empty()) {
             outPath = path;
             auto dot = outPath.rfind('.');
             if (dot != std::string::npos) outPath = outPath.substr(0, dot);
             outPath += ".ll";
         }
-
         std::ofstream out(outPath);
-        if (!out.is_open()) {
-            std::cerr << "konscript: cannot write '" << outPath << "'\n";
-            return 1;
-        }
+        if (!out.is_open()) { std::cerr << "konscript: cannot write '" << outPath << "'\n"; return 1; }
         out << ir;
-
-        std::cout << "[llvm/" << targetName << "] " << path << " -> " << outPath << "\n";
+        std::cout << "[ir/" << targetName << "] " << path << " -> " << outPath << "\n";
         return 0;
     }
 
-    // ── C++ transpiler mode (default) ─────────────────────────────────────
-    KonScript::Codegen cg;
-    cg.setTarget(engineTarget
-        ? KonScript::Codegen::Target::Engine
-        : KonScript::Codegen::Target::Standalone);
-
-    std::string cpp = cg.generate(prog);
-    if (cg.hasErrors()) {
-        for (auto& e : cg.errors())
-            std::cerr << "codegen: " << e.message << "\n";
-        return 1;
+    // ── --cpp: C++ transpiler ──────────────────────────────────────────────
+    if (cppMode) {
+        KonScript::Codegen cg;
+        cg.setTarget(engineTarget
+            ? KonScript::Codegen::Target::Engine
+            : KonScript::Codegen::Target::Standalone);
+        std::string cpp = cg.generate(prog);
+        if (cg.hasErrors()) {
+            for (auto& e : cg.errors()) std::cerr << "codegen: " << e.message << "\n";
+            return 1;
+        }
+        if (outPath.empty()) {
+            outPath = path;
+            auto dot = outPath.rfind('.');
+            if (dot != std::string::npos) outPath = outPath.substr(0, dot);
+            outPath += ".cpp";
+        }
+        std::ofstream out(outPath);
+        if (!out.is_open()) { std::cerr << "konscript: cannot write '" << outPath << "'\n"; return 1; }
+        out << cpp;
+        std::cout << (engineTarget ? "[engine] " : "[standalone] ")
+                  << path << " -> " << outPath << "\n";
+        return 0;
     }
 
+    // ── DEFAULT: full build → native binary ───────────────────────────────
+    //
+    //   konscript hello.ks        →  ./hello
+    //   konscript --target windows64 game.ks  →  ./game.exe
+    //
+    std::string toolchainDir = findToolchainDir();
+
+    // Output name from stem
+    std::string stem = fs::path(path).stem().string();
     if (outPath.empty()) {
-        outPath = path;
-        auto dot = outPath.rfind('.');
-        if (dot != std::string::npos) outPath = outPath.substr(0, dot);
-        outPath += ".cpp";
+        outPath = stem;
+        if (targetName == "windows64" || targetName == "windows") outPath += ".exe";
+        else if (targetName == "wasm32" || targetName == "wasm")  outPath += ".wasm";
     }
 
-    std::ofstream out(outPath);
-    if (!out.is_open()) {
-        std::cerr << "konscript: cannot write '" << outPath << "'\n";
+    // Temp dir for .ll and .o
+    std::string buildDir = (fs::temp_directory_path() / ("ks-" + stem)).string();
+    fs::create_directories(buildDir);
+
+    // IRGen → .ll
+    std::string llFile = runIRGen(prog, targetName, buildDir, stem);
+    if (llFile.empty()) return 1;
+
+    std::string objFile = buildDir + "/" + stem + ".o";
+
+    // llc → .o
+    std::string llc = toolchainDir.empty() ? "llc"
+                    : toolchainDir + "/llvm/bin/llc";
+    std::string llcCmd = "\"" + llc + "\""
+        + " -filetype=obj"
+        + " --mtriple=" + resolveTarget(targetName).triple
+        + " \"" + llFile + "\""
+        + " -o \"" + objFile + "\"";
+
+    if (std::system(llcCmd.c_str()) != 0) {
+        std::cerr << "konscript: llc failed\n"
+                  << "  Toolchain: " << (toolchainDir.empty() ? "(system PATH)" : toolchainDir) << "\n"
+                  << "  Run bundle-toolchain.sh to set up the bundled toolchain.\n";
         return 1;
     }
-    out << cpp;
 
-    std::cout << (engineTarget ? "[engine] " : "[standalone] ")
-              << path << " -> " << outPath << "\n";
+    // lld → binary
+    bool isWindows = (targetName == "windows64" || targetName == "windows");
+    bool isWasm    = (targetName == "wasm32"    || targetName == "wasm");
+
+    std::string lld;
+    if (!toolchainDir.empty()) {
+        if (isWindows)     lld = toolchainDir + "/llvm/bin/lld-link";
+        else if (isWasm)   lld = toolchainDir + "/llvm/bin/wasm-ld";
+        else               lld = toolchainDir + "/llvm/bin/ld.lld";
+    } else {
+        lld = "ld.lld";
+    }
+
+    std::string linkCmd;
+
+    if (isWindows) {
+        linkCmd = "\"" + lld + "\""
+            + " /OUT:\"" + outPath + "\""
+            + " /SUBSYSTEM:CONSOLE"
+            + " \"" + objFile + "\"";
+    } else if (isWasm) {
+        linkCmd = "\"" + lld + "\""
+            + " --export-all --no-entry"
+            + " \"" + objFile + "\""
+            + " -o \"" + outPath + "\"";
+    } else if (!toolchainDir.empty()) {
+        // Fully self-contained: bundled musl, no system libs needed
+        std::string sr = toolchainDir + "/sysroot/linux64/lib";
+        linkCmd = "\"" + lld + "\""
+            + " -static"
+            + " \"" + sr + "/crt1.o\""
+            + " \"" + sr + "/crti.o\""
+            + " \"" + objFile + "\""
+            + " \"" + sr + "/libc.a\""
+            + " \"" + sr + "/libm.a\""
+            + " \"" + sr + "/crtn.o\""
+            + " -o \"" + outPath + "\"";
+    } else {
+        // No bundled toolchain — fall back to system ld.lld
+        linkCmd = "\"" + lld + "\""
+            + " \"" + objFile + "\""
+            + " -lm -lc"
+            + " -o \"" + outPath + "\"";
+    }
+
+    if (std::system(linkCmd.c_str()) != 0) {
+        std::cerr << "konscript: link failed\n"
+                  << "  Run bundle-toolchain.sh to set up the bundled toolchain.\n";
+        return 1;
+    }
+
+    std::cout << "[build/" << targetName << "] " << path << " -> " << outPath << "\n";
     return 0;
 }

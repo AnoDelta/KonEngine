@@ -18,18 +18,23 @@ done
 
 BIN_DIR="$PREFIX/bin"
 
-# Build first if binary doesn't exist
-if [ ! -f "konscript" ]; then
-    echo "Building konscript first..."
+# Install whatever build.sh just produced ('konscript') preferentially.
+# konscript-stage0 is only a fallback if konscript doesn't exist yet.
+# Never install konscript-stage1 — it's experimental until --verify passes.
+if [ -f "konscript" ]; then
+    INSTALL_BIN="konscript"
+elif [ -f "konscript-stage0" ]; then
+    INSTALL_BIN="konscript-stage0"
+else
+    echo "konscript binary not found. Building first..."
     ./build.sh
+    INSTALL_BIN="konscript"
 fi
 
 echo "Installing to $BIN_DIR..."
+echo "  Binary: $INSTALL_BIN → konscript"
 
-# Install backend
-sudo install -m 755 konscript "$BIN_DIR/konscript"
-
-# Install frontend
+sudo install -m 755 "$INSTALL_BIN" "$BIN_DIR/konscript"
 sudo install -m 755 ksc "$BIN_DIR/ksc"
 
 echo ""
@@ -39,8 +44,8 @@ echo "   $BIN_DIR/konscript  (backend compiler)"
 echo "   $BIN_DIR/ksc        (frontend runner)"
 echo ""
 echo " Usage:"
-echo "   ksc hello.ks            -- compile and run"
-echo "   ksc hello.ks --keep     -- keep generated files"
-echo "   ksc --compile hello.ks  -- compile only"
-echo "   ksc --check hello.ks    -- typecheck only"
+echo "   konscript hello.ks          -- build native binary"
+echo "   konscript --cpp hello.ks    -- transpile to C++"
+echo "   konscript --llvm hello.ks   -- emit LLVM IR"
+echo "   ksc hello.ks                -- compile and run"
 echo "==================================================="

@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
+
 project(KonEngine VERSION 0.1.0)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Disable unnecessary GLFW targets
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/glfw)
@@ -36,6 +38,7 @@ add_library(KonEngine STATIC
     ${LIB_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/asset_manager.cpp
 )
+
 target_include_directories(KonEngine PUBLIC src src/glad/include src/stb)
 target_link_libraries(KonEngine PUBLIC glfw glm::glm)
 
@@ -57,21 +60,19 @@ endif()
 #   cmake -B build -DKON_PACK_KEY="mygamekey"
 #
 # Then in main():
-#   AssetManager::init("game.konpak");  // release
-#   AssetManager::init("assets/");     // dev
+#   AssetManager::init("game.konpak"); // release
+#   AssetManager::init("assets/");    // dev
 # -----------------------------------------------------------------------
 option(KON_PACK_SUPPORT "Build with .konpak asset encryption support" OFF)
+
 if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
     if(WIN32)
         if(CMAKE_CROSSCOMPILING)
             # Cross-compile (MXE): bcrypt is always available.
             # For zlib/compression: use bundled miniz if present, otherwise
-            # build without compression (store-only mode — packs still work,
-            # just larger). Install mingw zlib to get full compression:
-            #   sudo emerge cross-x86_64-w64-mingw32/zlib
+            # build without compression (store-only mode).
             set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/KonPaktor/third_party")
             if(EXISTS "${MINIZ_DIR}/miniz.h")
-                # Verify it's not a 404 page (real miniz.h is >10000 bytes)
                 file(SIZE "${MINIZ_DIR}/miniz.h" MINIZ_SIZE)
                 if(MINIZ_SIZE GREATER 10000)
                     target_include_directories(KonEngine PUBLIC "${MINIZ_DIR}")
@@ -83,7 +84,7 @@ if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
             else()
                 message(STATUS "KonPak: no miniz.h — store-only mode (compression disabled)")
             endif()
-            # bcrypt.h location for MXE
+
             find_path(BCRYPT_INCLUDE_DIR bcrypt.h
                 HINTS ${CMAKE_FIND_ROOT_PATH}/include
                       /usr/lib/mingw64-toolchain/x86_64-w64-mingw32/include
@@ -99,19 +100,21 @@ if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
         endif()
     else()
         find_package(OpenSSL REQUIRED)
-        find_package(ZLIB    REQUIRED)
+        find_package(ZLIB REQUIRED)
         target_link_libraries(KonEngine PUBLIC OpenSSL::Crypto ZLIB::ZLIB)
     endif()
+
     target_compile_definitions(KonEngine PUBLIC KON_USE_PACK)
     if(DEFINED KON_PACK_KEY)
         target_compile_definitions(KonEngine PUBLIC KON_PACK_KEY="${KON_PACK_KEY}")
     endif()
-    # Expose konpak.hpp to the engine (copy from KonPaktor tool)
+
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/KonPaktor/src/konpak.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/konpak.hpp"
         COPYONLY
     )
+
     message(STATUS "KonPak support: ENABLED")
     if(DEFINED KON_PACK_KEY)
         message(STATUS "KonPak key: baked at compile time")
@@ -125,8 +128,8 @@ install(TARGETS KonEngine ARCHIVE DESTINATION lib)
 install(FILES src/KonEngine.hpp DESTINATION include)
 install(DIRECTORY src/window src/renderer src/time src/camera src/collision
                   src/input src/font src/audio src/animation src/node
-        DESTINATION include/KonEngine
-        FILES_MATCHING PATTERN "*.hpp"
+    DESTINATION include/KonEngine
+    FILES_MATCHING PATTERN "*.hpp"
 )
 
 # -----------------------------------------------------------------------
@@ -145,6 +148,7 @@ if(KON_BUILD_TOOLS)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
     find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets OpenGL)
+
     if(Qt5_FOUND)
         # anim_compiler
         set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
@@ -156,6 +160,7 @@ if(KON_BUILD_TOOLS)
             ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
             ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
         )
+
         add_executable(anim_compiler
             ${CMAKE_CURRENT_SOURCE_DIR}/src/animation/anim_compiler.cpp
             ${IMGUI_SRCS}
@@ -190,20 +195,33 @@ add_subdirectory(tests)
 # KonScript integration
 # Provides konscript_sources() for game projects using KonEngine.
 #
+# TWO SEPARATE BUILD PATHS:
+#
+#   1. CMake / submodule path  (this function)
+#      Uses --cpp: transpiles .ks → .cpp, then cmake/g++ compiles normally.
+#      Works everywhere. No LLVM toolchain needed. Full cross-compile support
+#      via cmake's own toolchain mechanism (-DCMAKE_TOOLCHAIN_FILE=...).
+#
+#   2. KonEditor / native path  (KonBuild.hpp)
+#      Uses IRGen + bundled llc/lld/musl. Produces standalone native binaries.
+#      Used by the editor's Build workspace. Not involved in CMake builds.
+#
 # Usage in your game's CMakeLists.txt:
 #   add_subdirectory(KonEngine)
 #   add_executable(MyGame)
 #   target_link_libraries(MyGame PRIVATE KonEngine)
 #   konscript_sources(MyGame
-#       src/player.ks   # module file — no main(), compiled but not linked
-#       src/wall.ks     # module file — no main(), compiled but not linked
-#       src/main.ks     # entry file  — has main(), linked into the binary
+#     src/player.ks   # module — no main(), #included by entry
+#     src/wall.ks     # module — no main(), #included by entry
+#     src/main.ks     # entry  — has main(), linked into the binary
 #   )
 #
-# Module files (no main()) are compiled to .ks.cpp so #include "x.ks.cpp"
-# resolves inside the entry file, but they are NOT added as link sources.
-# Entry files (has main()) are compiled and linked as normal .cpp sources.
+# Cross-compiling (unchanged from before):
+#   cmake -B build-win -DCMAKE_TOOLCHAIN_FILE=windows-toolchain.cmake
+#   cmake --build build-win
+#   konscript_sources() still works — --cpp produces portable C++.
 # -----------------------------------------------------------------------
+
 find_program(KONSCRIPT_COMPILER konscript
     HINTS
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/KonScript
@@ -233,15 +251,21 @@ function(konscript_sources TARGET)
         if(NOT IS_ABSOLUTE "${KS_FILE}")
             set(KS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${KS_FILE}")
         endif()
+
         get_filename_component(KS_DIR  "${KS_FILE}" DIRECTORY)
         get_filename_component(KS_NAME "${KS_FILE}" NAME_WE)
         set(CPP_FILE "${KS_DIR}/${KS_NAME}.ks.cpp")
 
+        # IMPORTANT: always pass --cpp so konscript uses the C++ transpiler
+        # backend regardless of what the default mode is. This preserves
+        # backwards compatibility — submodule users get C++ output that their
+        # existing C++ toolchain can compile, with no dependency on the
+        # bundled LLVM toolchain.
         add_custom_command(
             OUTPUT  "${CPP_FILE}"
-            COMMAND "${KONSCRIPT_COMPILER}" "${KS_FILE}" -o "${CPP_FILE}"
+            COMMAND "${KONSCRIPT_COMPILER}" --cpp "${KS_FILE}" -o "${CPP_FILE}"
             DEPENDS "${KS_FILE}" "${KONSCRIPT_COMPILER}"
-            COMMENT "Compiling KonScript: ${KS_NAME}.ks"
+            COMMENT "Compiling KonScript: ${KS_NAME}.ks → ${KS_NAME}.ks.cpp"
             VERBATIM
         )
 
@@ -255,12 +279,13 @@ function(konscript_sources TARGET)
         endif()
     endforeach()
 
-    # Ensure ALL .ks.cpp files are built before compiling the target
-    # (modules must exist before the entry file #includes them)
+    # Ensure ALL .ks.cpp files are generated before the target compiles.
+    # Modules must exist on disk before the entry file can #include them.
     add_custom_target(${TARGET}_ks_modules DEPENDS ${ALL_CPP_FILES})
     add_dependencies(${TARGET} ${TARGET}_ks_modules)
 
-    # Only add entry files as compiled sources — modules are header-included
+    # Only add entry files as compiled sources — modules are #included inside
+    # the entry file's generated .cpp, not compiled as separate translation units.
     foreach(CPP_FILE ${ENTRY_CPP_FILES})
         target_sources(${TARGET} PRIVATE "${CPP_FILE}")
     endforeach()
