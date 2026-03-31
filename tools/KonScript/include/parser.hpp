@@ -27,7 +27,8 @@ public:
             }
             prevPos = m_pos;
             try {
-                prog.stmts.push_back(parseTopLevel());
+                auto stmt = parseTopLevel();
+                if (stmt) prog.stmts.push_back(std::move(stmt));
             } catch (std::exception& e) {
                 m_errors.push_back(e.what());
                 synchronize();
@@ -449,7 +450,8 @@ private:
         std::vector<StmtPtr> stmts;
         while (!check(TokenType::RBrace) && !atEnd()) {
             try {
-                stmts.push_back(parseStmt());
+                auto stmt = parseStmt();
+                if (stmt) stmts.push_back(std::move(stmt));
             } catch (std::exception& e) {
                 m_errors.push_back(e.what());
                 synchronize();

@@ -295,6 +295,23 @@ private:
         if (name == "String") return Type::make(Type::Kind::String);
         if (name == "Vec2")   return Type::make(Type::Kind::Vec2);
 		if (name == "Color")  return Type::make(Type::Kind::Struct, "Color");
+		if (name == "Scene")         return Type::make(Type::Kind::Struct, "Scene");
+		// Engine resource types
+		if (name == "Sound")         return Type::make(Type::Kind::Struct, "Sound");
+		if (name == "Music")         return Type::make(Type::Kind::Struct, "Music");
+		// Texture aliased to Texture2D above
+		if (name == "Texture2D" || name == "Texture") return Type::make(Type::Kind::Struct, "Texture2D");
+		if (name == "Font")          return Type::make(Type::Kind::Struct, "Font");
+		if (name == "Shader")        return Type::make(Type::Kind::Struct, "Shader");
+		if (name == "RenderTexture") return Type::make(Type::Kind::Struct, "RenderTexture");
+		// Engine node component types
+		if (name == "AnimationPlayer") return Type::make(Type::Kind::Struct, "AnimationPlayer");
+		if (name == "Collider2D")    return Type::make(Type::Kind::Struct, "Collider2D");
+		if (name == "Camera2D")      return Type::make(Type::Kind::Struct, "Camera2D"); // opaque engine struct
+		if (name == "TileMap")       return Type::make(Type::Kind::Struct, "TileMap");
+		// Input types
+		if (name == "Key")           return Type::make(Type::Kind::Struct, "Key");
+		if (name == "Mouse")         return Type::make(Type::Kind::Struct, "Mouse");
         if (m_nodeTypes.count(name))
             return Type::make(Type::Kind::Node, name);
         if (m_structs.count(name))
@@ -459,7 +476,7 @@ private:
         // Node
         reg("GetNode",       {Str}, Type::makeNullable(Node));
         reg("GetChild",      {Str}, Type::makeNullable(Node));
-        reg("GetScene",      {}, Type::make(Type::Kind::Node, "Scene"));
+        reg("GetScene",      {}, Type::make(Type::Kind::Struct, "Scene"));
         reg("Emit",          {Str}, Void);
         reg("Connect",       {Str, Str}, Void);
 
@@ -479,7 +496,29 @@ private:
         reg("EndCamera2D",   {}, Void);
 
         // Audio
-        reg("PlaySound",     {}, Void);
+        auto Sound  = Type::make(Type::Kind::Struct, "Sound");
+        auto Music  = Type::make(Type::Kind::Struct, "Music");
+        auto Tex    = Type::make(Type::Kind::Struct, "Texture2D");
+        auto Font_t = Type::make(Type::Kind::Struct, "Font");
+        reg("LoadSound",        {Str},       Sound);
+        reg("PlaySound",        {Sound},     Void);
+        reg("StopSound",        {Sound},     Void);
+        reg("UnloadSound",      {Sound},     Void);
+        reg("IsSoundPlaying",   {Sound},     Bool);
+        reg("SetSoundVolume",   {Sound,F64}, Void);
+        reg("LoadMusicStream",  {Str},       Music);
+        reg("PlayMusicStream",  {Music},     Void);
+        reg("StopMusicStream",  {Music},     Void);
+        reg("UpdateMusicStream",{Music},     Void);
+        // Textures
+        reg("LoadTexture",      {Str},       Tex);
+        reg("UnloadTexture",    {Tex},       Void);
+        reg("DrawTexture",      {Tex,F64,F64}, Void);
+        // Text
+        reg("LoadFont",         {Str},       Font_t);
+        reg("MeasureText",      {Str,I32},   I32);
+        // Audio (old names kept for compat)
+        reg("PlaySound",        {}, Void);
         reg("PlayMusic",     {}, Void);
         reg("StopMusic",     {}, Void);
         reg("PauseMusic",    {}, Void);
@@ -502,6 +541,39 @@ private:
         regObj("InputManager");
         regObj("AudioManager");
         regObj("Renderer");
+
+        // Scene type — let mut scene: Scene = Scene()
+        auto SceneT = Type::make(Type::Kind::Struct, "Scene");
+        {
+            Symbol s;
+            s.name       = "Scene";
+            s.isFunc     = true; // Scene() constructor
+            s.returnType = SceneT;
+            s.type       = SceneT;
+            m_globalSymbols["Scene"] = s;
+        }
+
+        // scene.update(dt), scene.draw(), scene.add()
+        // These are method calls on Scene — handled by opaque struct passthrough
+
+        // RunEngine() — replaces manual game loop
+        reg("RunEngine",     {}, Void);
+        reg("LoadScene",     {Str}, SceneT);
+
+        // Node builtins — available inside node scripts
+        reg("GetNode",       {Str}, Type::make(Type::Kind::Node, "Node"));
+        reg("GetParent",     {}, Type::make(Type::Kind::Node, "Node"));
+        reg("Destroy",       {}, Void);
+
+        // Camera2D — opaque struct, members accessed via unknown passthrough
+        {
+            Symbol ctor;
+            ctor.name       = "Camera2D";
+            ctor.isFunc     = true;
+            ctor.returnType = Type::make(Type::Kind::Struct, "Camera2D");
+            ctor.type       = ctor.returnType;
+            m_globalSymbols["Camera2D"] = ctor;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -700,20 +772,34 @@ private:
         // Build a scope with the node's fields and inherited Node2D properties
         Scope nodeScope; nodeScope.parent = scope;
 
-        // Built-in Node2D fields
         auto F64  = Type::make(Type::Kind::F64);
         auto Bool = Type::make(Type::Kind::Bool);
-        for (auto& name : {"x","y","scaleX","scaleY","rotation",
-                           "originX","originY","alpha"}) {
-            Symbol s; s.name = name; s.type = F64; s.mut = true;
+        auto NodeT = Type::make(Type::Kind::Node, n->name);
+        auto Unk   = Type::unknown();
+
+        // 'this' — refers to the node itself
+        { Symbol s; s.name = "this"; s.type = NodeT; s.mut = false;
+          nodeScope.define(s); }
+
+        // Built-in Node2D fields available directly inside node body
+        for (auto& nm : {"x","y","scaleX","scaleY","rotation",
+                         "originX","originY","alpha",
+                         "width","height","z"}) {
+            Symbol s; s.name = nm; s.type = F64; s.mut = true;
             nodeScope.define(s);
         }
-        {
-            Symbol s; s.name = "active"; s.type = Bool; s.mut = true;
+        { Symbol s; s.name = "active";  s.type = Bool; s.mut = true;  nodeScope.define(s); }
+        { Symbol s; s.name = "visible"; s.type = Bool; s.mut = true;  nodeScope.define(s); }
+        { Symbol s; s.name = "name";    s.type = Type::make(Type::Kind::Str); s.mut = false; nodeScope.define(s); }
+
+        // this.add(Type, "name") — returns unknown, skip type-check
+        // Register engine node component types as constructors in node scope
+        for (auto& nm : {"AnimationPlayer","Collider2D","Sprite2D",
+                         "Camera2D","TileMap","AudioPlayer","Timer"}) {
+            Symbol s; s.name = nm; s.isFunc = true;
+            s.returnType = Type::make(Type::Kind::Struct, nm);
+            s.type       = s.returnType;
             nodeScope.define(s);
-            Symbol s2; s2.name = "name";
-            s2.type = Type::make(Type::Kind::Str); s2.mut = false;
-            nodeScope.define(s2);
         }
 
         // Node's own fields
