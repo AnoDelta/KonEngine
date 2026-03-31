@@ -378,9 +378,17 @@ int main(int argc, char** argv) {
 
     std::string objFile = buildDir + "/" + stem + ".o";
 
+    // Detect host OS for tool extensions
+#ifdef _WIN32
+    bool onWindows = true;
+#else
+    bool onWindows = false;
+#endif
+    std::string exe = onWindows ? ".exe" : "";
+
     // llc → .o
     std::string llc = toolchainDir.empty() ? "llc"
-                    : toolchainDir + "/llvm/bin/llc";
+                    : toolchainDir + "/llvm/bin/llc" + exe;
     std::string llcCmd = "\"" + llc + "\""
         + " -filetype=obj"
         + " --mtriple=" + resolveTarget(targetName).triple
@@ -400,27 +408,35 @@ int main(int argc, char** argv) {
 
     std::string lld;
     if (!toolchainDir.empty()) {
-        if (isWindows)     lld = toolchainDir + "/llvm/bin/lld-link";
-        else if (isWasm)   lld = toolchainDir + "/llvm/bin/wasm-ld";
-        else               lld = toolchainDir + "/llvm/bin/ld.lld";
+        if (isWindows)     lld = toolchainDir + "/llvm/bin/lld-link" + exe;
+        else if (isWasm)   lld = toolchainDir + "/llvm/bin/wasm-ld"  + exe;
+        else               lld = toolchainDir + "/llvm/bin/ld.lld"   + exe;
     } else {
-        lld = "ld.lld";
+        lld = isWindows ? "lld-link" : "ld.lld";
     }
 
     std::string linkCmd;
 
     if (isWindows) {
+        // Windows target: use lld-link (COFF/PE linker)
+        // If we have a bundled sysroot use MinGW libs, otherwise bare link
+        std::string sr = toolchainDir.empty() ? "" : toolchainDir + "/sysroot/windows64/lib";
         linkCmd = "\"" + lld + "\""
             + " /OUT:\"" + outPath + "\""
             + " /SUBSYSTEM:CONSOLE"
             + " \"" + objFile + "\"";
+        if (!sr.empty() && fs::exists(sr + "/libmingwex.a")) {
+            linkCmd += " \"" + sr + "/libmingwex.a\""
+                     + " \"" + sr + "/libmsvcrt.a\""
+                     + " \"" + sr + "/libkernel32.a\"";
+        }
     } else if (isWasm) {
         linkCmd = "\"" + lld + "\""
             + " --export-all --no-entry"
             + " \"" + objFile + "\""
             + " -o \"" + outPath + "\"";
     } else if (!toolchainDir.empty()) {
-        // Fully self-contained: bundled musl, no system libs needed
+        // Linux target with bundled musl — fully self-contained
         std::string sr = toolchainDir + "/sysroot/linux64/lib";
         linkCmd = "\"" + lld + "\""
             + " -static"
@@ -432,7 +448,7 @@ int main(int argc, char** argv) {
             + " \"" + sr + "/crtn.o\""
             + " -o \"" + outPath + "\"";
     } else {
-        // No bundled toolchain — fall back to system ld.lld
+        // No bundled toolchain — fall back to system linker
         linkCmd = "\"" + lld + "\""
             + " \"" + objFile + "\""
             + " -lm -lc"
@@ -440,8 +456,12 @@ int main(int argc, char** argv) {
     }
 
     if (std::system(linkCmd.c_str()) != 0) {
-        std::cerr << "konscript: link failed\n"
-                  << "  Run bundle-toolchain.sh to set up the bundled toolchain.\n";
+        std::cerr << "konscript: link failed\n";
+#ifdef _WIN32
+        std::cerr << "  Run: powershell -ExecutionPolicy Bypass -File bundle-toolchain.ps1\n";
+#else
+        std::cerr << "  Run bundle-toolchain.sh to set up the bundled toolchain.\n";
+#endif
         return 1;
     }
 
