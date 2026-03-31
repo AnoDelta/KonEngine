@@ -12,7 +12,7 @@ jobs:
   # -------------------------------------------------------------------------
   # Linux — build konscript + engine libs + toolchain, package release
   # -------------------------------------------------------------------------
-  release-linux:
+  konscript-release-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,7 +113,7 @@ jobs:
   # -------------------------------------------------------------------------
   # Windows — build konscript.exe + engine libs, package release
   # -------------------------------------------------------------------------
-  release-windows:
+  konscript-release-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
