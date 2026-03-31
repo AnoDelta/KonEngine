@@ -58,8 +58,8 @@ MUSL_URL="https://musl.libc.org/releases/${MUSL_TARBALL}"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}[ok]${NC}  $*"; }
 info() { echo -e "${YELLOW}[..]${NC}  $*"; }
-warn() { echo -e "${RED}[warn]${NC} $*"; }
-fail() { echo -e "${RED}[!!]${NC}  $*"; exit 1; }
+warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
+fail() { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
 echo ""
 echo "======================================================"
@@ -99,9 +99,13 @@ ok "ld.lld → ${LLD}"
 
 # Optional cross-linkers
 LLD_LINK=$(find_llvm_tool "lld-link" 2>/dev/null) || LLD_LINK=""
-WASM_LD=$(find_llvm_tool "wasm-ld"   2>/dev/null) || WASM_LD=""
+WASM_LD=$(find_llvm_tool  "wasm-ld"  2>/dev/null) || WASM_LD=""
+CLANGPP=$(find_llvm_tool  "clang++"  2>/dev/null) || CLANGPP=""
+LLVM_AR=$(find_llvm_tool  "llvm-ar"  2>/dev/null) || LLVM_AR=""
 [ -n "$LLD_LINK" ] && ok "lld-link → ${LLD_LINK}" || info "lld-link not found (Windows cross-compile won't work)"
 [ -n "$WASM_LD"  ] && ok "wasm-ld  → ${WASM_LD}"  || info "wasm-ld not found  (WASM target won't work)"
+[ -n "$CLANGPP"  ] && ok "clang++  → ${CLANGPP}"  || warn "clang++ not found  (engine game build won't work)"
+[ -n "$LLVM_AR"  ] && ok "llvm-ar  → ${LLVM_AR}"  || warn "llvm-ar not found  (engine lib build won't work)"
 
 # ── Step 2: create directory layout ──────────────────────────────────────────
 info "Creating toolchain directory layout..."
@@ -114,8 +118,60 @@ cp -f "${LLC}"  "${LLVM_DIR}/bin/llc"
 cp -f "${LLD}"  "${LLVM_DIR}/bin/ld.lld"
 [ -n "$LLD_LINK" ] && cp -f "${LLD_LINK}" "${LLVM_DIR}/bin/lld-link"
 [ -n "$WASM_LD"  ] && cp -f "${WASM_LD}"  "${LLVM_DIR}/bin/wasm-ld"
+[ -n "$CLANGPP"  ] && cp -f "${CLANGPP}"  "${LLVM_DIR}/bin/clang++"
+[ -n "$LLVM_AR"  ] && cp -f "${LLVM_AR}"  "${LLVM_DIR}/bin/llvm-ar"
 
 ok "LLVM tools copied to ${LLVM_DIR}/bin/"
+
+# ── Download llvm-mingw (Windows cross-compile, self-contained) ────────────
+LLVM_MINGW_DIR="${PREFIX}/llvm-mingw"
+LLVM_MINGW_MARKER="${LLVM_MINGW_DIR}/.installed"
+
+if [ -f "$LLVM_MINGW_MARKER" ]; then
+    ok "llvm-mingw already installed, skipping"
+else
+    info "Downloading llvm-mingw (self-contained Windows cross-compiler)..."
+    # Get latest release from GitHub
+    LLVM_MINGW_VER="20240929"
+    LLVM_MINGW_FILE="llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-20.04-x86_64.tar.xz"
+    LLVM_MINGW_URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/${LLVM_MINGW_FILE}"
+    LLVM_MINGW_TMP="${PREFIX}/_build/${LLVM_MINGW_FILE}"
+
+    # Remove corrupt/incomplete downloads
+    if [ -f "$LLVM_MINGW_TMP" ]; then
+        SIZE=$(stat -c%s "$LLVM_MINGW_TMP" 2>/dev/null || echo 0)
+        [ "$SIZE" -lt 1000000 ] && { info "Removing corrupt download, re-downloading..."; rm -f "$LLVM_MINGW_TMP"; }
+    fi
+
+    mkdir -p "${PREFIX}/_build"
+    if [ ! -f "$LLVM_MINGW_TMP" ]; then
+        if command -v wget &>/dev/null; then
+            wget -q --show-progress -O "$LLVM_MINGW_TMP" "$LLVM_MINGW_URL" || { warn "Failed to download llvm-mingw — Windows cross-compile unavailable"; LLVM_MINGW_TMP=""; }
+        elif command -v curl &>/dev/null; then
+            curl -L --progress-bar -o "$LLVM_MINGW_TMP" "$LLVM_MINGW_URL" || { warn "Failed to download llvm-mingw — Windows cross-compile unavailable"; LLVM_MINGW_TMP=""; }
+        else
+            warn "Neither wget nor curl found — skipping llvm-mingw"
+            LLVM_MINGW_TMP=""
+        fi
+    fi
+
+    if [ -n "$LLVM_MINGW_TMP" ] && [ -f "$LLVM_MINGW_TMP" ]; then
+        # Verify it's actually a tar.xz (not an HTML error page)
+        if ! file "$LLVM_MINGW_TMP" | grep -q "XZ\|xz\|tar"; then
+            warn "llvm-mingw download appears corrupt (not a tar.xz) — deleting and skipping"
+            rm -f "$LLVM_MINGW_TMP"
+        else
+            info "Extracting llvm-mingw..."
+            mkdir -p "$LLVM_MINGW_DIR"
+            tar -xf "$LLVM_MINGW_TMP" -C "$LLVM_MINGW_DIR" --strip-components=1
+            touch "$LLVM_MINGW_MARKER"
+            ok "llvm-mingw → ${LLVM_MINGW_DIR}"
+            ok "Windows cross-compile: ${LLVM_MINGW_DIR}/bin/x86_64-w64-mingw32-clang++"
+        fi
+    else
+        warn "llvm-mingw not installed — run bundle-toolchain.sh with internet access to enable Windows cross-compile"
+    fi
+fi
 
 # ── Step 3: build musl ────────────────────────────────────────────────────────
 if [ -f "${SYSROOT}/lib/libc.a" ]; then
@@ -224,9 +280,7 @@ else
 
     # Try to grab CRT objects from system mingw-w64 first (much faster)
     MINGW_DIRS=(
-        /usr/x86_64-w64-mingw32/usr/lib
-        /usr/lib/mingw64-toolchain/lib/gcc/x86_64-w64-mingw32/*/
-        /usr/lib/mingw64-toolchain/lib
+        /usr/x86_64-w64-mingw32/lib
         /usr/lib/gcc/x86_64-w64-mingw32/*/
         /usr/x86_64-w64-mingw32/sys-root/mingw/lib
     )

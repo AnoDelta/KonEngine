@@ -38,11 +38,13 @@ echo ""
 
 # ── Check clang++ ──────────────────────────────────────────────────────────
 if [ ! -f "${CLANG}" ]; then
-    # Try system clang
-    CLANG=$(command -v clang++ 2>/dev/null || command -v clang++-18 || command -v clang++-17 || echo "")
+    CLANG=$(command -v clang++ 2>/dev/null || command -v clang++-21 || command -v clang++-20 || command -v clang++-19 || command -v clang++-18 || echo "")
     [ -z "$CLANG" ] && fail "clang++ not found. Run bundle-toolchain.sh first or install LLVM."
     warn "Using system clang++: ${CLANG}"
 else
+    # Bundled clang++ lacks system headers — always prefer system clang++ for Linux builds
+    SYS=$(command -v clang++ 2>/dev/null || command -v clang++-21 || command -v clang++-20 || command -v clang++-19 || command -v clang++-18 || echo "")
+    [ -n "$SYS" ] && CLANG="$SYS"
     ok "clang++ → ${CLANG}"
 fi
 
@@ -143,6 +145,16 @@ find "${ENGINE_ROOT}/src" -name "*.hpp" | while read -r hpp; do
     mkdir -p "$(dirname "$dst")"
     cp "$hpp" "$dst"
 done
+# Copy GLM
+if [ -d "${ENGINE_ROOT}/libs/glm/glm" ]; then
+    mkdir -p "${OUT_DIR}/include/glm"
+    cp -r "${ENGINE_ROOT}/libs/glm/glm/." "${OUT_DIR}/include/glm/"
+fi
+# GLFW headers
+if [ -d "${ENGINE_ROOT}/libs/glfw/include/GLFW" ]; then
+    mkdir -p "${OUT_DIR}/include/GLFW"
+    cp -r "${ENGINE_ROOT}/libs/glfw/include/GLFW/." "${OUT_DIR}/include/GLFW/"
+fi
 # Also copy glad and stb includes
 mkdir -p "${OUT_DIR}/include/glad/include/glad" "${OUT_DIR}/include/KHR"
 cp -r "${ENGINE_ROOT}/src/glad/include/glad/"  "${OUT_DIR}/include/glad/include/glad/"  2>/dev/null || true
@@ -156,32 +168,90 @@ if [ "$DO_WINDOWS" = "1" ]; then
     mkdir -p "${OUT_DIR_WIN}" "${BUILD_DIR_WIN}"
 
     info "Building libKonEngine.a (windows64 cross-compile)..."
+
+    # Prefer bundled llvm-mingw over system clang
+    LLVM_MINGW_BIN="${PREFIX}/llvm-mingw/bin"
+    WIN_CXX="${LLVM_MINGW_BIN}/x86_64-w64-mingw32-clang++"
+    WIN_CC="${LLVM_MINGW_BIN}/x86_64-w64-mingw32-clang"
+    WIN_AR="${LLVM_MINGW_BIN}/llvm-ar"
+    if [ ! -f "$WIN_CXX" ]; then
+        # Fall back to system mingw
+        WIN_CXX=$(command -v x86_64-w64-mingw32-g++ 2>/dev/null || echo "$CLANG --target=x86_64-pc-windows-gnu")
+        WIN_CC=$(command -v x86_64-w64-mingw32-gcc 2>/dev/null || echo "$CLANG_C --target=x86_64-pc-windows-gnu")
+        WIN_AR="${AR}"
+    fi
+
     WIN_INCLUDES=("${INCLUDES[@]}" -I"${ENGINE_ROOT}/libs/glfw/include")
     OBJS_WIN=()
     for src in "${ENGINE_SRCS[@]}"; do
         [ -f "$src" ] || continue
-        # Skip Linux-specific sources
-        [[ "$src" == *"/wl_"* ]] && continue
-        [[ "$src" == *"/x11_"* ]] && continue
-        [[ "$src" == *"/glx_"* ]] && continue
-        [[ "$src" == *"/posix_"* ]] && continue
-        [[ "$src" == *"/linux_"* ]] && continue
+        [[ "$src" == *"anim_compiler"* ]] && continue
         base=$(basename "$src" | sed 's/\.[^.]*$//').o
         obj="${BUILD_DIR_WIN}/${base}"
         if [[ "$src" == *.c ]]; then
-            "${CLANG}" "${CFLAGS[@]}" "${WIN_INCLUDES[@]}" \
-                --target=x86_64-pc-windows-gnu -c "$src" -o "$obj" 2>/dev/null || true
+            "$WIN_CC" "${WIN_INCLUDES[@]}" -O2 -DNDEBUG -x c -c "$src" -o "$obj" 2>/dev/null || true
         else
-            "${CLANG}" "${CXXFLAGS[@]}" "${WIN_INCLUDES[@]}" \
-                --target=x86_64-pc-windows-gnu -c "$src" -o "$obj" 2>/dev/null || true
+            "$WIN_CXX" "${WIN_INCLUDES[@]}" -std=c++17 -O2 -DNDEBUG -c "$src" -o "$obj" 2>/dev/null || true
         fi
         [ -f "$obj" ] && OBJS_WIN+=("$obj")
     done
 
     [ ${#OBJS_WIN[@]} -gt 0 ] && \
-        "${AR}" rcs "${OUT_DIR_WIN}/libKonEngine.a" "${OBJS_WIN[@]}" && \
+        "${WIN_AR}" rcs "${OUT_DIR_WIN}/libKonEngine.a" "${OBJS_WIN[@]}" && \
         ok "libKonEngine.a (windows64) → ${OUT_DIR_WIN}/libKonEngine.a" || \
         warn "Windows engine lib build incomplete"
+
+    # Copy headers for windows64 (same headers as linux64)
+    mkdir -p "${OUT_DIR_WIN}/include"
+    cp "${ENGINE_ROOT}/src/KonEngine.hpp" "${OUT_DIR_WIN}/include/"
+    find "${ENGINE_ROOT}/src" -name "*.hpp" | while read -r hpp; do
+        rel="${hpp#${ENGINE_ROOT}/src/}"
+        dst="${OUT_DIR_WIN}/include/${rel}"
+        mkdir -p "$(dirname "$dst")"
+        cp "$hpp" "$dst"
+    done
+    if [ -d "${ENGINE_ROOT}/libs/glm/glm" ]; then
+        mkdir -p "${OUT_DIR_WIN}/include/glm"
+        cp -r "${ENGINE_ROOT}/libs/glm/glm/." "${OUT_DIR_WIN}/include/glm/"
+    fi
+    if [ -d "${ENGINE_ROOT}/libs/glfw/include/GLFW" ]; then
+        mkdir -p "${OUT_DIR_WIN}/include/GLFW"
+        cp -r "${ENGINE_ROOT}/libs/glfw/include/GLFW/." "${OUT_DIR_WIN}/include/GLFW/"
+    fi
+    mkdir -p "${OUT_DIR_WIN}/include/glad/include/glad" "${OUT_DIR_WIN}/include/KHR"
+    cp -r "${ENGINE_ROOT}/src/glad/include/glad/"  "${OUT_DIR_WIN}/include/glad/include/glad/"  2>/dev/null || true
+    cp -r "${ENGINE_ROOT}/src/glad/include/KHR/"   "${OUT_DIR_WIN}/include/KHR/"                2>/dev/null || true
+    ok "Headers (windows64) → ${OUT_DIR_WIN}/include/"
+
+    # Build libglfw3.a for Windows
+    GLFW_OUT_WIN="${OUT_DIR_WIN}/libglfw3.a"
+    if [ -f "$GLFW_OUT_WIN" ]; then
+        ok "libglfw3.a (windows64) already built, skipping"
+    else
+        info "Building libglfw3.a (windows64)..."
+        GLFW_BUILD_WIN="${PREFIX}/_build/glfw_windows64"
+        mkdir -p "$GLFW_BUILD_WIN"
+        GLFW_WIN_SRCS=()
+        for f in context.c init.c input.c monitor.c platform.c vulkan.c window.c \
+                  egl_context.c osmesa_context.c null_init.c null_monitor.c \
+                  null_window.c null_joystick.c win32_time.c win32_module.c \
+                  win32_thread.c win32_init.c win32_joystick.c win32_monitor.c \
+                  win32_window.c wgl_context.c; do
+            [ -f "${GLFW_DIR}/src/$f" ] && GLFW_WIN_SRCS+=("${GLFW_DIR}/src/$f")
+        done
+        GLFW_WIN_CC="${WIN_CC}"
+        GLFW_WIN_OBJS=()
+        for src in "${GLFW_WIN_SRCS[@]}"; do
+            base=$(basename "$src" .c).o
+            obj="$GLFW_BUILD_WIN/$base"
+            "$GLFW_WIN_CC" -I"$GLFW_DIR/include" -I"$GLFW_DIR/src" \
+                -D_GLFW_WIN32 -O2 -x c -c "$src" -o "$obj" 2>/dev/null && GLFW_WIN_OBJS+=("$obj")
+        done
+        [ ${#GLFW_WIN_OBJS[@]} -gt 0 ] && \
+            "${WIN_AR}" rcs "$GLFW_OUT_WIN" "${GLFW_WIN_OBJS[@]}" && \
+            ok "libglfw3.a (windows64) → $GLFW_OUT_WIN" || \
+            warn "Windows GLFW build incomplete"
+    fi
 fi
 
 echo ""

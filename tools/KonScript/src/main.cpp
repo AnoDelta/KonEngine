@@ -526,12 +526,26 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Locate bundled clang++
-        std::string clangpp = toolchainDir.empty() ? "clang++"
-            : toolchainDir + "/llvm/bin/clang++";
-        if (!toolchainDir.empty() && !fs::exists(clangpp))
-            clangpp = "clang++";
+        // Determine target early — needed for compiler selection
+        bool isWin = (targetName == "windows64" || targetName == "windows");
 
+        // Locate clang++ — use system clang++ for Linux (bundled lacks resource dir)
+        std::string clangpp;
+        if (!isWin) {
+            FILE* pp = popen("command -v clang++ 2>/dev/null", "r");
+            if (pp) {
+                char buf[256]{};
+                if (fgets(buf, sizeof(buf), pp)) {
+                    std::string s(buf);
+                    while (!s.empty() && (s.back()=='\n'||s.back()==' ')) s.pop_back();
+                    if (!s.empty()) clangpp = s;
+                }
+                pclose(pp);
+            }
+            if (clangpp.empty()) clangpp = "clang++";
+        } else {
+            clangpp = "clang++"; // Windows uses winGpp (llvm-mingw), not clangpp
+        }
         // Locate engine lib
         std::string engineLib, engineInc, glfwLib;
         if (!toolchainDir.empty()) {
@@ -550,32 +564,160 @@ int main(int argc, char** argv) {
         if (!engineInc.empty()) {
             incFlags = "-I\"" + engineInc + "\""
                      + " -I\"" + engineInc + "/glad/include\""
-                     + " -I\"" + engineInc + "/stb\"";
+                     + " -I\"" + engineInc + "/stb\""
+                     + " -I\"" + engineInc + "\"";  // GLFW/glfw3.h is at engineInc/GLFW/
+            // GLM — bundled with engine
+            std::string glmPath = toolchainDir + "/../libs/glm";
+            if (!fs::exists(glmPath))
+                glmPath = toolchainDir + "/../../libs/glm";
+            if (!fs::exists(glmPath)) {
+                // Try relative to engine include
+                glmPath = engineInc + "/glm";
+            }
+            if (fs::exists(glmPath))
+                incFlags += " -I\"" + glmPath + "\"";
         }
+        // For Windows cross-compile, use llvm-mingw headers (bundled)
+        // or fall back to system mingw headers
+        if (isWin) {
+            std::string llvmMingwDir = toolchainDir + "/llvm-mingw";
+            std::string llvmMingwInc = llvmMingwDir + "/x86_64-w64-mingw32/include";
+            if (fs::exists(llvmMingwInc)) {
+                // llvm-mingw is self-contained — headers live inside it
+                incFlags += " -I\"" + llvmMingwInc + "\"";
+            } else {
+                // Fall back to system mingw headers
+                // Find clang resource dir for mm_malloc.h etc.
+                std::string clangResDir;
+                FILE* p = popen("clang++ --print-resource-dir 2>/dev/null", "r");
+                if (p) {
+                    char buf[512]; if (fgets(buf, sizeof(buf), p)) {
+                        clangResDir = buf;
+                        while (!clangResDir.empty() && (clangResDir.back()=='\n'||clangResDir.back()==' '))
+                            clangResDir.pop_back();
+                    }
+                    pclose(p);
+                }
+                if (!clangResDir.empty() && fs::exists(clangResDir + "/include"))
+                    incFlags += " -I\"" + clangResDir + "/include\"";
+                // Fall back to system mingw headers
+                std::string cxxDir;
+                for (auto& base : std::vector<std::string>{
+                    "/usr/lib/mingw64-toolchain/x86_64-w64-mingw32/include/c++",
+                    "/usr/lib/gcc/x86_64-w64-mingw32",
+                    "/usr/x86_64-w64-mingw32/usr/include/c++",
+                    "/usr/x86_64-w64-mingw32/include/c++"}) {
+                    if (!fs::exists(base)) continue;
+                    try {
+                        for (auto& e : fs::directory_iterator(base)) {
+                            std::string p = e.path().string();
+                            if (fs::exists(p + "/string") && p > cxxDir) cxxDir = p;
+                        }
+                    } catch (...) {}
+                    if (cxxDir.empty() && fs::exists(base + "/string")) cxxDir = base;
+                    if (!cxxDir.empty()) break;
+                }
+                if (!cxxDir.empty())
+                    incFlags += " -I\"" + cxxDir + "\""
+                              + " -I\"" + cxxDir + "/x86_64-w64-mingw32\""
+                              + " -I\"" + cxxDir + "/backward\"";
+                for (auto& d : std::vector<std::string>{
+                    "/usr/lib/mingw64-toolchain/x86_64-w64-mingw32/include",
+                    "/usr/x86_64-w64-mingw32/usr/include",
+                    "/usr/x86_64-w64-mingw32/include"}) {
+                    if (fs::exists(d + "/windows.h") || fs::exists(d + "/stdlib.h")) {
+                        incFlags += " -I\"" + d + "\"";
+                        break;
+                    }
+                }
+            } // end else (no llvm-mingw)
+        } // end if (isWin)
 
         std::string target_triple = "";
-        if (targetName == "windows64" || targetName == "windows")
-            target_triple = "--target=x86_64-pc-windows-gnu ";
-        else if (targetName == "linux64" || targetName == "linux" || targetName.empty())
+        if (!isWin)
             target_triple = "--target=x86_64-pc-linux-gnu ";
+
+        // For Windows, use bundled llvm-mingw — self-contained, no system deps
+        std::string winGpp;
+        if (isWin) {
+            std::string llvmMingwBin = toolchainDir + "/llvm-mingw/bin";
+            std::string bundled = llvmMingwBin + "/x86_64-w64-mingw32-clang++";
+            if (fs::exists(bundled)) {
+                winGpp = bundled;
+            } else {
+                // Fall back to system mingw
+                for (auto& c : std::vector<std::string>{
+                    "/usr/bin/x86_64-w64-mingw32-g++",
+                    "/usr/bin/x86_64-w64-mingw32-clang++",
+                    "/usr/local/bin/x86_64-w64-mingw32-g++"}) {
+                    if (fs::exists(c)) { winGpp = c; break; }
+                }
+            }
+            if (winGpp.empty())
+                std::cerr << "konscript: warning: no Windows cross-compiler found. "
+                          << "Run bundle-toolchain.sh to set up llvm-mingw.\n";
+        }
 
         std::cout << "[build/" << (targetName.empty() ? "linux64" : targetName)
                   << "] " << fs::path(path).filename().string()
                   << " -> " << outPath << "\n";
 
-        // Compile all .cpp files + link in one clang++ invocation
-        std::string compileCmd = "\"" + clangpp + "\" " + target_triple
-            + "-std=c++17 -O2 -Wno-pragma-once-outside-header " + incFlags
-            + " \"" + unityFile + "\"";
+        // ── Compile flags ────────────────────────────────────────────────────
+        // For Windows: use winGpp (llvm-mingw or system mingw-g++).
+        //   Don't add clang-specific flags or custom headers — mingw knows its own sysroot.
+        // For Linux: use system clang++ with standard suppression flags.
+        std::string compiler = (isWin && !winGpp.empty()) ? winGpp : clangpp;
+        bool usingGpp = isWin && !winGpp.empty() &&
+            (winGpp.find("g++") != std::string::npos || winGpp.find("mingw32") != std::string::npos);
 
-        // Link flags
-        std::string glfwLink = !glfwLib.empty() ? " \"" + glfwLib + "\"" : " -lglfw";
-        if (targetName == "windows64" || targetName == "windows") {
+        // When using mingw g++, strip all custom C++ header paths — g++ finds its own.
+        // Only keep engine/glad/glm/GLFW includes.
+        std::string finalIncFlags = incFlags;
+        if (usingGpp && !engineInc.empty()) {
+            finalIncFlags = "-I\"" + engineInc + "\""
+                          + " -I\"" + engineInc + "/glad/include\""
+                          + " -I\"" + engineInc + "/stb\""
+                          + " -I\"" + engineInc + "\""; // GLFW
+            std::string glmPath = engineInc + "/glm";
+            if (fs::exists(glmPath)) finalIncFlags += " -I\"" + glmPath + "\"";
+        }
+
+        std::string compileCmd = "\"" + compiler + "\" -std=c++17 -O2 ";
+
+        if (!isWin) {
+            // Linux: clang-specific suppression flags
+            compileCmd += "--target=x86_64-pc-linux-gnu "
+                          "-Wno-pragma-once-outside-header "
+                          "-Wno-invalid-constexpr -Wno-deprecated-builtins "
+                          "-Wno-inline-namespace-reopened-noninline "
+                          "-Wno-keyword-compat -Wno-unknown-attributes "
+                          "-Wno-user-defined-literals -Wno-ignored-attributes "
+                          "-DGLM_FORCE_PURE ";
+        } else if (!usingGpp) {
+            // Windows with clang (llvm-mingw): clang-compatible flags
+            compileCmd += "--target=x86_64-w64-mingw32 "
+                          "-Wno-pragma-once-outside-header "
+                          "-Wno-invalid-constexpr -Wno-deprecated-builtins "
+                          "-Wno-inline-namespace-reopened-noninline "
+                          "-Wno-keyword-compat -Wno-unknown-attributes "
+                          "-Wno-user-defined-literals -Wno-ignored-attributes "
+                          "-DGLM_FORCE_PURE ";
+        } else {
+            // Windows with g++ (system mingw): only g++-compatible flags
+            compileCmd += "-DGLM_FORCE_PURE -w ";
+        }
+
+        compileCmd += finalIncFlags + " \"" + unityFile + "\"";
+
+        // ── Link flags ───────────────────────────────────────────────────────
+        if (isWin) {
             compileCmd += " -o \"" + outPath + "\""
                         + (!engineLib.empty() ? " \"" + engineLib + "\"" : "")
-                        + glfwLink
-                        + " -lGL -lgdi32 -lwinmm";
+                        + (!glfwLib.empty()   ? " \"" + glfwLib   + "\"" : "")
+                        + " -lopengl32 -lgdi32 -lwinmm -lws2_32"
+                        + " -static-libstdc++ -static-libgcc";
         } else {
+            std::string glfwLink = !glfwLib.empty() ? " \"" + glfwLib + "\"" : " -lglfw";
             compileCmd += " -o \"" + outPath + "\""
                         + (!engineLib.empty() ? " \"" + engineLib + "\"" : "")
                         + glfwLink
