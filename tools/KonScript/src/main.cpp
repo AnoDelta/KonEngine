@@ -426,10 +426,169 @@ int main(int argc, char** argv) {
 
     // ── DEFAULT: full build → native binary ───────────────────────────────
     //
-    //   konscript hello.ks        →  ./hello
+    //   konscript hello.ks              →  ./hello      (standalone, IRGen)
+    //   konscript game.ks               →  ./game       (engine, clang++ pipeline)
     //   konscript --target windows64 game.ks  →  ./game.exe
     //
     std::string toolchainDir = findToolchainDir();
+
+    // Engine games: transpile to C++ and compile with bundled clang++
+    // This avoids needing cmake or g++ on the user's machine.
+    if (engineTarget && !cppMode) {
+        std::string stem = fs::path(path).stem().string();
+        std::string srcDir = fs::path(path).parent_path().string();
+        if (outPath.empty()) outPath = stem;
+        if (targetName == "windows64" || targetName == "windows") {
+            if (outPath.size() < 4 || outPath.substr(outPath.size()-4) != ".exe")
+                outPath += ".exe";
+        }
+
+        std::string tmpDir = "/tmp/ks-" + stem;
+        fs::create_directories(tmpDir);
+
+        // Collect all .ks files to compile: main + any #include "*.ks" dependencies
+        // Process them in order: includes first, then the main file
+        std::vector<std::pair<std::string, std::string>> toCompile; // {ks path, cpp path}
+        std::vector<std::string> allCppFiles;
+
+        // Walk the AST to find .ks includes
+        std::vector<std::string> ksIncludes;
+        for (auto& s : prog.stmts) {
+            if (s->kind == KonScript::Stmt::Kind::Include) {
+                auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+                if (!inc->isSystem && inc->path != "engine") {
+                    // Resolve relative to source file
+                    std::string incPath = inc->path;
+                    if (incPath.find('/') == std::string::npos)
+                        incPath = srcDir + "/" + incPath;
+                    if (fs::exists(incPath))
+                        ksIncludes.push_back(incPath);
+                }
+            }
+        }
+
+        // Transpile each included .ks file first
+        for (auto& incPath : ksIncludes) {
+            std::string incStem = fs::path(incPath).stem().string();
+            std::string incCpp  = tmpDir + "/" + incStem + ".cpp";
+            std::string incSrc  = readFile(incPath);
+            KonScript::Lexer lx(incSrc, incPath);
+            auto toks = lx.tokenize();
+            KonScript::Parser px(std::move(toks), incPath);
+            auto incProg = px.parse();
+            KonScript::Codegen cgInc;
+            cgInc.setTarget(KonScript::Codegen::Target::Engine);
+            std::string incCppSrc = cgInc.generate(incProg);
+            { std::ofstream f(incCpp); f << incCppSrc; }
+            allCppFiles.push_back(incCpp);
+        }
+
+        // Transpile main file — codegen skips .ks includes automatically
+        KonScript::Codegen cg;
+        cg.setTarget(KonScript::Codegen::Target::Engine);
+        std::string cppSrc = cg.generate(prog);
+        if (cg.hasErrors()) {
+            for (auto& e : cg.errors()) std::cerr << "codegen: " << e.message << "\n";
+            return 1;
+        }
+        std::string mainCpp = tmpDir + "/" + stem + ".cpp";
+        { std::ofstream f(mainCpp); f << cppSrc; }
+        allCppFiles.push_back(mainCpp);
+
+        // Unity build: concatenate all generated .cpp files into one translation unit
+        // This lets main.cpp see Player/Box/etc. types from the included files.
+        // Strip #pragma once and duplicate standard includes from non-first files.
+        std::string unityFile = tmpDir + "/__unity.cpp";
+        {
+            std::ofstream unity(unityFile);
+            bool first = true;
+            for (auto& cf : allCppFiles) {
+                std::ifstream in(cf);
+                std::string line;
+                while (std::getline(in, line)) {
+                    // In non-first files, skip pragma once and redundant engine/std includes
+                    if (!first) {
+                        if (line.find("#pragma once") != std::string::npos) continue;
+                        if (line.find("#include \"KonEngine.hpp\"") != std::string::npos) continue;
+                        if (line.find("#include <string>") != std::string::npos) continue;
+                        if (line.find("#include <vector>") != std::string::npos) continue;
+                        if (line.find("#include <functional>") != std::string::npos) continue;
+                        if (line.find("#include <iostream>") != std::string::npos) continue;
+                        if (line.find("#include <optional>") != std::string::npos) continue;
+                        if (line.find("namespace { struct _KSInit") != std::string::npos) continue;
+                        if (line.find("_KSInit() {") != std::string::npos) continue;
+                        if (line.find("} _ks_init; }") != std::string::npos) continue;
+                    }
+                    unity << line << "\n";
+                }
+                first = false;
+            }
+        }
+
+        // Locate bundled clang++
+        std::string clangpp = toolchainDir.empty() ? "clang++"
+            : toolchainDir + "/llvm/bin/clang++";
+        if (!toolchainDir.empty() && !fs::exists(clangpp))
+            clangpp = "clang++";
+
+        // Locate engine lib
+        std::string engineLib, engineInc, glfwLib;
+        if (!toolchainDir.empty()) {
+            std::string eDir = toolchainDir + "/engine/linux64";
+            if (targetName == "windows64" || targetName == "windows")
+                eDir = toolchainDir + "/engine/windows64";
+            if (fs::exists(eDir + "/libKonEngine.a")) {
+                engineLib = eDir + "/libKonEngine.a";
+                engineInc = eDir + "/include";
+            }
+            if (fs::exists(eDir + "/libglfw3.a"))
+                glfwLib = eDir + "/libglfw3.a";
+        }
+
+        std::string incFlags;
+        if (!engineInc.empty()) {
+            incFlags = "-I\"" + engineInc + "\""
+                     + " -I\"" + engineInc + "/glad/include\""
+                     + " -I\"" + engineInc + "/stb\"";
+        }
+
+        std::string target_triple = "";
+        if (targetName == "windows64" || targetName == "windows")
+            target_triple = "--target=x86_64-pc-windows-gnu ";
+        else if (targetName == "linux64" || targetName == "linux" || targetName.empty())
+            target_triple = "--target=x86_64-pc-linux-gnu ";
+
+        std::cout << "[build/" << (targetName.empty() ? "linux64" : targetName)
+                  << "] " << fs::path(path).filename().string()
+                  << " -> " << outPath << "\n";
+
+        // Compile all .cpp files + link in one clang++ invocation
+        std::string compileCmd = "\"" + clangpp + "\" " + target_triple
+            + "-std=c++17 -O2 -Wno-pragma-once-outside-header " + incFlags
+            + " \"" + unityFile + "\"";
+
+        // Link flags
+        std::string glfwLink = !glfwLib.empty() ? " \"" + glfwLib + "\"" : " -lglfw";
+        if (targetName == "windows64" || targetName == "windows") {
+            compileCmd += " -o \"" + outPath + "\""
+                        + (!engineLib.empty() ? " \"" + engineLib + "\"" : "")
+                        + glfwLink
+                        + " -lGL -lgdi32 -lwinmm";
+        } else {
+            compileCmd += " -o \"" + outPath + "\""
+                        + (!engineLib.empty() ? " \"" + engineLib + "\"" : "")
+                        + glfwLink
+                        + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread -lm";
+        }
+
+        int r = std::system(compileCmd.c_str());
+        if (r != 0) {
+            std::cerr << "konscript: compile failed\n"
+                      << "  Run build-engine-lib.sh to set up the engine library.\n";
+            return 1;
+        }
+        return 0;
+    }
 
     // Output name from stem
     std::string stem = fs::path(path).stem().string();

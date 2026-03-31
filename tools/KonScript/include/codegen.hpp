@@ -250,15 +250,13 @@ private:
 
     void genInclude(const Stmt* s) {
         auto* i = static_cast<const IncludeStmt*>(s);
+        // .ks files are compiled separately by the konscript pipeline
+        if (!i->isSystem && i->path.size() > 3 && i->path.substr(i->path.size()-3) == ".ks") return;
         if (i->path == "engine") return; // already included at top
         if (i->isSystem) {
             line("#include <" + i->path + ">");
         } else {
-            // KonScript files compile to .ks.cpp — rewrite the extension
-            std::string path = i->path;
-            if (path.size() > 3 && path.substr(path.size()-3) == ".ks")
-                path += ".cpp";
-            line("#include \"" + path + "\"");
+            line("#include \"" + i->path + "\"");
         }
     }
 
