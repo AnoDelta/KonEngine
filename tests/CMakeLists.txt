@@ -43,7 +43,7 @@ if(KONSCRIPT_COMPILER)
 
     add_custom_command(
         OUTPUT  "${KS_TEST_CPP}"
-        COMMAND "${KONSCRIPT_COMPILER}" "${KS_TEST_SRC}" -o "${KS_TEST_CPP}"
+        COMMAND "${KONSCRIPT_COMPILER}" --cpp "${KS_TEST_SRC}" -o "${KS_TEST_CPP}"
         DEPENDS "${KS_TEST_SRC}" "${KONSCRIPT_COMPILER}"
         COMMENT "Compiling KonScript test: test_game.ks"
         VERBATIM

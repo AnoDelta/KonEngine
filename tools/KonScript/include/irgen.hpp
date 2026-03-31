@@ -88,6 +88,7 @@ public:
         m_globalConstInits.clear();
         m_globalTypes.clear();
         m_funcRetTypes.clear();
+        m_structFields.clear();
         m_funcRetType = "void";
 
         // Module header — written to m_header so it always comes first
@@ -100,11 +101,26 @@ public:
         // Runtime declarations
         emitRuntimeDecls();
 
-        // First pass: record all function return types so call sites use correct type
+        // First pass: record all function return types and struct layouts
         for (auto& s : prog.stmts) {
             if (s->kind == Stmt::Kind::FuncDecl) {
                 auto* f = static_cast<const FuncDecl*>(s.get());
                 m_funcRetTypes[f->name] = f->returnType ? llvmType(*f->returnType) : "void";
+            } else if (s->kind == Stmt::Kind::StructDecl) {
+                auto* sd = static_cast<const StructDecl*>(s.get());
+                std::vector<FieldInfo> fields;
+                for (auto& f : sd->fields)
+                    fields.push_back({f.name, llvmType(f.type)});
+                m_structFields[sd->name] = fields;
+            } else if (s->kind == Stmt::Kind::NodeDecl) {
+                auto* nd = static_cast<const NodeDecl*>(s.get());
+                std::vector<FieldInfo> fields;
+                for (auto& f : nd->fields)
+                    fields.push_back({f.name, llvmType(f.type)});
+                m_structFields[nd->name] = fields;
+                for (auto& m : nd->methods)
+                    m_funcRetTypes[nd->name + "_" + m->name] =
+                        m->returnType ? llvmType(*m->returnType) : "void";
             }
         }
 
@@ -159,6 +175,10 @@ private:
     std::unordered_map<std::string, std::string> m_globalTypes;
     // Function return type table: name → llvm return type
     std::unordered_map<std::string, std::string> m_funcRetTypes;
+
+    // Struct field layout: structName → list of {fieldName, llvmType}
+    struct FieldInfo { std::string name; std::string llvmTy; };
+    std::unordered_map<std::string, std::vector<FieldInfo>> m_structFields;
     // Current basic block label (for branch targets)
     std::string m_currentBlock;
 
@@ -1347,14 +1367,107 @@ private:
     }
 
     // -----------------------------------------------------------------------
-    // Member access — simplified (struct GEP)
     // -----------------------------------------------------------------------
+    // Get the GEP pointer for a member access — used by both read and write
+    // Returns {gepPtr, fieldLlvmType} or {"", ""} if not resolvable
+    // -----------------------------------------------------------------------
+    std::pair<std::string, std::string> genMemberAddr(const MemberExpr* e) {
+        // Get the object — we need its alloca address, not a loaded value
+        // For local vars: look up m_locals to get the pointer directly
+        std::string objPtr;
+        std::string structName;
+
+        if (e->object->kind == Expr::Kind::Ident) {
+            auto* id = static_cast<const IdentExpr*>(e->object.get());
+            auto it = m_locals.find(id->name);
+            if (it != m_locals.end()) {
+                // The alloca holds a pointer-to-struct or a struct value
+                // If type is %struct.Foo*, we need to load it first to get the ptr
+                std::string ty = it->second.llvmTy;
+                if (ty.size() > 1 && ty.back() == '*') {
+                    // It's a pointer type — load the pointer then GEP
+                    std::string loaded = tmp();
+                    emitI(loaded + " = load " + ty + ", " + ty + "* " + it->second.addr);
+                    objPtr = loaded;
+                    // Extract struct name from %struct.Foo*
+                    if (ty.rfind("%struct.", 0) == 0)
+                        structName = ty.substr(8, ty.size() - 9); // strip %struct. and *
+                    else if (ty.rfind("%node.", 0) == 0)
+                        structName = ty.substr(6, ty.size() - 7);
+                } else {
+                    // Value type — take address directly
+                    objPtr = it->second.addr;
+                    if (ty.rfind("%struct.", 0) == 0)
+                        structName = ty.substr(8);
+                    else if (ty.rfind("%node.", 0) == 0)
+                        structName = ty.substr(6);
+                }
+            } else {
+                // Global
+                auto gt = m_globalTypes.find(id->name);
+                if (gt != m_globalTypes.end()) {
+                    std::string ty = gt->second;
+                    if (ty.back() == '*') {
+                        std::string loaded = tmp();
+                        emitI(loaded + " = load " + ty + ", " + ty + "* @" + id->name);
+                        objPtr = loaded;
+                        if (ty.rfind("%struct.", 0) == 0)
+                            structName = ty.substr(8, ty.size() - 9);
+                    } else {
+                        objPtr = "@" + id->name;
+                        if (ty.rfind("%struct.", 0) == 0)
+                            structName = ty.substr(8);
+                    }
+                }
+            }
+        } else {
+            // Nested member — recurse: first get the sub-object value
+            auto [subPtr, subTy] = genMemberAddr(
+                static_cast<const MemberExpr*>(e->object.get()));
+            objPtr = subPtr;
+            if (subTy.rfind("%struct.", 0) == 0)
+                structName = subTy.substr(8, subTy.size() - 9);
+        }
+
+        if (objPtr.empty() || structName.empty())
+            return {"", "i32"};
+
+        // Look up field index in struct layout
+        auto sit = m_structFields.find(structName);
+        if (sit == m_structFields.end())
+            return {"", "i32"};
+
+        int idx = -1;
+        std::string fieldTy = "i32";
+        for (int i = 0; i < (int)sit->second.size(); i++) {
+            if (sit->second[i].name == e->member) {
+                idx = i;
+                fieldTy = sit->second[i].llvmTy;
+                break;
+            }
+        }
+        if (idx < 0) return {"", "i32"};
+
+        // Emit GEP
+        std::string gepPtr = tmp();
+        std::string structTy = "%struct." + structName;
+        emitI(gepPtr + " = getelementptr inbounds " + structTy + ", "
+              + structTy + "* " + objPtr + ", i32 0, i32 " + std::to_string(idx));
+        return {gepPtr, fieldTy};
+    }
+
+    // Member read — GEP then load
     ValType genMember(const MemberExpr* e) {
-        // For now, emit a comment and return undef
-        // Full struct GEP requires the struct layout from the type checker
+        auto [gepPtr, fieldTy] = genMemberAddr(e);
+        if (gepPtr.empty()) {
+            // Unresolvable — emit 0 with a comment
+            std::string t = tmp();
+            emitI(t + " = add i32 0, 0  ; unresolved member ." + e->member);
+            return {t, "i32"};
+        }
         std::string t = tmp();
-        emitI(t + " = add i32 0, 0  ; TODO: member " + e->member);
-        return {t, "i32"};
+        emitI(t + " = load " + fieldTy + ", " + fieldTy + "* " + gepPtr);
+        return {t, fieldTy};
     }
 
     // -----------------------------------------------------------------------

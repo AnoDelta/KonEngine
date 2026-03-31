@@ -220,7 +220,8 @@ public:
                         (isSys ? "<" : "\"") + path + (isSys ? ">" : "\""),
                         startLine, startCol});
                 } else {
-                    m_tokens.push_back({TokenType::Hash, "#" + directive, startLine, startCol});
+                    // Non-#include # line (e.g. "# comment") — treat as line comment
+                    while (!atEnd() && peek() != '\n') advance();
                 }
                 continue;
             }
@@ -297,7 +298,9 @@ public:
                     else                 emit(TokenType::Question, "?",  startLine, startCol);
                     break;
                 default:
-                    error("unexpected character '" + std::string(1,c) + "'", startLine, startCol);
+                    // Skip non-ASCII bytes (UTF-8 multi-byte chars in comments etc.)
+                    if ((unsigned char)c < 0x80)
+                        error("unexpected character '" + std::string(1,c) + "'", startLine, startCol);
                     break;
             }
         }
