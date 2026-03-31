@@ -1,7 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------
-// KonScript Lexer
-// Turns source text into a flat list of tokens.
+// KonScript Lexer — with f-string support
 // -----------------------------------------------------------------------
 #include <string>
 #include <vector>
@@ -20,109 +19,56 @@ enum class TokenType {
     Float,      // 3.14
     Bool,       // true false
     Str,        // "hello"
+    FStr,       // f"hello {name}" or auto-detected "hello {name}"
     Null,       // null
     None_,      // None
     Some,       // Some
 
     // Identifiers and keywords
-    Ident,      // player, speed, etc.
+    Ident,
 
     // Keywords
-    Let,
-    Mut,
-    Const,
-    Func,
-    Return,
-    If,
-    Else,
-    While,
-    Loop,
-    For,
-    In,
-    Break,
-    Continue,
-    Switch,
-    Case,
-    Default,
-    Node,
-    Struct,
-    Enum,
-    Class,
-    Pub,
-    As,
-    Spawn,
-    Wait,
-    Extends,
+    Let, Mut, Const, Func, Return,
+    If, Else, While, Loop, For, In,
+    Break, Continue, Switch, Case, Default,
+    Node, Struct, Enum, Class, Pub, As,
+    Spawn, Wait, Extends,
 
     // Type keywords
     TI8, TI16, TI32, TI64,
     TU8, TU16, TU32, TU64,
     TF32, TF64,
-    TBool,
-    TStr,
-    TString,
-    TVec2,
+    TBool, TStr, TString, TVec2,
 
     // Symbols
-    LParen,     // (
-    RParen,     // )
-    LBrace,     // {
-    RBrace,     // }
-    LBracket,   // [
-    RBracket,   // ]
-    Semicolon,  // ;
-    Colon,      // :
-    ColonColon, // ::
-    Comma,      // ,
-    Dot,        // .
-    DotDot,     // ..
-    DotDotEq,   // ..=
-    Arrow,      // ->
-    FatArrow,   // =>
-    Hash,       // #
-    Question,   // ?
-    Bang,       // !
-    Apostrophe, // ' (for labels)
+    LParen, RParen, LBrace, RBrace, LBracket, RBracket,
+    Semicolon, Colon, ColonColon, Comma,
+    Dot, DotDot, DotDotEq,
+    Arrow, FatArrow,
+    Hash, Question, Bang, Apostrophe,
 
     // Operators
-    Plus,       // +
-    Minus,      // -
-    Star,       // *
-    Slash,      // /
-    Percent,    // %
-    PlusEq,     // +=
-    MinusEq,    // -=
-    StarEq,     // *=
-    SlashEq,    // /=
-    PlusPlus,   // ++
-    MinusMinus, // --
+    Plus, Minus, Star, Slash, Percent,
+    PlusEq, MinusEq, StarEq, SlashEq,
+    PlusPlus, MinusMinus,
 
     // Comparison
-    Eq,         // ==
-    NotEq,      // !=
-    Lt,         // <
-    Gt,         // >
-    LtEq,       // <=
-    GtEq,       // >=
+    Eq, NotEq, Lt, Gt, LtEq, GtEq,
 
     // Logic
-    And,        // &&
-    Or,         // ||
+    And, Or,
 
     // Assignment
-    Assign,     // =
+    Assign,
 
     // Null operators
-    NullCoal,   // ??
-    SafeDot,    // ?.
-    ForceUnwrap,// ! (postfix)
+    NullCoal, SafeDot, ForceUnwrap,
 
     // Preprocessor
-    Include,    // #include
+    Include,
 
     // Special
-    Eof,
-    Newline,    // for error reporting only
+    Eof, Newline,
 };
 
 // -----------------------------------------------------------------------
@@ -130,7 +76,7 @@ enum class TokenType {
 // -----------------------------------------------------------------------
 struct Token {
     TokenType   type;
-    std::string value;   // raw text
+    std::string value;
     int         line;
     int         col;
 
@@ -196,12 +142,15 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
 // -----------------------------------------------------------------------
 class Lexer {
 public:
+    struct Error { std::string message; int line, col; };
+
     Lexer(const std::string& source, const std::string& filename = "<input>")
         : m_src(source), m_filename(filename) {}
 
     std::vector<Token> tokenize() {
         m_pos = 0; m_line = 1; m_col = 1;
         m_tokens.clear();
+        m_errors.clear();
 
         while (!atEnd()) {
             skipWhitespaceAndComments();
@@ -209,12 +158,21 @@ public:
 
             int startLine = m_line;
             int startCol  = m_col;
-
             char c = peek();
 
-            // String literal
+            // f-string: f"..."
+            if (c == 'f' && peek(1) == '"') {
+                advance(); // consume 'f'
+                m_tokens.push_back(readFString(startLine, startCol));
+                continue;
+            }
+
+            // String literal — also auto-upgrade if it contains {expr}
             if (c == '"') {
-                m_tokens.push_back(readString(startLine, startCol));
+                auto tok = readString(startLine, startCol);
+                if (looksLikeFStr(tok.value))
+                    tok.type = TokenType::FStr;
+                m_tokens.push_back(tok);
                 continue;
             }
 
@@ -224,7 +182,7 @@ public:
                 continue;
             }
 
-            // Label / lifetime apostrophe  'outer:
+            // Label / lifetime apostrophe 'outer:
             if (c == '\'') {
                 advance();
                 std::string label;
@@ -240,7 +198,7 @@ public:
                 continue;
             }
 
-            // Preprocessor
+            // Preprocessor #include
             if (c == '#') {
                 advance();
                 skipWhitespace();
@@ -252,19 +210,17 @@ public:
                     skipWhitespace();
                     char delim = peek();
                     bool isSys = (delim == '<');
-                    advance(); // skip < or "
+                    advance();
                     std::string path;
                     char end = isSys ? '>' : '"';
                     while (!atEnd() && peek() != end && peek() != '\n')
                         path += advance();
-                    if (!atEnd()) advance(); // skip > or "
+                    if (!atEnd()) advance();
                     m_tokens.push_back({TokenType::Str,
                         (isSys ? "<" : "\"") + path + (isSys ? ">" : "\""),
                         startLine, startCol});
                 } else {
-                    // Not a directive -- treat as a line comment, skip to end of line
-                    while (!atEnd() && peek() != '\n')
-                        advance();
+                    m_tokens.push_back({TokenType::Hash, "#" + directive, startLine, startCol});
                 }
                 continue;
             }
@@ -281,101 +237,76 @@ public:
                 case ';': emit(TokenType::Semicolon, ";", startLine, startCol); break;
                 case ',': emit(TokenType::Comma,     ",", startLine, startCol); break;
                 case '%': emit(TokenType::Percent,   "%", startLine, startCol); break;
-
                 case ':':
                     if (match(':')) emit(TokenType::ColonColon, "::", startLine, startCol);
                     else            emit(TokenType::Colon,      ":",  startLine, startCol);
                     break;
-
                 case '.':
                     if (match('.')) {
-                        if (match('='))
-                            emit(TokenType::DotDotEq, "..=", startLine, startCol);
-                        else
-                            emit(TokenType::DotDot, "..", startLine, startCol);
+                        if (match('=')) emit(TokenType::DotDotEq, "..=", startLine, startCol);
+                        else            emit(TokenType::DotDot,   "..",  startLine, startCol);
                     } else {
                         emit(TokenType::Dot, ".", startLine, startCol);
                     }
                     break;
-
                 case '-':
-                    if (match('>'))      emit(TokenType::Arrow,    "->",  startLine, startCol);
-                    else if (match('-')) emit(TokenType::MinusMinus,"--",  startLine, startCol);
-                    else if (match('=')) emit(TokenType::MinusEq,  "-=",  startLine, startCol);
-                    else                 emit(TokenType::Minus,    "-",   startLine, startCol);
+                    if (match('>'))      emit(TokenType::Arrow,    "->", startLine, startCol);
+                    else if (match('-')) emit(TokenType::MinusMinus,"--", startLine, startCol);
+                    else if (match('=')) emit(TokenType::MinusEq,  "-=", startLine, startCol);
+                    else                 emit(TokenType::Minus,    "-",  startLine, startCol);
                     break;
-
                 case '+':
-                    if (match('+'))      emit(TokenType::PlusPlus, "++",  startLine, startCol);
-                    else if (match('=')) emit(TokenType::PlusEq,   "+=",  startLine, startCol);
-                    else                 emit(TokenType::Plus,     "+",   startLine, startCol);
+                    if (match('+'))      emit(TokenType::PlusPlus, "++", startLine, startCol);
+                    else if (match('=')) emit(TokenType::PlusEq,   "+=", startLine, startCol);
+                    else                 emit(TokenType::Plus,     "+",  startLine, startCol);
                     break;
-
                 case '*':
-                    if (match('=')) emit(TokenType::StarEq,  "*=", startLine, startCol);
-                    else            emit(TokenType::Star,    "*",  startLine, startCol);
+                    if (match('=')) emit(TokenType::StarEq, "*=", startLine, startCol);
+                    else            emit(TokenType::Star,   "*",  startLine, startCol);
                     break;
-
                 case '/':
                     if (match('=')) emit(TokenType::SlashEq, "/=", startLine, startCol);
                     else            emit(TokenType::Slash,   "/",  startLine, startCol);
                     break;
-
                 case '=':
                     if (match('='))      emit(TokenType::Eq,      "==", startLine, startCol);
-                    else if (match('>')) emit(TokenType::FatArrow, "=>", startLine, startCol);
+                    else if (match('>')) emit(TokenType::FatArrow,"=>", startLine, startCol);
                     else                 emit(TokenType::Assign,  "=",  startLine, startCol);
                     break;
-
                 case '!':
                     if (match('=')) emit(TokenType::NotEq,      "!=", startLine, startCol);
                     else            emit(TokenType::Bang,        "!",  startLine, startCol);
                     break;
-
                 case '<':
                     if (match('=')) emit(TokenType::LtEq, "<=", startLine, startCol);
                     else            emit(TokenType::Lt,   "<",  startLine, startCol);
                     break;
-
                 case '>':
                     if (match('=')) emit(TokenType::GtEq, ">=", startLine, startCol);
                     else            emit(TokenType::Gt,   ">",  startLine, startCol);
                     break;
-
                 case '&':
                     if (match('&')) emit(TokenType::And, "&&", startLine, startCol);
-                    else error("unexpected '&' -- did you mean '&&'?", startLine, startCol);
                     break;
-
                 case '|':
                     if (match('|')) emit(TokenType::Or, "||", startLine, startCol);
-                    else error("unexpected '|' -- did you mean '||'?", startLine, startCol);
                     break;
-
                 case '?':
                     if (match('?'))      emit(TokenType::NullCoal, "??", startLine, startCol);
                     else if (match('.')) emit(TokenType::SafeDot,  "?.", startLine, startCol);
                     else                 emit(TokenType::Question, "?",  startLine, startCol);
                     break;
-
                 default:
-                    error("unexpected character '" + std::string(1, c) + "'",
-                          startLine, startCol);
+                    error("unexpected character '" + std::string(1,c) + "'", startLine, startCol);
+                    break;
             }
         }
-
         m_tokens.push_back({TokenType::Eof, "", m_line, m_col});
         return m_tokens;
     }
 
-    // Errors collected during lexing
-    struct LexError {
-        std::string message;
-        int line, col;
-        std::string filename;
-    };
-    const std::vector<LexError>& errors() const { return m_errors; }
     bool hasErrors() const { return !m_errors.empty(); }
+    const std::vector<Error>& errors() const { return m_errors; }
 
 private:
     std::string        m_src;
@@ -383,65 +314,51 @@ private:
     size_t             m_pos  = 0;
     int                m_line = 1;
     int                m_col  = 1;
-    std::vector<Token>    m_tokens;
-    std::vector<LexError> m_errors;
+    std::vector<Token> m_tokens;
+    std::vector<Error> m_errors;
 
-    bool atEnd() const { return m_pos >= m_src.size(); }
-
-    char peek(int offset = 0) const {
-        if (m_pos + offset >= m_src.size()) return '\0';
-        return m_src[m_pos + offset];
+    bool atEnd() const       { return m_pos >= m_src.size(); }
+    char peek(int offset=0) const {
+        return (m_pos + offset < m_src.size()) ? m_src[m_pos + offset] : '\0';
     }
-
     char advance() {
         char c = m_src[m_pos++];
-        if (c == '\n') { m_line++; m_col = 1; }
-        else            m_col++;
+        if (c == '\n') { m_line++; m_col = 1; } else { m_col++; }
         return c;
     }
-
-    bool match(char expected) {
-        if (atEnd() || peek() != expected) return false;
-        advance();
-        return true;
+    bool match(char c) {
+        if (!atEnd() && peek() == c) { advance(); return true; }
+        return false;
     }
-
-    void emit(TokenType t, const std::string& v, int line, int col) {
-        m_tokens.push_back({t, v, line, col});
+    void emit(TokenType t, const std::string& v, int l, int c) {
+        m_tokens.push_back({t, v, l, c});
     }
-
-    void error(const std::string& msg, int line, int col) {
-        m_errors.push_back({m_filename + ":" + std::to_string(line) +
-                            ":" + std::to_string(col) + ": " + msg,
-                            line, col, m_filename});
+    void error(const std::string& msg, int l, int c) {
+        m_errors.push_back({m_filename + ":" + std::to_string(l) + ":" +
+                            std::to_string(c) + ": " + msg, l, c});
     }
 
     void skipWhitespace() {
-        while (!atEnd() && peek() != '\n' &&
-               std::isspace((unsigned char)peek()))
+        while (!atEnd() && (peek() == ' ' || peek() == '\t' || peek() == '\r'))
             advance();
     }
 
     void skipWhitespaceAndComments() {
         while (!atEnd()) {
             // Whitespace
-            if (std::isspace((unsigned char)peek())) {
-                advance();
-                continue;
+            if (peek() == ' ' || peek() == '\t' || peek() == '\r' || peek() == '\n') {
+                advance(); continue;
             }
-            // Single line comment
+            // Single-line comment
             if (peek() == '/' && peek(1) == '/') {
                 while (!atEnd() && peek() != '\n') advance();
                 continue;
             }
-            // Multi line comment
+            // Multi-line comment
             if (peek() == '/' && peek(1) == '*') {
-                advance(); advance(); // skip /*
+                advance(); advance();
                 while (!atEnd()) {
-                    if (peek() == '*' && peek(1) == '/') {
-                        advance(); advance(); // skip */
-                        break;
-                    }
+                    if (peek() == '*' && peek(1) == '/') { advance(); advance(); break; }
                     advance();
                 }
                 continue;
@@ -450,6 +367,26 @@ private:
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Check if a string value contains f-string interpolation patterns
+    // -----------------------------------------------------------------------
+    static bool looksLikeFStr(const std::string& s) {
+        size_t i = 0;
+        while (i < s.size()) {
+            if (s[i] == '{') {
+                if (i+1 < s.size() && s[i+1] == '{') { i += 2; continue; } // escaped {{
+                size_t j = i + 1;
+                while (j < s.size() && s[j] != '}' && s[j] != '\n') j++;
+                if (j < s.size() && j > i + 1) return true;
+            }
+            i++;
+        }
+        return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Read a plain string literal "..."
+    // -----------------------------------------------------------------------
     Token readString(int line, int col) {
         advance(); // skip opening "
         std::string value;
@@ -474,33 +411,55 @@ private:
         return {TokenType::Str, value, line, col};
     }
 
+    // -----------------------------------------------------------------------
+    // Read an f-string literal f"..." (the 'f' has already been consumed)
+    // -----------------------------------------------------------------------
+    Token readFString(int line, int col) {
+        advance(); // skip opening "
+        std::string value;
+        while (!atEnd() && peek() != '"') {
+            if (peek() == '\\') {
+                advance();
+                switch (advance()) {
+                    case 'n':  value += '\n'; break;
+                    case 't':  value += '\t'; break;
+                    case 'r':  value += '\r'; break;
+                    case '"':  value += '"';  break;
+                    case '\\': value += '\\'; break;
+                    case '{':  value += '{';  break; // \{ → literal {
+                    case '}':  value += '}';  break; // \} → literal }
+                    case '0':  value += '\0'; break;
+                    default:   value += '?';  break;
+                }
+            } else {
+                value += advance();
+            }
+        }
+        if (atEnd()) error("unterminated f-string", line, col);
+        else advance(); // skip closing "
+        return {TokenType::FStr, value, line, col};
+    }
+
     Token readNumber(int line, int col) {
         std::string value;
         bool isFloat = false;
-
-        // Hex literal
         if (peek() == '0' && (peek(1) == 'x' || peek(1) == 'X')) {
-            value += advance(); value += advance(); // 0x
+            value += advance(); value += advance();
             while (!atEnd() && std::isxdigit(peek())) value += advance();
             return {TokenType::Int, value, line, col};
         }
-
         while (!atEnd() && std::isdigit(peek())) value += advance();
-
         if (!atEnd() && peek() == '.' && peek(1) != '.') {
             isFloat = true;
-            value += advance(); // .
+            value += advance();
             while (!atEnd() && std::isdigit(peek())) value += advance();
         }
-
-        // Exponent
         if (!atEnd() && (peek() == 'e' || peek() == 'E')) {
             isFloat = true;
             value += advance();
             if (!atEnd() && (peek() == '+' || peek() == '-')) value += advance();
             while (!atEnd() && std::isdigit(peek())) value += advance();
         }
-
         return {isFloat ? TokenType::Float : TokenType::Int, value, line, col};
     }
 
@@ -508,7 +467,6 @@ private:
         std::string value;
         while (!atEnd() && (std::isalnum(peek()) || peek() == '_'))
             value += advance();
-
         auto it = KEYWORDS.find(value);
         TokenType type = (it != KEYWORDS.end()) ? it->second : TokenType::Ident;
         return {type, value, line, col};

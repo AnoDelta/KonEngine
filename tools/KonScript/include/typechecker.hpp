@@ -278,7 +278,7 @@ private:
         if (name == "F32")    return Type::make(Type::Kind::F32);
         if (name == "F64")    return Type::make(Type::Kind::F64);
         if (name == "Bool")   return Type::make(Type::Kind::Bool);
-        if (name == "str")    return Type::make(Type::Kind::Str);
+        if (name == "str" || name == "Str")    return Type::make(Type::Kind::Str);
         if (name == "String") return Type::make(Type::Kind::String);
         if (name == "Vec2")   return Type::make(Type::Kind::Vec2);
 		if (name == "Color")  return Type::make(Type::Kind::Struct, "Color");

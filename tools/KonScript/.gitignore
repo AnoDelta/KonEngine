@@ -1,0 +1,3 @@
+toolchain/sysroot/
+toolchain/llvm/
+toolchain/_build/

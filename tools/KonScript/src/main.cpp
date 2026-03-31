@@ -8,9 +8,11 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <filesystem>
 #include <climits>
 #include <cstdlib>
+#include <ctime>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -96,7 +98,8 @@ static void usage() {
         "DEBUG\n"
         "  konscript --lex   <file.ks>            dump tokens\n"
         "  konscript --parse <file.ks>            dump AST\n"
-        "  konscript --check <file.ks>            typecheck only\n\n"
+        "  konscript --check <file.ks>            typecheck only\n"
+        "  konscript --test [file.ks]              run built-in test suite\n\n"
         "ENVIRONMENT\n"
         "  KONSCRIPT_TOOLCHAIN=<dir>              override toolchain directory\n\n"
         "EXAMPLES\n"
@@ -228,6 +231,7 @@ int main(int argc, char** argv) {
     bool cppMode   = false;
     bool llvmMode  = false;
     bool irDump    = false;
+    bool testMode  = false;
 
     std::string path;
     std::string outPath;
@@ -235,15 +239,82 @@ int main(int argc, char** argv) {
 
     std::vector<std::string> args(argv + 1, argv + argc);
     for (size_t i = 0; i < args.size(); i++) {
-        if      (args[i] == "--lex")   { lexOnly   = true; }
-        else if (args[i] == "--parse") { parseOnly = true; }
-        else if (args[i] == "--check") { checkOnly = true; }
-        else if (args[i] == "--cpp")   { cppMode   = true; }
-        else if (args[i] == "--llvm")  { llvmMode  = true; }
-        else if (args[i] == "--ir")    { irDump = true; llvmMode = true; }
+        if      (args[i] == "--lex")    { lexOnly   = true; }
+        else if (args[i] == "--parse")  { parseOnly = true; }
+        else if (args[i] == "--check")  { checkOnly = true; }
+        else if (args[i] == "--cpp")    { cppMode   = true; }
+        else if (args[i] == "--llvm")   { llvmMode  = true; }
+        else if (args[i] == "--ir")     { irDump = true; llvmMode = true; }
+        else if (args[i] == "--test")   { testMode  = true; }
         else if (args[i] == "--target" && i + 1 < args.size()) { targetName = args[++i]; }
         else if (args[i] == "-o"       && i + 1 < args.size()) { outPath    = args[++i]; }
         else if (args[i][0] != '-') { if (path.empty()) path = args[i]; }
+    }
+
+    // ── Built-in test runner ──────────────────────────────────────────────
+    if (testMode) {
+        std::string self = selfDir();
+        std::string toolchain = findToolchainDir();
+        std::string toolchainParent = toolchain.empty() ? "" :
+            fs::path(toolchain).parent_path().string();
+
+        // Look for test files in several locations in priority order
+        std::vector<std::string> testDirs = {
+            self + "/tests",                                    // next to binary
+            toolchainParent + "/tests",                         // next to toolchain
+            toolchainParent + "/../tests",                      // one level up
+            fs::current_path().string() + "/tests",             // CWD/tests
+            fs::current_path().string(),                        // CWD itself (*.ks)
+        };
+        // Also accept a specific test file on the command line
+        std::vector<std::string> testFiles;
+        if (!path.empty()) {
+            testFiles.push_back(path);
+        } else {
+            for (auto& td : testDirs) {
+                if (fs::exists(td)) {
+                    for (auto& entry : fs::directory_iterator(td)) {
+                        if (entry.path().extension() == ".ks")
+                            testFiles.push_back(entry.path().string());
+                    }
+                    break;
+                }
+            }
+        }
+        if (testFiles.empty()) {
+            std::cerr << "konscript --test: no test files found.\n";
+            std::cerr << "  Place .ks test files in " << self << "/tests/\n";
+            std::cerr << "  Or run: konscript --test <file.ks>\n";
+            return 1;
+        }
+        std::sort(testFiles.begin(), testFiles.end());
+        int totalPass = 0, totalFail = 0;
+        std::cout << "\n=== KonScript Built-in Test Runner ===\n\n";
+        for (auto& tf : testFiles) {
+            std::string name = fs::path(tf).filename().string();
+            std::cout << "[RUN] " << name << "\n";
+            // Build
+            std::string binPath = "/tmp/ks_test_" + std::to_string(std::time(nullptr));
+            std::string buildCmd = argv[0] + std::string(" \"") + tf + "\" -o \"" + binPath + "\"";
+            int buildRet = std::system(buildCmd.c_str());
+            if (buildRet != 0) {
+                std::cout << "[FAIL] " << name << " — build failed\n";
+                totalFail++;
+                continue;
+            }
+            // Run
+            int runRet = std::system(("\"" + binPath + "\"").c_str());
+            std::remove(binPath.c_str());
+            if (runRet == 0) {
+                std::cout << "[PASS] " << name << "\n";
+                totalPass++;
+            } else {
+                std::cout << "[FAIL] " << name << " — exit code " << runRet << "\n";
+                totalFail++;
+            }
+        }
+        std::cout << "\n=== Results: " << totalPass << " passed, " << totalFail << " failed ===\n";
+        return totalFail > 0 ? 1 : 0;
     }
 
     if (path.empty()) { std::cerr << "konscript: no input file\n"; usage(); return 1; }
@@ -419,16 +490,30 @@ int main(int argc, char** argv) {
 
     if (isWindows) {
         // Windows target: use lld-link (COFF/PE linker)
-        // If we have a bundled sysroot use MinGW libs, otherwise bare link
         std::string sr = toolchainDir.empty() ? "" : toolchainDir + "/sysroot/windows64/lib";
         linkCmd = "\"" + lld + "\""
             + " /OUT:\"" + outPath + "\""
             + " /SUBSYSTEM:CONSOLE"
-            + " \"" + objFile + "\"";
-        if (!sr.empty() && fs::exists(sr + "/libmingwex.a")) {
-            linkCmd += " \"" + sr + "/libmingwex.a\""
+            + " /ENTRY:mainCRTStartup";
+        if (!sr.empty() && fs::exists(sr + "/crt2.o")) {
+            // Full MinGW sysroot available — link against CRT + import libs
+            linkCmd += " \"" + sr + "/crt2.o\""
+                     + " \"" + objFile + "\""
+                     + " \"" + sr + "/libmingw32.a\""
+                     + " \"" + sr + "/libmingwex.a\""
                      + " \"" + sr + "/libmsvcrt.a\""
                      + " \"" + sr + "/libkernel32.a\"";
+            if (fs::exists(sr + "/libucrt.a"))
+                linkCmd += " \"" + sr + "/libucrt.a\"";
+            if (fs::exists(sr + "/libgcc.a"))
+                linkCmd += " \"" + sr + "/libgcc.a\"";
+        } else {
+            // No sysroot — bare link (will fail without MinGW; show helpful error)
+            linkCmd += " \"" + objFile + "\"";
+            if (sr.empty() || !fs::exists(sr))
+                std::cerr << "konscript: warning: Windows sysroot not found at "
+                          << (toolchainDir + "/sysroot/windows64/lib") << "\n"
+                          << "  Run bundle-toolchain.sh to set up the Windows sysroot.\n";
         }
     } else if (isWasm) {
         linkCmd = "\"" + lld + "\""

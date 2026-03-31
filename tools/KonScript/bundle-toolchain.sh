@@ -48,6 +48,7 @@ done
 
 LLVM_DIR="${PREFIX}/llvm"
 SYSROOT="${PREFIX}/sysroot/linux64"
+WIN_SYSROOT="${PREFIX}/sysroot/windows64"
 MUSL_SRC="${PREFIX}/_build/musl-${MUSL_VERSION}"
 MUSL_INSTALL="${PREFIX}/_build/musl-install"
 MUSL_TARBALL="musl-${MUSL_VERSION}.tar.gz"
@@ -57,6 +58,7 @@ MUSL_URL="https://musl.libc.org/releases/${MUSL_TARBALL}"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}[ok]${NC}  $*"; }
 info() { echo -e "${YELLOW}[..]${NC}  $*"; }
+warn() { echo -e "${RED}[warn]${NC} $*"; }
 fail() { echo -e "${RED}[!!]${NC}  $*"; exit 1; }
 
 echo ""
@@ -159,12 +161,28 @@ else
     MUSL_CC=$(find_cc) || fail "No C compiler found. Install gcc or clang: sudo emerge sys-devel/gcc"
     ok "Using C compiler: ${MUSL_CC} ($(${MUSL_CC} --version 2>&1 | head -1))"
 
-    CC="${MUSL_CC}" ./configure \
-        --prefix="${MUSL_INSTALL}" \
+    # IMPORTANT: musl's Makefile uses % pattern rules which break if the build
+    # path contains spaces. Build in /tmp which is guaranteed space-free, then
+    # copy the output back into the sysroot.
+    MUSL_TMPBUILD="/tmp/koneditor-musl-build"
+    MUSL_TMPINSTALL="/tmp/koneditor-musl-install"
+    rm -rf "$MUSL_TMPBUILD" "$MUSL_TMPINSTALL"
+    mkdir -p "$MUSL_TMPBUILD" "$MUSL_TMPINSTALL"
+
+    info "Copying musl source to /tmp (avoids spaces-in-path issue)..."
+    cp -r "${MUSL_SRC}/." "$MUSL_TMPBUILD/"
+    cd "$MUSL_TMPBUILD"
+
+    # Clean any previous attempt
+    make clean > /dev/null 2>&1 || true
+    rm -f config.mak
+
+    CC="${MUSL_CC}" AR=ar RANLIB=ranlib ./configure \
+        --prefix="$MUSL_TMPINSTALL" \
         --target=x86_64 \
         --disable-shared \
         --enable-static \
-        --syslibdir="${MUSL_INSTALL}/lib" \
+        --syslibdir="$MUSL_TMPINSTALL/lib" \
         CFLAGS="-O2" \
         > "${PREFIX}/_build/musl-configure.log" 2>&1
     ok "musl configured"
@@ -173,34 +191,98 @@ else
     make -j"$(nproc)" > "${PREFIX}/_build/musl-build.log" 2>&1
     ok "musl built"
 
-    info "Installing musl to ${MUSL_INSTALL}..."
+    info "Installing musl..."
     make install > "${PREFIX}/_build/musl-install.log" 2>&1
     ok "musl installed"
 
     # Copy the pieces KonBuild needs into the sysroot
     info "Copying musl files into sysroot..."
-    cp -f "${MUSL_INSTALL}/lib/crt1.o"  "${SYSROOT}/lib/"
-    cp -f "${MUSL_INSTALL}/lib/crti.o"  "${SYSROOT}/lib/"
-    cp -f "${MUSL_INSTALL}/lib/crtn.o"  "${SYSROOT}/lib/"
-    cp -f "${MUSL_INSTALL}/lib/libc.a"  "${SYSROOT}/lib/"
+    for f in crt1.o Scrt1.o crti.o crtn.o libc.a; do
+        [ -f "$MUSL_TMPINSTALL/lib/$f" ] && cp -f "$MUSL_TMPINSTALL/lib/$f" "${SYSROOT}/lib/"
+    done
 
-    # libm is bundled inside musl's libc.a — create a symlink so KonBuild finds it
-    # (Some musl builds produce a separate libm.a, others don't)
-    if [ -f "${MUSL_INSTALL}/lib/libm.a" ]; then
-        cp -f "${MUSL_INSTALL}/lib/libm.a" "${SYSROOT}/lib/"
+    # libm — musl includes math in libc.a; create a copy named libm.a
+    if [ -f "$MUSL_TMPINSTALL/lib/libm.a" ]; then
+        cp -f "$MUSL_TMPINSTALL/lib/libm.a" "${SYSROOT}/lib/"
     else
-        # Create a thin archive that just re-exports libc.a
-        # (musl includes math in libc.a)
-        cd "${SYSROOT}/lib"
-        echo "/* libm.a — math is bundled in libc.a for musl */" > libm_stub.c
-        llvm-ar rc libm.a || cp libc.a libm.a
-        cd "${SCRIPT_DIR}"
+        cp -f "${SYSROOT}/lib/libc.a" "${SYSROOT}/lib/libm.a"
     fi
 
     ok "musl sysroot ready at ${SYSROOT}/lib/"
 fi
 
-# ── Step 4: write a README for the toolchain dir ─────────────────────────────
+# ── Step 5: Windows cross-compile sysroot (MinGW-w64 CRT) ────────────────────
+# Downloads a pre-built MinGW-w64 toolchain to get the CRT objects and import
+# libs needed to link Windows binaries from Linux via lld-link.
+WIN_CRT="${WIN_SYSROOT}/lib/crt2.o"
+if [ -f "${WIN_CRT}" ]; then
+    ok "Windows sysroot already present — skipping"
+else
+    info "Setting up Windows cross-compile sysroot (MinGW-w64 CRT)..."
+    mkdir -p "${WIN_SYSROOT}/lib"
+    mkdir -p "${PREFIX}/_build"
+
+    # Try to grab CRT objects from system mingw-w64 first (much faster)
+    MINGW_DIRS=(
+        /usr/x86_64-w64-mingw32/usr/lib
+        /usr/lib/mingw64-toolchain/lib/gcc/x86_64-w64-mingw32/*/
+        /usr/lib/mingw64-toolchain/lib
+        /usr/lib/gcc/x86_64-w64-mingw32/*/
+        /usr/x86_64-w64-mingw32/sys-root/mingw/lib
+    )
+    MINGW_FOUND=""
+    for d in "${MINGW_DIRS[@]}"; do
+        # shellcheck disable=SC2086
+        for dd in $d; do
+            if [ -f "$dd/crt2.o" ]; then
+                MINGW_FOUND="$dd"
+                break 2
+            fi
+        done
+    done
+
+    if [ -n "$MINGW_FOUND" ]; then
+        info "Found system MinGW-w64 at $MINGW_FOUND"
+        for f in crt2.o crtbegin.o crtend.o dllcrt2.o libmingwex.a libmsvcrt.a libkernel32.a libucrt.a libmingw32.a; do
+            [ -f "$MINGW_FOUND/$f" ] && cp -f "$MINGW_FOUND/$f" "${WIN_SYSROOT}/lib/" && info "  Copied $f"
+        done
+        ok "Windows sysroot from system MinGW-w64"
+    else
+        # Download WinLibs MinGW-w64 (UCRT, POSIX, no installer needed)
+        WINLIBS_URL="https://github.com/brechtsanders/winlibs_mingw/releases/download/13.2.0posix-11.0.1-ucrt-r5/winlibs-x86_64-posix-seh-gcc-13.2.0-llvm-17.0.6-mingw-w64ucrt-11.0.1-r5.tar.xz"
+        WINLIBS_TAR="${PREFIX}/_build/mingw64.tar.xz"
+
+        info "Downloading MinGW-w64 (this may take a while ~150MB)..."
+        if command -v wget &>/dev/null; then
+            wget -q --show-progress -O "$WINLIBS_TAR" "$WINLIBS_URL" || { warn "Download failed — Windows cross-compile will use system linker"; WINLIBS_TAR=""; }
+        elif command -v curl &>/dev/null; then
+            curl -L --progress-bar -o "$WINLIBS_TAR" "$WINLIBS_URL" || { warn "Download failed — Windows cross-compile will use system linker"; WINLIBS_TAR=""; }
+        else
+            warn "Neither wget nor curl found — skipping Windows sysroot"
+            WINLIBS_TAR=""
+        fi
+
+        if [ -n "$WINLIBS_TAR" ] && [ -f "$WINLIBS_TAR" ]; then
+            info "Extracting MinGW-w64..."
+            MINGW_EXTRACT="${PREFIX}/_build/mingw64-extract"
+            mkdir -p "$MINGW_EXTRACT"
+            tar -xf "$WINLIBS_TAR" -C "$MINGW_EXTRACT" --strip-components=1 2>/dev/null || \
+                tar -xf "$WINLIBS_TAR" -C "$MINGW_EXTRACT"
+
+            # Find the lib directory
+            MINGW_LIB=$(find "$MINGW_EXTRACT" -name "crt2.o" -exec dirname {} \; 2>/dev/null | head -1)
+            if [ -n "$MINGW_LIB" ]; then
+                for f in crt2.o crtbegin.o crtend.o dllcrt2.o libmingwex.a libmsvcrt.a libkernel32.a libucrt.a libmingw32.a libgcc.a libgcc_eh.a; do
+                    [ -f "$MINGW_LIB/$f" ] && cp -f "$MINGW_LIB/$f" "${WIN_SYSROOT}/lib/" && info "  Copied $f"
+                done
+                ok "Windows sysroot ready at ${WIN_SYSROOT}/lib/"
+            else
+                warn "Could not find CRT objects in extracted archive — Windows cross-compile may fail"
+            fi
+            rm -f "$WINLIBS_TAR"
+        fi
+    fi
+fi
 cat > "${PREFIX}/README.md" << 'READMEEOF'
 # KonEditor Toolchain
 

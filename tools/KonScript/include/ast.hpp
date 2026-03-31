@@ -40,7 +40,9 @@ struct Expr {
 
     enum class Kind {
         // Literals
-        IntLit, FloatLit, BoolLit, StrLit, NullLit, NoneLit,
+        IntLit, FloatLit, BoolLit, StrLit,
+        FStrLit,    // f"Hello {name}!" — interpolated string
+        NullLit, NoneLit,
 
         // Identifiers
         Ident,
@@ -91,7 +93,9 @@ struct Expr {
     } kind;
 };
 
+// -----------------------------------------------------------------------
 // Literal expressions
+// -----------------------------------------------------------------------
 struct IntLitExpr : Expr {
     int64_t value;
     IntLitExpr(int64_t v, int l, int c) : value(v) { kind = Kind::IntLit; line=l; col=c; }
@@ -99,9 +103,9 @@ struct IntLitExpr : Expr {
 
 struct FloatLitExpr : Expr {
     double      value;
-    std::string rawValue; // BUG-07: preserve source text for lossless emit
-    FloatLitExpr(double v, const std::string& raw, int l, int c)
-        : value(v), rawValue(raw) { kind = Kind::FloatLit; line=l; col=c; }
+    std::string raw;   // original source text e.g. "3.14"
+    FloatLitExpr(double v, int l, int c) : value(v) { kind = Kind::FloatLit; line=l; col=c; }
+    FloatLitExpr(double v, const std::string& r, int l, int c) : value(v), raw(r) { kind = Kind::FloatLit; line=l; col=c; }
 };
 
 struct BoolLitExpr : Expr {
@@ -112,6 +116,23 @@ struct BoolLitExpr : Expr {
 struct StrLitExpr : Expr {
     std::string value;
     StrLitExpr(const std::string& v, int l, int c) : value(v) { kind = Kind::StrLit; line=l; col=c; }
+};
+
+// f"Hello {name}, you scored {score} points!"
+// strParts  = ["Hello ", ", you scored ", " points!"]
+// exprParts = [IdentExpr(name), IdentExpr(score)]
+// Invariant: strParts.size() == exprParts.size() + 1
+struct FStrLitExpr : Expr {
+    std::vector<std::string> strParts;   // literal text segments
+    std::vector<ExprPtr>     exprParts;  // interpolated expressions
+
+    FStrLitExpr(std::vector<std::string> sp,
+                std::vector<ExprPtr>     ep,
+                int l, int c)
+        : strParts(std::move(sp)), exprParts(std::move(ep))
+    {
+        kind = Kind::FStrLit; line = l; col = c;
+    }
 };
 
 struct NullLitExpr : Expr {
@@ -334,7 +355,7 @@ struct ReturnStmt : Stmt {
 };
 
 struct BreakStmt : Stmt {
-    std::string label; // optional 'label
+    std::string label;
     BreakStmt(const std::string& lbl, int l, int c) : label(lbl) {
         kind = Kind::Break; line=l; col=c;
     }
@@ -376,7 +397,6 @@ struct LoopStmt : Stmt {
 };
 
 struct ForCStmt : Stmt {
-    // for i: I32 = 0; i < 10; i++
     std::string    var;
     TypeAnnotation type;
     ExprPtr        init;
@@ -393,7 +413,6 @@ struct ForCStmt : Stmt {
 };
 
 struct ForInStmt : Stmt {
-    // for i: I32 in expr
     std::string    var;
     TypeAnnotation type;
     ExprPtr        iterable;
@@ -408,8 +427,8 @@ struct ForInStmt : Stmt {
 };
 
 struct SwitchCase {
-    std::vector<ExprPtr>       values; // empty = default
-    std::vector<std::string>   bindings; // for enum payloads
+    std::vector<ExprPtr>       values;
+    std::vector<std::string>   bindings;
     std::vector<StmtPtr>       body;
     bool                       isDefault = false;
 };
@@ -432,7 +451,7 @@ struct WaitStmt : Stmt {
 
 struct IncludeStmt : Stmt {
     std::string path;
-    bool        isSystem; // <> vs ""
+    bool        isSystem;
     IncludeStmt(const std::string& p, bool sys, int l, int c)
         : path(p), isSystem(sys) { kind = Kind::Include; line=l; col=c; }
 };
@@ -473,7 +492,7 @@ struct FieldDecl {
 
 struct NodeDecl : Stmt {
     std::string              name;
-    std::string              base;   // Node2D, Sprite2D, etc.
+    std::string              base;
     std::vector<FieldDecl>   fields;
     std::vector<std::unique_ptr<FuncDecl>> methods;
     NodeDecl(const std::string& n, const std::string& b,
@@ -493,8 +512,8 @@ struct StructDecl : Stmt {
 };
 
 struct EnumVariant {
-    std::string                        name;
-    std::optional<TypeAnnotation>      payload; // Jumping(F64)
+    std::string                   name;
+    std::optional<TypeAnnotation> payload;
 };
 
 struct EnumDecl : Stmt {
@@ -506,7 +525,7 @@ struct EnumDecl : Stmt {
 
 struct ClassDecl : Stmt {
     std::string              name;
-    std::string              base;   // optional inheritance
+    std::string              base;
     std::vector<FieldDecl>   fields;
     std::vector<std::unique_ptr<FuncDecl>> methods;
     ClassDecl(const std::string& n, const std::string& b,

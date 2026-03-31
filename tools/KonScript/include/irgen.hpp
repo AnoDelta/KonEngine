@@ -21,6 +21,9 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <cstdint>
+#include <cstring>
+#include <cstdio>
 
 namespace KonScript {
 
@@ -80,6 +83,11 @@ public:
         m_tmpCount   = 0;
         m_labelCount = 0;
         m_locals.clear();
+        m_loopStack.clear();
+        m_globalInits.clear();
+        m_globalConstInits.clear();
+        m_globalTypes.clear();
+        m_funcRetTypes.clear();
         m_funcRetType = "void";
 
         // Module header — written to m_header so it always comes first
@@ -92,6 +100,14 @@ public:
         // Runtime declarations
         emitRuntimeDecls();
 
+        // First pass: record all function return types so call sites use correct type
+        for (auto& s : prog.stmts) {
+            if (s->kind == Stmt::Kind::FuncDecl) {
+                auto* f = static_cast<const FuncDecl*>(s.get());
+                m_funcRetTypes[f->name] = f->returnType ? llvmType(*f->returnType) : "void";
+            }
+        }
+
         // Generate all top-level definitions (may populate m_globalStr)
         // Note: no forward-declare pass needed — LLVM resolves forward refs
         // within the same module. declare is only for truly external symbols
@@ -101,6 +117,9 @@ public:
         // Generate all top-level definitions (may populate m_globalStr)
         for (auto& s : prog.stmts)
             genTopLevel(s.get());
+
+        // Emit runtime initializer for globals that need it (e.g. String literals)
+        emitGlobalInitFunc();
 
         // Final assembly order:
         //   1. target datalayout / target triple  (m_header)
@@ -132,17 +151,72 @@ private:
     int m_tmpCount  = 0;
     int m_labelCount = 0;
     std::string m_funcRetType;
-    // Local variable table: name → alloca pointer register (%name.addr)
-    std::unordered_map<std::string, std::string> m_locals;
+    // Local variable table: name → {alloca pointer, llvm type}
+    using ValType = std::pair<std::string, std::string>;
+    struct LocalVar { std::string addr; std::string llvmTy; };
+    std::unordered_map<std::string, LocalVar> m_locals;
+    // Global variable type table: name → llvm type
+    std::unordered_map<std::string, std::string> m_globalTypes;
+    // Function return type table: name → llvm return type
+    std::unordered_map<std::string, std::string> m_funcRetTypes;
     // Current basic block label (for branch targets)
     std::string m_currentBlock;
+
+    // Break/continue target stack — each loop pushes {breakLabel, continueLabel}
+    struct LoopLabels { std::string breakL; std::string contL; };
+    std::vector<LoopLabels> m_loopStack;
+
+    // Global variables that need runtime initialization (e.g. string literals)
+    std::vector<const LetStmt*>   m_globalInits;
+    std::vector<const ConstStmt*> m_globalConstInits;
 
     // -----------------------------------------------------------------------
     // Emission helpers
     // -----------------------------------------------------------------------
     void emit(const std::string& line) { m_out << line << "\n"; }
-    void emitI(const std::string& line) { m_out << "  " << line << "\n"; } // indented
-    void hdr(const std::string& line)  { m_header << line << "\n"; }  // module header
+    void emitI(const std::string& line) { m_out << "  " << line << "\n"; }
+    void hdr(const std::string& line)  { m_header << line << "\n"; }
+
+    // Format a double value as LLVM IR requires:
+    // Use hex float format (0x...) which is unambiguous and always accepted.
+    static std::string llvmFloat(double v, const std::string& lt) {
+        // For float (f32) use "float 0x..." with 64-bit hex of the double
+        // For double use "double 0x..."
+        // LLVM hex float: reinterpret the bits as uint64 and print as 0xHEX
+        uint64_t bits;
+        if (lt == "float") {
+            // Store as f32 first, then zero-extend to 64-bit
+            float f32 = static_cast<float>(v);
+            uint32_t b32;
+            memcpy(&b32, &f32, 4);
+            bits = static_cast<uint64_t>(b32) << 32;
+        } else {
+            memcpy(&bits, &v, 8);
+        }
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%016llX", (unsigned long long)bits);
+        return std::string(buf);
+    }
+
+    // Returns true if the last instruction in the current output is a terminator
+    // Used to avoid emitting a branch after break/return already terminated the block
+    bool blockIsTerminated() const {
+        std::string s = m_out.str();
+        if (s.empty()) return false;
+        // Strip trailing newlines
+        size_t end = s.find_last_not_of("\n\r ");
+        if (end == std::string::npos) return false;
+        // Find start of last line
+        size_t start = s.rfind('\n', end);
+        start = (start == std::string::npos) ? 0 : start + 1;
+        std::string last = s.substr(start, end - start + 1);
+        // Trim leading spaces
+        size_t ns = last.find_first_not_of(" \t");
+        if (ns != std::string::npos) last = last.substr(ns);
+        return last.rfind("ret ", 0) == 0
+            || last.rfind("br ", 0) == 0
+            || last.rfind("unreachable", 0) == 0;
+    }
 
     std::string tmp()   { return "%t" + std::to_string(m_tmpCount++); }
     std::string label() { return "L" + std::to_string(m_labelCount++); }
@@ -234,11 +308,53 @@ private:
     }
 
     // -----------------------------------------------------------------------
-    // Runtime declarations
+    // Emit @__ks_global_init — called by main to init String globals
+    // with their actual string literal pointers.
+    // main() calls this as its first instruction.
+    // -----------------------------------------------------------------------
+    void emitGlobalInitFunc() {
+        // Pre-resolve all string pointers FIRST — this writes the @str.N constants
+        // into m_globalStr before the function body so ordering is correct in the .ll
+        std::vector<std::pair<std::string, std::string>> letInits;  // {name, ptr}
+        std::vector<std::pair<std::string, std::string>> constInits;
+
+        for (auto* l : m_globalInits) {
+            if (!l->init) continue;
+            if (l->init->kind == Expr::Kind::StrLit) {
+                auto* sl = static_cast<const StrLitExpr*>(l->init.get());
+                std::string ptr = globalString(sl->value); // writes constant to m_globalStr
+                letInits.push_back({l->name, ptr});
+            }
+        }
+        for (auto* c : m_globalConstInits) {
+            if (!c->init) continue;
+            if (c->init->kind == Expr::Kind::StrLit) {
+                auto* sl = static_cast<const StrLitExpr*>(c->init.get());
+                std::string ptr = globalString(sl->value);
+                constInits.push_back({c->name, ptr});
+            }
+        }
+
+        // Now write the function body to m_globalStr — constants already above it
+        auto& out = m_globalStr;
+        out << "\n; --- global string initializer ---\n";
+        out << "define void @__ks_global_init() {\n";
+        out << "entry:\n";
+
+        for (auto& [name, ptr] : letInits)
+            out << "  store i8* " << ptr << ", i8** @" << name << "\n";
+        for (auto& [name, ptr] : constInits)
+            out << "  store i8* " << ptr << ", i8** @" << name << "\n";
+
+        out << "  ret void\n";
+        out << "}\n\n";
+    }
+
     // -----------------------------------------------------------------------
     void emitRuntimeDecls() {
         emit("; --- runtime ---");
         emit("declare i32 @printf(i8* nocapture, ...)");
+        emit("declare i32 @snprintf(i8* noalias nocapture, i64, i8* nocapture, ...)");
         emit("declare i32 @scanf(i8* nocapture, ...)");
         emit("declare i8* @malloc(i64)");
         emit("declare void @free(i8*)");
@@ -334,6 +450,7 @@ private:
         m_labelCount = 0;
         m_currentBlock = "entry";
         m_locals.clear();
+        m_loopStack.clear();
         // Alloca params
         for (auto& p : f->params) allocaParam(p.name, p.type);
         genBlock(f->body.get());
@@ -347,24 +464,28 @@ private:
     // Global variable (top-level let/const)
     // -----------------------------------------------------------------------
     void genGlobal(const Stmt* s) {
-        // For simplicity: emit as a global with a constant initializer.
-        // Expressions that require runtime init are put in @__ks_init.
         if (s->kind == Stmt::Kind::Let) {
             auto* l = static_cast<const LetStmt*>(s);
             std::string lt = llvmType(l->type);
-            // Only constant initializers are valid here; runtime ones need a ctor
+            m_globalTypes[l->name] = lt; // record for genIdent
             if (l->init && l->init->kind == Expr::Kind::IntLit) {
                 auto* v = static_cast<const IntLitExpr*>(l->init.get());
                 emit("@" + l->name + " = global " + lt + " " + std::to_string(v->value));
             } else if (l->init && l->init->kind == Expr::Kind::FloatLit) {
                 auto* v = static_cast<const FloatLitExpr*>(l->init.get());
-                emit("@" + l->name + " = global " + lt + " " + std::to_string(v->value));
+                emit("@" + l->name + " = global " + lt + " " + llvmFloat(v->value, lt));
             } else if (l->init && l->init->kind == Expr::Kind::BoolLit) {
                 auto* v = static_cast<const BoolLitExpr*>(l->init.get());
                 emit("@" + l->name + " = global i1 " + (v->value ? "true" : "false"));
+            } else if (l->init && (l->init->kind == Expr::Kind::StrLit ||
+                                   l->init->kind == Expr::Kind::FStrLit)) {
+                emit("@" + l->name + " = global i8* null");
+                m_globalTypes[l->name] = "i8*";
+                m_globalInits.push_back(l);
             } else {
-                // Zero-init, runtime init handled in @__ks_init
                 emit("@" + l->name + " = global " + lt + " zeroinitializer");
+                m_globalTypes[l->name] = lt;
+                if (l->init) m_globalInits.push_back(l);
             }
         } else {
             auto* c = static_cast<const ConstStmt*>(s);
@@ -372,8 +493,15 @@ private:
             if (c->init && c->init->kind == Expr::Kind::IntLit) {
                 auto* v = static_cast<const IntLitExpr*>(c->init.get());
                 emit("@" + c->name + " = constant " + lt + " " + std::to_string(v->value));
+                m_globalTypes[c->name] = lt;
+            } else if (c->init && (c->init->kind == Expr::Kind::StrLit ||
+                                   c->init->kind == Expr::Kind::FStrLit)) {
+                emit("@" + c->name + " = global i8* null");
+                m_globalTypes[c->name] = "i8*";
+                m_globalConstInits.push_back(c);
             } else {
                 emit("@" + c->name + " = constant " + lt + " zeroinitializer");
+                m_globalTypes[c->name] = lt;
             }
         }
     }
@@ -388,6 +516,10 @@ private:
         m_labelCount    = 0;
         m_currentBlock  = "entry";
         m_locals.clear();
+        m_loopStack.clear();
+
+        // Record return type so call sites can use correct type
+        m_funcRetTypes[f->name] = ret;
 
         // Build parameter list
         std::string params;
@@ -416,6 +548,11 @@ private:
             emitI("store " + lt + " %" + p.name + ".arg, " + lt + "* %" + p.name + ".addr");
         }
 
+        // main() calls the global initializer first so String globals are ready
+        if (f->name == "main") {
+            emitI("call void @__ks_global_init()");
+        }
+
         // Body
         genBlock(f->body.get());
 
@@ -436,31 +573,45 @@ private:
     void allocaParam(const std::string& name, const TypeAnnotation& type) {
         std::string lt  = llvmType(type);
         std::string reg = "%" + name + ".addr";
+        // If already defined (shadowing), make unique
+        if (m_locals.count(name))
+            reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
-        m_locals[name] = reg;
+        m_locals[name] = {reg, lt};
     }
 
     void allocaLocal(const std::string& name, const TypeAnnotation& type) {
         std::string lt  = llvmType(type);
         std::string reg = "%" + name + ".addr";
+        // If already defined (same name in inner scope), make unique
+        if (m_locals.count(name))
+            reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
-        m_locals[name] = reg;
+        m_locals[name] = {reg, lt};
     }
 
-    // Load a local variable into a fresh temp register; returns "%tN"
-    std::string loadLocal(const std::string& name, const TypeAnnotation& type) {
+    // Load a variable — looks up locals first, then globals; returns {value, llvmType}
+    ValType loadVar(const std::string& name) {
         auto it = m_locals.find(name);
-        if (it == m_locals.end()) {
-            // May be a global
-            std::string t  = tmp();
-            std::string lt = llvmType(type);
-            emitI(t + " = load " + lt + ", " + lt + "* @" + name);
-            return t;
+        if (it != m_locals.end()) {
+            std::string t = tmp();
+            emitI(t + " = load " + it->second.llvmTy + ", "
+                  + it->second.llvmTy + "* " + it->second.addr
+                  + "  ; " + name);
+            return {t, it->second.llvmTy};
         }
+        // Global
+        auto gt = m_globalTypes.find(name);
+        std::string lt = gt != m_globalTypes.end() ? gt->second : "i32";
         std::string t  = tmp();
-        std::string lt = llvmType(type);
-        emitI(t + " = load " + lt + ", " + lt + "* " + it->second);
-        return t;
+        emitI(t + " = load " + lt + ", " + lt + "* @" + name + "  ; global");
+        return {t, lt};
+    }
+
+    // Legacy helper used by genLet/genConst stores
+    std::string loadLocal(const std::string& name, const TypeAnnotation& type) {
+        auto [val, _] = loadVar(name);
+        return val;
     }
 
     // -----------------------------------------------------------------------
@@ -497,16 +648,28 @@ private:
         case Stmt::Kind::Loop:     genLoopStmt(s);  break;
         case Stmt::Kind::ForC:     genForC(s);      break;
         case Stmt::Kind::ForIn:    genForIn(s);     break;
-        case Stmt::Kind::Break:    emitI("br label %__break"); break; // fixed up by loop codegen
-        case Stmt::Kind::Continue: emitI("br label %__cont");  break;
+        case Stmt::Kind::Break:
+            if (!m_loopStack.empty())
+                emitI("br label %" + m_loopStack.back().breakL);
+            else
+                emitI("br label %__break_error");
+            break;
+        case Stmt::Kind::Continue:
+            if (!m_loopStack.empty())
+                emitI("br label %" + m_loopStack.back().contL);
+            else
+                emitI("br label %__cont_error");
+            break;
         case Stmt::Kind::Block: {
             auto* blk = static_cast<const BlockStmt*>(s);
             genBlock(blk);
             break;
         }
         case Stmt::Kind::FuncDecl:
-            // Nested function — emit as a separate function (closure not supported yet)
             genFunc(static_cast<const FuncDecl*>(s));
+            break;
+        case Stmt::Kind::Switch:
+            genSwitch(s);
             break;
         default: break;
         }
@@ -556,6 +719,143 @@ private:
     // -----------------------------------------------------------------------
     // If / else
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // switch statement
+    // Emits: evaluate expr, LLVM switch to case blocks, merge at end
+    // Each case block runs its body then branches to endL (unless terminated)
+    // -----------------------------------------------------------------------
+    void genSwitch(const Stmt* s) {
+        auto* sw = static_cast<const SwitchStmt*>(s);
+        auto [val, lt] = genExpr(sw->expr.get());
+        std::string endL = label();
+
+        // Push break target so 'break' inside cases jumps to endL
+        m_loopStack.push_back({endL, endL});
+
+        // Build case label list and default label
+        std::string defaultL = endL; // default falls through to end
+        std::vector<std::pair<std::string, std::string>> casePairs; // {value, label}
+        std::vector<std::string> caseLabels;
+
+        for (auto& c : sw->cases) {
+            std::string cl = label();
+            caseLabels.push_back(cl);
+            if (c.isDefault) {
+                defaultL = cl;
+            } else {
+                for (auto& v : c.values) {
+                    // Evaluate case value — must be a constant for LLVM switch
+                    // Get the raw integer value
+                    std::string cv;
+                    if (v->kind == Expr::Kind::IntLit)
+                        cv = std::to_string(static_cast<const IntLitExpr*>(v.get())->value);
+                    else {
+                        // For ident constants like DIR_NORTH, evaluate as expr
+                        // LLVM switch needs integer constants — we load them
+                        // Fall back to if-else chain for non-literal cases
+                        cv = "?";
+                    }
+                    if (cv != "?")
+                        casePairs.push_back({cv, cl});
+                }
+            }
+        }
+
+        // Check if all case values are integer literals (can use LLVM switch)
+        bool allLiteral = (casePairs.size() == sw->cases.size() - (defaultL != endL ? 1 : 0)
+                           || casePairs.size() == sw->cases.size());
+
+        // If any non-literal cases exist, emit as if-else chain instead
+        bool hasNonLiteral = false;
+        for (auto& c : sw->cases) {
+            if (!c.isDefault) {
+                for (auto& v : c.values) {
+                    if (v->kind != Expr::Kind::IntLit)
+                        hasNonLiteral = true;
+                }
+            }
+        }
+
+        if (hasNonLiteral) {
+            // Emit as if-else chain (handles const ident cases like DIR_NORTH)
+            // Each case needs TWO labels: checkL (evaluate condition) and bodyL (run body)
+            std::vector<std::string> checkLabels;
+            std::vector<std::string> bodyLabels;
+            for (size_t ci = 0; ci < sw->cases.size(); ci++) {
+                checkLabels.push_back(label());
+                bodyLabels.push_back(label());
+            }
+
+            // Jump to first check
+            emitI("br label %" + checkLabels[0]);
+
+            for (size_t ci = 0; ci < sw->cases.size(); ci++) {
+                auto& c = sw->cases[ci];
+                std::string nextCheckL = (ci + 1 < sw->cases.size())
+                    ? checkLabels[ci + 1] : endL;
+
+                // Emit check block
+                emit(checkLabels[ci] + ":");
+                m_currentBlock = checkLabels[ci];
+
+                if (c.isDefault) {
+                    // Default — always jump to body
+                    emitI("br label %" + bodyLabels[ci]);
+                } else {
+                    // Build condition: val == case_value (OR across multiple values)
+                    std::string cond;
+                    for (size_t vi = 0; vi < c.values.size(); vi++) {
+                        auto [cv, ct] = genExpr(c.values[vi].get());
+                        std::string eq = tmp();
+                        emitI(eq + " = icmp eq " + lt + " " + val + ", " + cv);
+                        if (vi == 0) {
+                            cond = eq;
+                        } else {
+                            std::string orr = tmp();
+                            emitI(orr + " = or i1 " + cond + ", " + eq);
+                            cond = orr;
+                        }
+                    }
+                    emitI("br i1 " + cond + ", label %" + bodyLabels[ci]
+                          + ", label %" + nextCheckL);
+                }
+
+                // Emit body block
+                emit(bodyLabels[ci] + ":");
+                m_currentBlock = bodyLabels[ci];
+                for (auto& stmt : c.body)
+                    genStmt(stmt.get());
+                if (!blockIsTerminated())
+                    emitI("br label %" + endL);
+            }
+        } else {
+            // Pure integer literal cases — use LLVM switch instruction
+            std::string swInstr = "switch " + lt + " " + val
+                                + ", label %" + defaultL + " [\n";
+            for (auto& [cv, cl] : casePairs)
+                swInstr += "    " + lt + " " + cv + ", label %" + cl + "\n";
+            swInstr += "  ]";
+            emitI(swInstr);
+
+            for (size_t ci = 0; ci < sw->cases.size(); ci++) {
+                auto& c = sw->cases[ci];
+                emit(caseLabels[ci] + ":");
+                m_currentBlock = caseLabels[ci];
+                for (auto& stmt : c.body)
+                    genStmt(stmt.get());
+                if (!blockIsTerminated())
+                    emitI("br label %" + endL);
+            }
+        }
+
+        m_loopStack.pop_back();
+        emit(endL + ":");
+        m_currentBlock = endL;
+    }
+
+    // -----------------------------------------------------------------------
+    // If / else
+    // -----------------------------------------------------------------------
     void genIf(const Stmt* s) {
         auto* i   = static_cast<const IfStmt*>(s);
         std::string thenL = label(), elseL = label(), endL = label();
@@ -590,6 +890,8 @@ private:
         auto* w   = static_cast<const WhileStmt*>(s);
         std::string condL = label(), bodyL = label(), endL = label();
 
+        m_loopStack.push_back({endL, condL});
+
         emitI("br label %" + condL);
         emit(condL + ":");
         m_currentBlock = condL;
@@ -600,7 +902,9 @@ private:
         emit(bodyL + ":");
         m_currentBlock = bodyL;
         genBlock(w->body.get());
-        emitI("br label %" + condL);
+        if (!blockIsTerminated()) emitI("br label %" + condL);
+
+        m_loopStack.pop_back();
 
         emit(endL + ":");
         m_currentBlock = endL;
@@ -612,11 +916,17 @@ private:
     void genLoopStmt(const Stmt* s) {
         auto* l = static_cast<const LoopStmt*>(s);
         std::string bodyL = label(), endL = label();
+
+        m_loopStack.push_back({endL, bodyL});
+
         emitI("br label %" + bodyL);
         emit(bodyL + ":");
         m_currentBlock = bodyL;
         genBlock(l->body.get());
-        emitI("br label %" + bodyL);
+        if (!blockIsTerminated()) emitI("br label %" + bodyL);
+
+        m_loopStack.pop_back();
+
         emit(endL + ":");
         m_currentBlock = endL;
     }
@@ -629,10 +939,11 @@ private:
         std::string initL = label(), condL = label(), bodyL = label(),
                     stepL = label(), endL  = label();
 
-        // Init
         allocaLocal(f->var, f->type);
         auto [initVal, lt] = genExpr(f->init.get(), f->type);
         emitI("store " + lt + " " + initVal + ", " + lt + "* %" + f->var + ".addr");
+
+        m_loopStack.push_back({endL, stepL});
 
         emitI("br label %" + condL);
         emit(condL + ":");
@@ -643,12 +954,14 @@ private:
         emit(bodyL + ":");
         m_currentBlock = bodyL;
         genBlock(f->body.get());
-        emitI("br label %" + stepL);
+        if (!blockIsTerminated()) emitI("br label %" + stepL);
 
         emit(stepL + ":");
         m_currentBlock = stepL;
         genExpr(f->step.get());
         emitI("br label %" + condL);
+
+        m_loopStack.pop_back();
 
         emit(endL + ":");
         m_currentBlock = endL;
@@ -665,6 +978,8 @@ private:
             auto* r = static_cast<const RangeExpr*>(f->iterable.get());
             std::string condL = label(), bodyL = label(),
                         stepL = label(), endL  = label();
+
+            m_loopStack.push_back({endL, stepL});
 
             allocaLocal(f->var, f->type);
             auto [start, slt] = genExpr(r->from.get(), f->type);
@@ -684,7 +999,7 @@ private:
             emit(bodyL + ":");
             m_currentBlock = bodyL;
             genBlock(f->body.get());
-            emitI("br label %" + stepL);
+            if (!blockIsTerminated()) emitI("br label %" + stepL);
 
             emit(stepL + ":");
             m_currentBlock = stepL;
@@ -694,6 +1009,8 @@ private:
             emitI(next + " = add " + slt + " " + curi + ", 1");
             emitI("store " + slt + " " + next + ", " + slt + "* %" + f->var + ".addr");
             emitI("br label %" + condL);
+
+            m_loopStack.pop_back();
 
             emit(endL + ":");
             m_currentBlock = endL;
@@ -707,8 +1024,6 @@ private:
     // Expressions — returns {register_or_constant, llvm_type_string}
     // The hint type is used when we need to coerce (e.g. int literal to i64)
     // -----------------------------------------------------------------------
-    using ValType = std::pair<std::string, std::string>;
-
     ValType genExpr(const Expr* e, const TypeAnnotation& hint = {}) {
         if (!e) return {"undef", "i32"};
         switch (e->kind) {
@@ -722,6 +1037,8 @@ private:
             auto* sl = static_cast<const StrLitExpr*>(e);
             return {globalString(sl->value), "i8*"};
         }
+        case Expr::Kind::FStrLit:
+            return genFStrLit(static_cast<const FStrLitExpr*>(e));
         case Expr::Kind::NullLit:
         case Expr::Kind::NoneLit:
             return {"null", "i8*"};
@@ -748,29 +1065,14 @@ private:
 
     ValType genFloatLit(const FloatLitExpr* e, const TypeAnnotation& hint) {
         std::string lt = (hint.base == "F32" || hint.base == "Float") ? "float" : "double";
-        return {std::to_string(e->value), lt};
+        return {llvmFloat(e->value, lt), lt};
     }
 
     ValType genIdent(const IdentExpr* e) {
-        // Known built-in constants
         if (e->name == "true")  return {"true",  "i1"};
         if (e->name == "false") return {"false", "i1"};
         if (e->name == "null")  return {"null",  "i8*"};
-
-        auto it = m_locals.find(e->name);
-        if (it != m_locals.end()) {
-            // We don't know the type here without the symbol table.
-            // Emit a load using i32 as a fallback — the typechecker pass should
-            // have validated types already.
-            // TODO: carry type info in locals table
-            std::string t = tmp();
-            emitI(t + " = load i32, i32* " + it->second + "  ; " + e->name);
-            return {t, "i32"};
-        }
-        // Global variable
-        std::string t = tmp();
-        emitI(t + " = load i32, i32* @" + e->name + "  ; global");
-        return {t, "i32"};
+        return loadVar(e->name);
     }
 
     ValType genUnary(const UnaryExpr* e) {
@@ -789,10 +1091,11 @@ private:
             return {t, "i1"};
         }
         if (e->op == "++" || e->op == "--") {
-            // Only works on idents (lvalue)
             if (e->operand->kind == Expr::Kind::Ident) {
                 auto* id = static_cast<const IdentExpr*>(e->operand.get());
-                auto addr = m_locals.count(id->name) ? m_locals[id->name] : "@" + id->name;
+                std::string addr;
+                auto it = m_locals.find(id->name);
+                addr = (it != m_locals.end()) ? it->second.addr : "@" + id->name;
                 std::string old = tmp();
                 emitI(old + " = load " + lt + ", " + lt + "* " + addr);
                 std::string nxt = tmp();
@@ -809,36 +1112,59 @@ private:
         auto [lv, lt] = genExpr(e->left.get());
         auto [rv, rt] = genExpr(e->right.get());
 
-        // Use left type as authoritative
-        std::string t = tmp();
-        bool isFloat = (lt == "float" || lt == "double");
-        bool isBool  = false;
+        // Promote int to float if types differ
+        std::string lt2 = lt, lv2 = lv, rv2 = rv;
+        if (lt != rt) {
+            bool lFloat = (lt == "float" || lt == "double");
+            bool rFloat = (rt == "float" || rt == "double");
+            if (lFloat && !rFloat) {
+                std::string t2 = tmp();
+                emitI(t2 + " = sitofp " + rt + " " + rv + " to " + lt);
+                rv2 = t2;
+            } else if (rFloat && !lFloat) {
+                std::string t2 = tmp();
+                emitI(t2 + " = sitofp " + lt + " " + lv + " to " + rt);
+                lv2 = t2; lt2 = rt;
+            } else if ((lt=="double"&&rt=="float")||(lt=="float"&&rt=="double")) {
+                std::string t2 = tmp();
+                if (lt == "float") {
+                    emitI(t2 + " = fpext float " + lv + " to double");
+                    lv2 = t2; lt2 = "double";
+                } else {
+                    emitI(t2 + " = fpext float " + rv + " to double");
+                    rv2 = t2;
+                }
+            }
+        }
 
+        std::string t = tmp();
+        bool isFloat = (lt2 == "float" || lt2 == "double");
+        bool isBool  = false;
         std::string op = e->op;
-        if (op == "+")  { emitI(t + " = " + (isFloat?"fadd":"add") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "-") { emitI(t + " = " + (isFloat?"fsub":"sub") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "*") { emitI(t + " = " + (isFloat?"fmul":"mul") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "/") { emitI(t + " = " + (isFloat?"fdiv":"sdiv") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "%") { emitI(t + " = " + (isFloat?"frem":"srem") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "==") { isBool=true; emitI(t + " = " + (isFloat?"fcmp oeq":"icmp eq") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "!=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp one":"icmp ne") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "<")  { isBool=true; emitI(t + " = " + (isFloat?"fcmp olt":"icmp slt") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "<=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp ole":"icmp sle") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == ">")  { isBool=true; emitI(t + " = " + (isFloat?"fcmp ogt":"icmp sgt") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == ">=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp oge":"icmp sge") + " " + lt + " " + lv + ", " + rv); }
-        else if (op == "&&") { isBool=true; emitI(t + " = and i1 " + lv + ", " + rv); }
-        else if (op == "||") { isBool=true; emitI(t + " = or i1 " + lv + ", " + rv); }
-        else if (op == "&")  { emitI(t + " = and " + lt + " " + lv + ", " + rv); }
-        else if (op == "|")  { emitI(t + " = or " + lt + " " + lv + ", " + rv); }
-        else if (op == "^")  { emitI(t + " = xor " + lt + " " + lv + ", " + rv); }
-        else if (op == "<<") { emitI(t + " = shl " + lt + " " + lv + ", " + rv); }
-        else if (op == ">>") { emitI(t + " = ashr " + lt + " " + lv + ", " + rv); }
+
+        if (op == "+")  { emitI(t + " = " + (isFloat?"fadd":"add") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "-") { emitI(t + " = " + (isFloat?"fsub":"sub") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "*") { emitI(t + " = " + (isFloat?"fmul":"mul") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "/") { emitI(t + " = " + (isFloat?"fdiv":"sdiv") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "%") { emitI(t + " = " + (isFloat?"frem":"srem") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "==") { isBool=true; emitI(t + " = " + (isFloat?"fcmp oeq":"icmp eq") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "!=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp one":"icmp ne") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "<")  { isBool=true; emitI(t + " = " + (isFloat?"fcmp olt":"icmp slt") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "<=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp ole":"icmp sle") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == ">")  { isBool=true; emitI(t + " = " + (isFloat?"fcmp ogt":"icmp sgt") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == ">=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp oge":"icmp sge") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "&&") { isBool=true; emitI(t + " = and i1 " + lv2 + ", " + rv2); }
+        else if (op == "||") { isBool=true; emitI(t + " = or i1 "  + lv2 + ", " + rv2); }
+        else if (op == "&")  { emitI(t + " = and " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "|")  { emitI(t + " = or "  + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "^")  { emitI(t + " = xor " + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == "<<") { emitI(t + " = shl "  + lt2 + " " + lv2 + ", " + rv2); }
+        else if (op == ">>") { emitI(t + " = ashr " + lt2 + " " + lv2 + ", " + rv2); }
         else {
             error("IRGen: unsupported binary op: " + op, e->line, e->col);
             emitI(t + " = add i32 0, 0");
         }
-
-        return {t, isBool ? "i1" : lt};
+        return {t, isBool ? "i1" : lt2};
     }
 
     ValType genAssign(const AssignExpr* e) {
@@ -846,10 +1172,23 @@ private:
 
         // Find the lvalue address
         std::string addr;
+        std::string addrTy = lt;
         if (e->target->kind == Expr::Kind::Ident) {
             auto* id = static_cast<const IdentExpr*>(e->target.get());
             auto it = m_locals.find(id->name);
-            addr = (it != m_locals.end()) ? it->second : "@" + id->name;
+            if (it != m_locals.end()) {
+                addr   = it->second.addr;
+                addrTy = it->second.llvmTy;
+                // Use the variable's declared type, not the RHS type
+                lt = addrTy;
+            } else {
+                addr = "@" + id->name;
+                auto gt = m_globalTypes.find(id->name);
+                if (gt != m_globalTypes.end()) {
+                    addrTy = gt->second;
+                    lt = addrTy;
+                }
+            }
         } else {
             error("IRGen: complex lvalue assignment not yet supported", e->line, e->col);
             return {val, lt};
@@ -884,6 +1223,48 @@ private:
 
         // ---- Print(x, y, ...) → printf with format string ----
         if (callee == "Print") {
+            // Check if any arg is an f-string
+            bool hasFStr = false;
+            for (auto& arg : e->args)
+                if (arg->kind == Expr::Kind::FStrLit) { hasFStr = true; break; }
+
+            if (hasFStr) {
+                // Process each arg — f-strings get snprintf, others get printf
+                std::string lastT;
+                for (auto& arg : e->args) {
+                    if (arg->kind == Expr::Kind::FStrLit) {
+                        auto [buf, _] = genFStrLit(
+                            static_cast<const FStrLitExpr*>(arg.get()));
+                        std::string fmtPtr = globalString("%s");
+                        std::string t2 = tmp();
+                        emitI(t2 + " = call i32 (i8*, ...) @printf(i8* "
+                              + fmtPtr + ", i8* " + buf + ")");
+                        lastT = t2;
+                    } else {
+                        auto [v, lt] = genExpr(arg.get());
+                        std::string fmt;
+                        if      (lt=="i32"||lt=="i16"||lt=="i8") fmt = "%d";
+                        else if (lt=="i64")    fmt = "%lld";
+                        else if (lt=="float")  fmt = "%f";
+                        else if (lt=="double") fmt = "%lf";
+                        else if (lt=="i1")     fmt = "%d";
+                        else if (lt=="i8*")    fmt = "%s";
+                        else                   fmt = "%p";
+                        std::string fmtPtr = globalString(fmt);
+                        std::string t2 = tmp();
+                        emitI(t2 + " = call i32 (i8*, ...) @printf(i8* "
+                              + fmtPtr + ", " + lt + " " + v + ")");
+                        lastT = t2;
+                    }
+                }
+                // Trailing newline
+                std::string nlPtr = globalString("\n");
+                std::string tn = tmp();
+                emitI(tn + " = call i32 (i8*, ...) @printf(i8* " + nlPtr + ")");
+                return {tn, "i32"};
+            }
+
+            // No f-strings — build one format string with all args
             std::string fmt;
             std::vector<std::string> args;
             std::vector<std::string> argTypes;
@@ -902,11 +1283,27 @@ private:
             fmt += "\n";
             std::string fmtPtr = globalString(fmt);
             std::string argStr;
-            for (size_t i = 0; i < args.size(); i++) {
+            for (size_t i = 0; i < args.size(); i++)
                 argStr += ", " + argTypes[i] + " " + args[i];
-            }
             std::string t = tmp();
             emitI(t + " = call i32 (i8*, ...) @printf(i8* " + fmtPtr + argStr + ")");
+            return {t, "i32"};
+        }
+
+        // ---- Printf(fmt, ...) → direct printf passthrough ----
+        if (callee == "Printf") {
+            std::vector<std::string> argParts;
+            for (auto& arg : e->args) {
+                auto [v, t] = genExpr(arg.get());
+                argParts.push_back(t + " " + v);
+            }
+            std::string argList;
+            for (size_t i = 0; i < argParts.size(); i++) {
+                if (i) argList += ", ";
+                argList += argParts[i];
+            }
+            std::string t = tmp();
+            emitI(t + " = call i32 (i8*, ...) @printf(" + argList + ")");
             return {t, "i32"};
         }
 
@@ -935,10 +1332,18 @@ private:
             argList += argParts[i];
         }
 
-        // For simplicity assume i32 return — proper type info comes from symbol table
+        // Look up the actual return type — critical for float-returning functions
+        auto retIt = m_funcRetTypes.find(callee);
+        std::string retType = (retIt != m_funcRetTypes.end()) ? retIt->second : "i32";
+
+        if (retType == "void") {
+            // void functions: no destination register
+            emitI("call void @" + callee + "(" + argList + ")");
+            return {"0", "i32"};  // unused return value
+        }
         std::string t = tmp();
-        emitI(t + " = call i32 @" + callee + "(" + argList + ")");
-        return {t, "i32"};
+        emitI(t + " = call " + retType + " @" + callee + "(" + argList + ")");
+        return {t, retType};
     }
 
     // -----------------------------------------------------------------------
@@ -960,18 +1365,40 @@ private:
         std::string to   = llvmType(e->target);
         std::string t    = tmp();
 
+        // No-op: same type
+        if (from == to) return {val, to};
+
         bool fromFloat = (from == "float" || from == "double");
         bool toFloat   = (to   == "float" || to   == "double");
         bool fromInt   = !fromFloat && from != "i1" && from != "i8*";
         bool toInt     = !toFloat   && to   != "i1" && to   != "i8*";
 
+        auto intBits = [](const std::string& t) -> int {
+            if (t == "i8")  return 8;
+            if (t == "i16") return 16;
+            if (t == "i32") return 32;
+            if (t == "i64") return 64;
+            return 32;
+        };
+
         if      (fromFloat && toInt)   emitI(t + " = fptosi " + from + " " + val + " to " + to);
         else if (fromInt   && toFloat) emitI(t + " = sitofp " + from + " " + val + " to " + to);
-        else if (fromFloat && toFloat) emitI(t + " = fpext "  + from + " " + val + " to " + to);
-        else if (fromInt   && toInt)   emitI(t + " = sext "   + from + " " + val + " to " + to);
+        else if (fromFloat && toFloat) {
+            // f32 -> f64: fpext, f64 -> f32: fptrunc
+            bool widening = (from == "float" && to == "double");
+            emitI(t + " = " + (widening ? "fpext" : "fptrunc") + " " + from + " " + val + " to " + to);
+        }
+        else if (fromInt && toInt) {
+            int fromBits = intBits(from);
+            int toBits   = intBits(to);
+            if (toBits > fromBits)
+                emitI(t + " = sext "  + from + " " + val + " to " + to);
+            else
+                emitI(t + " = trunc " + from + " " + val + " to " + to);
+        }
         else if (from == "i1" && toInt) emitI(t + " = zext i1 " + val + " to " + to);
+        else if (fromInt && to == "i1") emitI(t + " = trunc " + from + " " + val + " to i1");
         else {
-            // Best effort bitcast
             emitI(t + " = bitcast " + from + " " + val + " to " + to);
         }
         return {t, to};
@@ -989,6 +1416,50 @@ private:
         std::string val = tmp();
         emitI(val + " = load i32, i32* " + ptr);
         return {val, "i32"};
+    }
+    // -----------------------------------------------------------------------
+    // F-string codegen — builds formatted string via snprintf into stack buffer
+    // f"Hello {name}, score {score}" → snprintf(buf, 512, "Hello %s, score %d", name, score)
+    // Returns {bufferPtr, "i8*"}
+    // -----------------------------------------------------------------------
+    ValType genFStrLit(const FStrLitExpr* e) {
+        // Build format string and evaluate expressions
+        std::string fmtStr;
+        std::vector<std::pair<std::string, std::string>> exprVals;
+
+        for (size_t i = 0; i < e->strParts.size(); i++) {
+            for (char c : e->strParts[i]) {
+                if (c == '%') fmtStr += "%%";
+                else          fmtStr += c;
+            }
+            if (i < e->exprParts.size()) {
+                auto [val, lt] = genExpr(e->exprParts[i].get());
+                exprVals.push_back({val, lt});
+                if      (lt=="i32"||lt=="i16"||lt=="i8"||lt=="i1") fmtStr += "%d";
+                else if (lt=="i64")    fmtStr += "%lld";
+                else if (lt=="float")  fmtStr += "%f";
+                else if (lt=="double") fmtStr += "%lf";
+                else if (lt=="i8*")    fmtStr += "%s";
+                else                   fmtStr += "%p";
+            }
+        }
+
+        // Stack buffer — 512 bytes
+        std::string bufReg = tmp();
+        emitI(bufReg + " = alloca [512 x i8]");
+        std::string ptrReg = tmp();
+        emitI(ptrReg + " = getelementptr inbounds [512 x i8], [512 x i8]* "
+              + bufReg + ", i32 0, i32 0");
+
+        std::string fmtPtr = globalString(fmtStr);
+        std::string snArgs = "i8* " + ptrReg + ", i64 512, i8* " + fmtPtr;
+        for (auto& [v, t] : exprVals)
+            snArgs += ", " + t + " " + v;
+
+        std::string callReg = tmp();
+        emitI(callReg + " = call i32 (i8*, i64, i8*, ...) @snprintf(" + snArgs + ")");
+
+        return {ptrReg, "i8*"};
     }
 };
 

@@ -29,13 +29,16 @@ public:
         return prog;
     }
 
+    // Allow calling parseExpr() standalone (used by parseFStrContent sub-parser)
+    ExprPtr parseExpr() { return parseAssign(); }
+
     const std::vector<std::string>& errors() const { return m_errors; }
     bool hasErrors() const { return !m_errors.empty(); }
 
 private:
-    std::vector<Token>      m_tokens;
-    std::string             m_filename;
-    size_t                  m_pos = 0;
+    std::vector<Token>       m_tokens;
+    std::string              m_filename;
+    size_t                   m_pos = 0;
     std::vector<std::string> m_errors;
 
     // -----------------------------------------------------------------------
@@ -43,7 +46,7 @@ private:
     // -----------------------------------------------------------------------
     Token& peek(int offset = 0) {
         size_t i = m_pos + offset;
-        if (i >= m_tokens.size()) return m_tokens.back(); // Eof
+        if (i >= m_tokens.size()) return m_tokens.back();
         return m_tokens[i];
     }
 
@@ -80,23 +83,86 @@ private:
     }
 
     void synchronize() {
-        // Always advance at least one token to prevent infinite loops
-        if (!atEnd()) advance();
- 
         while (!atEnd()) {
             auto t = peek().type;
             if (t == TokenType::Semicolon) { advance(); return; }
             if (t == TokenType::RBrace)    return;
-            if (t == TokenType::Func  ||
+            if (t == TokenType::Func   ||
                 t == TokenType::Node   ||
-                t == TokenType::Let   ||
-                t == TokenType::Const ||
-                t == TokenType::If    ||
-                t == TokenType::While ||
-                t == TokenType::For   ||
+                t == TokenType::Let    ||
+                t == TokenType::Const  ||
+                t == TokenType::If     ||
+                t == TokenType::While  ||
+                t == TokenType::For    ||
                 t == TokenType::Return) return;
             advance();
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // F-string parser
+    // Takes the raw string content (without quotes/prefix) and splits it into
+    // alternating literal parts and expression parts.
+    // "Hello {name}, score {score}!"
+    //  strParts  = ["Hello ", ", score ", "!"]
+    //  exprParts = [IdentExpr(name), IdentExpr(score)]
+    // -----------------------------------------------------------------------
+    std::unique_ptr<FStrLitExpr> parseFStrContent(
+        const std::string& raw, int line, int col)
+    {
+        std::vector<std::string> strParts;
+        std::vector<ExprPtr>     exprParts;
+        std::string lit;
+        size_t i = 0;
+
+        while (i < raw.size()) {
+            char c = raw[i];
+
+            // Escaped {{ → literal {
+            if (c == '{' && i + 1 < raw.size() && raw[i+1] == '{') {
+                lit += '{'; i += 2; continue;
+            }
+            // Escaped }} → literal }
+            if (c == '}' && i + 1 < raw.size() && raw[i+1] == '}') {
+                lit += '}'; i += 2; continue;
+            }
+
+            if (c == '{') {
+                strParts.push_back(lit); lit.clear();
+                i++; // skip {
+                std::string exprSrc;
+                int depth = 1;
+                while (i < raw.size() && depth > 0) {
+                    if      (raw[i] == '{') { depth++; exprSrc += raw[i]; }
+                    else if (raw[i] == '}') { depth--; if (depth > 0) exprSrc += raw[i]; }
+                    else                    { exprSrc += raw[i]; }
+                    i++;
+                }
+                // Re-lex and parse the expression inside {}
+                Lexer subLexer(exprSrc, "<fstring>");
+                auto subToks = subLexer.tokenize();
+                if (!subLexer.hasErrors() && !subToks.empty()) {
+                    Parser subParser(std::move(subToks), "<fstring>");
+                    auto expr = subParser.parseExpr();
+                    if (expr) {
+                        exprParts.push_back(std::move(expr));
+                    } else {
+                        exprParts.push_back(
+                            std::make_unique<IdentExpr>(exprSrc, line, col));
+                    }
+                } else {
+                    exprParts.push_back(
+                        std::make_unique<IdentExpr>(exprSrc, line, col));
+                }
+                continue;
+            }
+
+            lit += raw[i++];
+        }
+        strParts.push_back(lit); // trailing literal (always present)
+
+        return std::make_unique<FStrLitExpr>(
+            std::move(strParts), std::move(exprParts), line, col);
     }
 
     // -----------------------------------------------------------------------
@@ -136,16 +202,16 @@ private:
         // Base type
         auto& tok = peek();
         switch (tok.type) {
-            case TokenType::TI8:  ta.base = "I8";  break;
-            case TokenType::TI16: ta.base = "I16"; break;
-            case TokenType::TI32: ta.base = "I32"; break;
-            case TokenType::TI64: ta.base = "I64"; break;
-            case TokenType::TU8:  ta.base = "U8";  break;
-            case TokenType::TU16: ta.base = "U16"; break;
-            case TokenType::TU32: ta.base = "U32"; break;
-            case TokenType::TU64: ta.base = "U64"; break;
-            case TokenType::TF32: ta.base = "F32"; break;
-            case TokenType::TF64: ta.base = "F64"; break;
+            case TokenType::TI8:     ta.base = "I8";     break;
+            case TokenType::TI16:    ta.base = "I16";    break;
+            case TokenType::TI32:    ta.base = "I32";    break;
+            case TokenType::TI64:    ta.base = "I64";    break;
+            case TokenType::TU8:     ta.base = "U8";     break;
+            case TokenType::TU16:    ta.base = "U16";    break;
+            case TokenType::TU32:    ta.base = "U32";    break;
+            case TokenType::TU64:    ta.base = "U64";    break;
+            case TokenType::TF32:    ta.base = "F32";    break;
+            case TokenType::TF64:    ta.base = "F64";    break;
             case TokenType::TBool:   ta.base = "Bool";   break;
             case TokenType::TStr:    ta.base = "str";    break;
             case TokenType::TString: ta.base = "String"; break;
@@ -219,13 +285,12 @@ private:
 
         while (!check(TokenType::RBrace) && !atEnd()) {
             bool isPub = match(TokenType::Pub);
-            if (check(TokenType::Func)) {
+            if (check(TokenType::Func))
                 methods.push_back(parseFuncDeclInner(isPub));
-            } else if (check(TokenType::Let)) {
+            else if (check(TokenType::Let))
                 fields.push_back(parseFieldDecl(isPub));
-            } else {
+            else
                 error("expected field or method in node body");
-            }
         }
         expect(TokenType::RBrace, "expected '}' after node body");
 
@@ -366,7 +431,6 @@ private:
             return std::make_unique<BlockStmt>(std::move(b->stmts), l, c);
         }
 
-        // Expression statement
         auto expr = parseExpr();
         expect(TokenType::Semicolon, "expected ';' after expression");
         return std::make_unique<ExprStmt>(std::move(expr), l, c);
@@ -451,7 +515,6 @@ private:
         std::unique_ptr<BlockStmt> else_;
         if (match(TokenType::Else)) {
             if (check(TokenType::If)) {
-                // else if -- wrap in a block
                 int el = peek().line, ec = peek().col;
                 std::vector<StmtPtr> s;
                 s.push_back(parseIf());
@@ -483,7 +546,6 @@ private:
         int l = peek().line, c = peek().col;
         advance(); // for
 
-        // Label check: 'label: for
         std::string label;
         if (check(TokenType::Apostrophe)) {
             label = advance().value;
@@ -494,14 +556,12 @@ private:
         expect(TokenType::Colon, "expected ':' after variable");
         auto type = parseType();
 
-        // for i: I32 in ...   vs   for i: I32 = ...
         if (match(TokenType::In)) {
             auto iterable = parseExpr();
             auto body = parseBlock();
             return std::make_unique<ForInStmt>(
                 var, type, std::move(iterable), std::move(body), label, l, c);
         } else {
-            // C-style: for i: I32 = init; cond; step
             expect(TokenType::Assign, "expected '=' or 'in'");
             auto init = parseExpr();
             expect(TokenType::Semicolon, "expected ';'");
@@ -532,7 +592,6 @@ private:
                 sc.values.push_back(parseExpr());
                 expect(TokenType::Colon, "expected ':' after case value");
             }
-            // Parse body until next case/default/}
             while (!check(TokenType::Case) &&
                    !check(TokenType::Default) &&
                    !check(TokenType::RBrace) && !atEnd()) {
@@ -555,8 +614,6 @@ private:
     // -----------------------------------------------------------------------
     // Expressions — precedence climbing
     // -----------------------------------------------------------------------
-    ExprPtr parseExpr() { return parseAssign(); }
-
     ExprPtr parseAssign() {
         int l = peek().line, c = peek().col;
         auto left = parseNullCoal();
@@ -627,7 +684,7 @@ private:
     ExprPtr parseComparison() {
         int l = peek().line, c = peek().col;
         auto left = parseAddSub();
-        while (check(TokenType::Lt) || check(TokenType::Gt) ||
+        while (check(TokenType::Lt)   || check(TokenType::Gt) ||
                check(TokenType::LtEq) || check(TokenType::GtEq)) {
             std::string op = advance().value;
             auto right = parseAddSub();
@@ -666,13 +723,11 @@ private:
         int l = peek().line, c = peek().col;
         if (check(TokenType::Minus)) {
             advance();
-            return std::make_unique<UnaryExpr>(
-                "-", parseUnary(), false, l, c);
+            return std::make_unique<UnaryExpr>("-", parseUnary(), false, l, c);
         }
         if (check(TokenType::Bang)) {
             advance();
-            return std::make_unique<UnaryExpr>(
-                "!", parseUnary(), false, l, c);
+            return std::make_unique<UnaryExpr>("!", parseUnary(), false, l, c);
         }
         return parseCast();
     }
@@ -696,13 +751,11 @@ private:
                 check(TokenType::ColonColon)) {
                 bool safe = check(TokenType::SafeDot);
                 advance();
-                std::string member = expect(TokenType::Ident,
-                    "expected member name").value;
+                std::string member = expect(TokenType::Ident, "expected member name").value;
                 expr = std::make_unique<MemberExpr>(
                     std::move(expr), member, safe, l, c);
 
             } else if (check(TokenType::LParen)) {
-                // Call
                 advance();
                 std::vector<ExprPtr> args;
                 while (!check(TokenType::RParen) && !atEnd()) {
@@ -714,7 +767,6 @@ private:
                     std::move(expr), std::move(args), l, c);
 
             } else if (check(TokenType::LBracket)) {
-                // Index
                 advance();
                 auto idx = parseExpr();
                 expect(TokenType::RBracket, "expected ']'");
@@ -723,22 +775,17 @@ private:
 
             } else if (check(TokenType::PlusPlus)) {
                 advance();
-                expr = std::make_unique<UnaryExpr>(
-                    "++", std::move(expr), true, l, c);
+                expr = std::make_unique<UnaryExpr>("++", std::move(expr), true, l, c);
 
             } else if (check(TokenType::MinusMinus)) {
                 advance();
-                expr = std::make_unique<UnaryExpr>(
-                    "--", std::move(expr), true, l, c);
+                expr = std::make_unique<UnaryExpr>("--", std::move(expr), true, l, c);
 
             } else if (check(TokenType::Bang)) {
-                // Force unwrap x!
                 advance();
-                expr = std::make_unique<ForceUnwrapExpr>(
-                    std::move(expr), l, c);
+                expr = std::make_unique<ForceUnwrapExpr>(std::move(expr), l, c);
 
             } else if (check(TokenType::DotDot) || check(TokenType::DotDotEq)) {
-                // Range  x..y  x..=y
                 bool inc = check(TokenType::DotDotEq);
                 advance();
                 auto to = parsePrimary();
@@ -764,10 +811,10 @@ private:
             return std::make_unique<IntLitExpr>(val, l, c);
         }
 
-        // Float literal -- BUG-07: keep raw text so codegen emits it verbatim
+        // Float literal
         if (check(TokenType::Float)) {
-            std::string raw = advance().value;
-            double val = std::stod(raw);
+            std::string raw = peek().value;
+            double val = std::stod(advance().value);
             return std::make_unique<FloatLitExpr>(val, raw, l, c);
         }
 
@@ -777,7 +824,13 @@ private:
             return std::make_unique<BoolLitExpr>(val, l, c);
         }
 
-        // String literal
+        // F-string literal: f"Hello {name}!" or auto-detected "Hello {name}!"
+        if (check(TokenType::FStr)) {
+            auto tok = advance();
+            return parseFStrContent(tok.value, tok.line, tok.col);
+        }
+
+        // Plain string literal
         if (check(TokenType::Str)) {
             return std::make_unique<StrLitExpr>(advance().value, l, c);
         }
@@ -840,13 +893,12 @@ private:
             return first;
         }
 
-        // Identifier -- could be a plain ident, struct init, or enum variant
+        // Identifier — could be plain ident, struct init, or enum variant
         if (check(TokenType::Ident)) {
             std::string name = advance().value;
 
             // Struct init: Name { field: val, ... }
             if (check(TokenType::LBrace)) {
-                // Peek ahead -- if next is ident followed by colon, it's struct init
                 if (peek(1).type == TokenType::Ident &&
                     peek(2).type == TokenType::Colon) {
                     advance(); // {
