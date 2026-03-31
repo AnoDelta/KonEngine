@@ -444,7 +444,7 @@ int main(int argc, char** argv) {
                 outPath += ".exe";
         }
 
-        std::string tmpDir = "/tmp/ks-" + stem;
+        std::string tmpDir = fs::path(path).parent_path().string() + "/.konbuild/" + stem;
         fs::create_directories(tmpDir);
 
         // Collect all .ks files to compile: main + any #include "*.ks" dependencies
