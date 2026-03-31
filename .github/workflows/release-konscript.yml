@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   # -------------------------------------------------------------------------
   # Linux — build konscript + engine libs + toolchain, package release
@@ -103,6 +106,7 @@ jobs:
       - name: Upload Linux release
         uses: softprops/action-gh-release@v1
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: tools/KonScript/KonScript-${{ github.ref_name }}-linux-x86_64.tar.gz
           generate_release_notes: true
 
@@ -214,4 +218,5 @@ jobs:
       - name: Upload Windows release
         uses: softprops/action-gh-release@v1
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: tools/KonScript/KonScript-${{ github.ref_name }}-windows-x86_64.zip
