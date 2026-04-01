@@ -2013,18 +2013,10 @@ func ir_gen_expr(idx: I32) -> Str {
                     let cur_t: I32 = ir_tmp_id();
                     ir_emiti(f"%t{cur_t} = load {cur_type}, {cur_type}* {reg}");
                     let res_t: I32 = ir_tmp_id();
-                    if assign_op == "+=" {
-                        ir_emiti(f"%t{res_t} = add {cur_type} %t{cur_t}, {rv}");
-                    }
-                    if assign_op == "-=" {
-                        ir_emiti(f"%t{res_t} = sub {cur_type} %t{cur_t}, {rv}");
-                    }
-                    if assign_op == "*=" {
-                        ir_emiti(f"%t{res_t} = mul {cur_type} %t{cur_t}, {rv}");
-                    }
-                    if assign_op == "/=" {
-                        ir_emiti(f"%t{res_t} = sdiv {cur_type} %t{cur_t}, {rv}");
-                    }
+                    if assign_op == "+=" { ir_emiti(f"%t{res_t} = add {cur_type} %t{cur_t}, {rv}"); }
+                    if assign_op == "-=" { ir_emiti(f"%t{res_t} = sub {cur_type} %t{cur_t}, {rv}"); }
+                    if assign_op == "*=" { ir_emiti(f"%t{res_t} = mul {cur_type} %t{cur_t}, {rv}"); }
+                    if assign_op == "/=" { ir_emiti(f"%t{res_t} = sdiv {cur_type} %t{cur_t}, {rv}"); }
                     store_val = f"%t{res_t}";
                     store_type = cur_type;
                 }
@@ -2161,12 +2153,34 @@ func ir_gen_expr(idx: I32) -> Str {
             // arglist already built above
             // Dispatch
             if method == "len" {
-                ir_emiti(f"%t{t} = call i32 @_ks_str_len(i8* {obj_v})");
+                // Use _ks_str_len for strings, _ks_array_len for arrays
+                let obj_nt: Str = node_types[node_a[callee]];
+                if obj_nt.starts("[") {
+                    ir_emiti(f"%t{t} = call i32 @_ks_array_len(i8* {obj_v})");
+                } else {
+                    ir_emiti(f"%t{t} = call i32 @_ks_str_len(i8* {obj_v})");
+                }
                 return ir_val(f"%t{t}", "i32");
             }
             if method == "push" {
                 if obj_v != "0" && obj_v != "null" {
-                    ir_emiti(f"call void @_ks_array_push(i8* {obj_v}, {m_arglist})");
+                    let push_t2b: I32 = ir_tmp_id();
+                    if m_arglist.starts("i8*") {
+                        let push_vb: Str = m_arglist.substr(4, m_arglist.len() - 4);
+                        ir_emiti(f"call void @_ks_array_push(i8* {obj_v}, i8* {push_vb})");
+                    } else {
+                        if m_arglist.starts("i1 ") {
+                            let push_vb: Str = m_arglist.substr(3, m_arglist.len() - 3);
+                            let push_t3b: I32 = ir_tmp_id();
+                            ir_emiti(f"%t{push_t3b} = zext i1 {push_vb} to i32");
+                            ir_emiti(f"%t{push_t2b} = inttoptr i32 %t{push_t3b} to i8*");
+                            ir_emiti(f"call void @_ks_array_push(i8* {obj_v}, i8* %t{push_t2b})");
+                        } else {
+                            let push_vb: Str = m_arglist.substr(4, m_arglist.len() - 4);
+                            ir_emiti(f"%t{push_t2b} = inttoptr i32 {push_vb} to i8*");
+                            ir_emiti(f"call void @_ks_array_push(i8* {obj_v}, i8* %t{push_t2b})");
+                        }
+                    }
                 }
                 return ir_val("0", "void");
             }
@@ -2219,7 +2233,6 @@ func ir_gen_expr(idx: I32) -> Str {
         let ivt: Str = ir_gen_expr(node_b[idx]);
         let pv: Str  = ir_get_v(pvt);
         let iv: Str  = ir_get_v(ivt);
-        let plt: Str = ir_get_t(pvt);
         let elem_t: Str = ir_type(nt);
         let t: I32 = ir_tmp_id();
         let t2: I32 = ir_tmp_id();
@@ -2232,17 +2245,17 @@ func ir_gen_expr(idx: I32) -> Str {
             }
             return ir_val(f"%t{t}", elem_t);
         }
-        // Bitcast to elem_t* if needed
-        let mut ptr_v: Str = pv;
-        if plt != f"{elem_t}*" {
-            ir_emiti(f"%t{t} = bitcast {plt} {pv} to {elem_t}*");
-            ptr_v = f"%t{t}";
+        // Use _ks_array_get for KsArray structs
+        if pv == "0" || pv == "null" {
+            ir_emiti(f"%t{t} = add {elem_t} 0, 0  ; index on null ptr");
+            return ir_val(f"%t{t}", elem_t);
         }
+        ir_emiti(f"%t{t} = call i8* @_ks_array_get(i8* {pv}, i32 {iv})");
+        if elem_t == "i8*" { return ir_val(f"%t{t}", "i8*"); }
+        ir_emiti(f"%t{t2} = ptrtoint i8* %t{t} to i64");
         let t3: I32 = ir_tmp_id();
-        let t4: I32 = ir_tmp_id();
-        ir_emiti(f"%t{t3} = getelementptr {elem_t}, {elem_t}* {ptr_v}, i32 {iv}");
-        ir_emiti(f"%t{t4} = load {elem_t}, {elem_t}* %t{t3}");
-        return ir_val(f"%t{t4}", elem_t);
+        ir_emiti(f"%t{t3} = trunc i64 %t{t2} to {elem_t}");
+        return ir_val(f"%t{t3}", elem_t);
     }
 
     if k == NK_CAST {
@@ -2636,10 +2649,6 @@ func irgen(prog_idx: I32) {
     ir_emit("declare i8* @_ks_result_error(i8*)");
     ir_emit("declare i8* @_ks_int_to_str(i32)");
     ir_emit("declare i32 @_ks_str_len(i8*)");
-    ir_emit("declare void @_ks_array_clear(i8*)");
-    ir_emit("declare void @_ks_array_push(i8*, i8*)");
-    ir_emit("declare i32 @_ks_array_len(i8*)");
-    ir_emit("declare i8* @_ks_array_get(i8*, i32)");
     ir_emit("declare i32 @_ks_str_compare(i8*, i8*)");
     ir_emit("declare i1 @_ks_str_ends(i8*, i8*)");
     ir_emit("declare i1 @_ks_str_starts(i8*, i8*)");
@@ -2692,33 +2701,6 @@ func irgen(prog_idx: I32) {
     tc_def_fn("irv_lookup_type", "Str");
     tc_def_fn("tc_lookup", "Str");
     tc_def_fn("gconst_lookup", "Str");
-    ir_emit("");
-    ir_emit("declare i8* @_ks_array_new(i32)");
-    ir_emit("");
-    // Collect array globals for init function
-    ir_emit("define void @__ks_globals_init() {");
-    let mut gdecl: I32 = node_a[prog_idx];
-    while gdecl != 0 {
-        let gd: I32 = node_a[gdecl];
-        if node_kinds[gd] == NK_LET {
-            let gname2: Str = node_str[gd];
-            let ginit2: I32 = node_a[gd];
-            let mut is_arr: Bool = false;
-            if ginit2 != 0 {
-                let ik2: I32 = node_kinds[ginit2];
-                if ik2 != NK_INT && ik2 != NK_BOOL && ik2 != NK_FLOAT { is_arr = true; }
-            } else { is_arr = true; }
-            if is_arr {
-                let gt2: I32 = ir_tmp_id();
-                ir_emiti(f"%t{gt2} = call i8* @_ks_array_new(i32 16)");
-                ir_emiti(f"store i8* %t{gt2}, i8** @{gname2}");
-            }
-        }
-        gdecl = node_b[gdecl];
-    }
-    ir_emiti("ret void");
-    ir_emit("}");
-    ir_emit("@llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 65535, void ()* @__ks_globals_init, i8* null }]");
     ir_emit("");
 
     // First pass: register global constants and function sigs
