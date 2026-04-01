@@ -109,11 +109,6 @@ private:
 
     // -----------------------------------------------------------------------
     // F-string parser
-    // Takes the raw string content (without quotes/prefix) and splits it into
-    // alternating literal parts and expression parts.
-    // "Hello {name}, score {score}!"
-    //  strParts  = ["Hello ", ", score ", "!"]
-    //  exprParts = [IdentExpr(name), IdentExpr(score)]
     // -----------------------------------------------------------------------
     std::unique_ptr<FStrLitExpr> parseFStrContent(
         const std::string& raw, int line, int col)
@@ -126,18 +121,16 @@ private:
         while (i < raw.size()) {
             char c = raw[i];
 
-            // Escaped {{ → literal {
             if (c == '{' && i + 1 < raw.size() && raw[i+1] == '{') {
                 lit += '{'; i += 2; continue;
             }
-            // Escaped }} → literal }
             if (c == '}' && i + 1 < raw.size() && raw[i+1] == '}') {
                 lit += '}'; i += 2; continue;
             }
 
             if (c == '{') {
                 strParts.push_back(lit); lit.clear();
-                i++; // skip {
+                i++;
                 std::string exprSrc;
                 int depth = 1;
                 while (i < raw.size() && depth > 0) {
@@ -146,7 +139,6 @@ private:
                     else                    { exprSrc += raw[i]; }
                     i++;
                 }
-                // Re-lex and parse the expression inside {}
                 Lexer subLexer(exprSrc, "<fstring>");
                 auto subToks = subLexer.tokenize();
                 if (!subLexer.hasErrors() && !subToks.empty()) {
@@ -167,7 +159,7 @@ private:
 
             lit += raw[i++];
         }
-        strParts.push_back(lit); // trailing literal (always present)
+        strParts.push_back(lit);
 
         return std::make_unique<FStrLitExpr>(
             std::move(strParts), std::move(exprParts), line, col);
@@ -179,7 +171,6 @@ private:
     TypeAnnotation parseType() {
         TypeAnnotation ta;
 
-        // Tuple: (F64, F64)
         if (check(TokenType::LParen)) {
             advance();
             ta.isTuple = true;
@@ -192,7 +183,6 @@ private:
             return ta;
         }
 
-        // Array: [T] or [T; N]
         if (check(TokenType::LBracket)) {
             advance();
             ta.isArray = true;
@@ -207,7 +197,6 @@ private:
             return ta;
         }
 
-        // Base type
         auto& tok = peek();
         switch (tok.type) {
             case TokenType::TI8:     ta.base = "I8";     break;
@@ -297,6 +286,8 @@ private:
                 methods.push_back(parseFuncDeclInner(isPub));
             else if (check(TokenType::Let))
                 fields.push_back(parseFieldDecl(isPub));
+            else if (check(TokenType::Const))
+                fields.push_back(parseConstFieldDecl(isPub));
             else
                 error("expected field or method in node body");
         }
@@ -362,6 +353,8 @@ private:
                 methods.push_back(parseFuncDeclInner(isPub));
             else if (check(TokenType::Let))
                 fields.push_back(parseFieldDecl(isPub));
+            else if (check(TokenType::Const))
+                fields.push_back(parseConstFieldDecl(isPub));
             else
                 error("expected field or method in class body");
         }
@@ -370,6 +363,7 @@ private:
             std::move(fields), std::move(methods), l, c);
     }
 
+    // Parses: let [mut] name: Type = expr;
     FieldDecl parseFieldDecl(bool pub) {
         FieldDecl fd;
         fd.pub = pub;
@@ -381,6 +375,22 @@ private:
         if (match(TokenType::Assign))
             fd.init = parseExpr();
         expect(TokenType::Semicolon, "expected ';' after field");
+        return fd;
+    }
+
+    // Parses: const name: Type = expr;
+    // Treated as an immutable field (mut = false) inside node/class bodies.
+    FieldDecl parseConstFieldDecl(bool pub) {
+        FieldDecl fd;
+        fd.pub = pub;
+        fd.mut = false;
+        advance(); // const
+        fd.name = expect(TokenType::Ident, "expected field name").value;
+        expect(TokenType::Colon, "expected ':' after field name");
+        fd.type = parseType();
+        if (match(TokenType::Assign))
+            fd.init = parseExpr();
+        expect(TokenType::Semicolon, "expected ';' after const field");
         return fd;
     }
 
@@ -811,7 +821,6 @@ private:
     ExprPtr parsePrimary() {
         int l = peek().line, c = peek().col;
 
-        // Integer literal
         if (check(TokenType::Int)) {
             std::string v = advance().value;
             int64_t val = v.find("0x") == 0
@@ -820,43 +829,36 @@ private:
             return std::make_unique<IntLitExpr>(val, l, c);
         }
 
-        // Float literal
         if (check(TokenType::Float)) {
             std::string raw = peek().value;
             double val = std::stod(advance().value);
             return std::make_unique<FloatLitExpr>(val, raw, l, c);
         }
 
-        // Bool literal
         if (check(TokenType::Bool)) {
             bool val = advance().value == "true";
             return std::make_unique<BoolLitExpr>(val, l, c);
         }
 
-        // F-string literal: f"Hello {name}!" or auto-detected "Hello {name}!"
         if (check(TokenType::FStr)) {
             auto tok = advance();
             return parseFStrContent(tok.value, tok.line, tok.col);
         }
 
-        // Plain string literal
         if (check(TokenType::Str)) {
             return std::make_unique<StrLitExpr>(advance().value, l, c);
         }
 
-        // null
         if (check(TokenType::Null)) {
             advance();
             return std::make_unique<NullLitExpr>(l, c);
         }
 
-        // None
         if (check(TokenType::None_)) {
             advance();
             return std::make_unique<NoneLitExpr>(l, c);
         }
 
-        // Some(x)
         if (check(TokenType::Some)) {
             advance();
             expect(TokenType::LParen, "expected '(' after Some");
@@ -865,14 +867,12 @@ private:
             return std::make_unique<SomeExpr>(std::move(val), l, c);
         }
 
-        // spawn
         if (check(TokenType::Spawn)) {
             advance();
             auto call = parsePostfix();
             return std::make_unique<SpawnExpr>(std::move(call), l, c);
         }
 
-        // Array literal [1, 2, 3]
         if (check(TokenType::LBracket)) {
             advance();
             std::vector<ExprPtr> elems;
@@ -884,7 +884,6 @@ private:
             return std::make_unique<ArrayLitExpr>(std::move(elems), l, c);
         }
 
-        // Grouped expr or tuple (a, b)
         if (check(TokenType::LParen)) {
             advance();
             auto first = parseExpr();
@@ -902,7 +901,6 @@ private:
             return first;
         }
 
-        // Identifier — could be plain ident, struct init, or enum variant
         if (check(TokenType::Ident)) {
             std::string name = advance().value;
 
@@ -927,6 +925,24 @@ private:
             }
 
             return std::make_unique<IdentExpr>(name, l, c);
+        }
+
+        // Type keywords used as constructor calls in expression position.
+        // e.g. Vec2(0.0, 0.0), Color(1.0, 0.0, 0.0, 1.0)
+        // These are tokenized as type keywords rather than Ident, so we
+        // handle them here by re-treating them as identifier expressions.
+        static const std::vector<TokenType> typeKeywordsAsCtors = {
+            TokenType::TVec2,
+            TokenType::TI8,  TokenType::TI16, TokenType::TI32, TokenType::TI64,
+            TokenType::TU8,  TokenType::TU16, TokenType::TU32, TokenType::TU64,
+            TokenType::TF32, TokenType::TF64,
+            TokenType::TBool, TokenType::TStr, TokenType::TString,
+        };
+        for (auto kt : typeKeywordsAsCtors) {
+            if (check(kt)) {
+                std::string name = advance().value;
+                return std::make_unique<IdentExpr>(name, l, c);
+            }
         }
 
         error("unexpected token '" + peek().value + "'");

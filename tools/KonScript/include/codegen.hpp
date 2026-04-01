@@ -55,6 +55,7 @@ public:
         line("#include <vector>");
         line("#include <functional>");
         line("#include <iostream>");
+        line("#include <sstream>");
         line("#include <optional>");
         if (m_target == Target::Standalone) {
             line("#include <cstdint>");
@@ -876,15 +877,46 @@ private:
                 write("/* spawn */ ");
                 genExpr(static_cast<const SpawnExpr*>(e)->call.get());
                 break;
-            default:
-                write("/* unknown expr */");
+            default: {
+                // F-string literal: FStrLitExpr falls here if Kind::FStr isn't
+                // matched above — handle via dynamic_cast so we're resilient to
+                // whatever the enum value is named.
+                if (auto* fs = dynamic_cast<const FStrLitExpr*>(e)) {
+                    // f"Hello {name}!" ->
+                    // ([&]{ std::ostringstream _ks_ss; _ks_ss << "Hello " << name; return _ks_ss.str(); }())
+                    write("([&]{ std::ostringstream _ks_ss; ");
+                    size_t exprIdx = 0;
+                    for (size_t i = 0; i < fs->strParts.size(); i++) {
+                        if (!fs->strParts[i].empty()) {
+                            std::string lit = "\"";
+                            for (char c : fs->strParts[i]) {
+                                if      (c == '\n') lit += "\\n";
+                                else if (c == '\t') lit += "\\t";
+                                else if (c == '"')  lit += "\\\"";
+                                else if (c == '\\') lit += "\\\\";
+                                else                lit += c;
+                            }
+                            lit += "\"";
+                            write("_ks_ss << " + lit + "; ");
+                        }
+                        if (exprIdx < fs->exprParts.size()) {
+                            write("_ks_ss << ");
+                            genExpr(fs->exprParts[exprIdx++].get());
+                            write("; ");
+                        }
+                    }
+                    write("return _ks_ss.str(); }())");
+                } else {
+                    write("/* unknown expr */");
+                }
                 break;
+            }
         }
     }
 
     void genIdent(const IdentExpr* e) {
         static const std::unordered_map<std::string, std::string> builtins = {
-            {"Print",              "printf"},
+            // Print is handled in genCall, not here
             {"MouseDown",          "IsMouseButtonDown"},
             {"MousePressed",       "IsMouseButtonPressed"},
             {"MouseReleased",      "IsMouseButtonReleased"},
@@ -976,26 +1008,19 @@ private:
             // For simplicity, we use printf but caller must use %s with .c_str().
             // We handle this by generating a KsPrint variadic that casts strings.
             if (id->name == "Print") {
-                // Emit as printf. String member fields (e.g. other->name) need
-                // .c_str() — we detect MemberExpr accessing "name" field and wrap.
-                write("printf(");
-                for (size_t i = 0; i < e->args.size(); i++) {
-                    if (i > 0) write(", ");
-                    auto* arg = e->args[i].get();
-                    // Wrap member accesses to known string fields with .c_str()
-                    bool needsCStr = false;
-                    if (i > 0 && arg->kind == Expr::Kind::Member) {
-                        auto* ma = static_cast<const MemberExpr*>(arg);
-                        static const std::unordered_set<std::string> strFields = {
-                            "name", "tag", "label", "text", "title", "id"
-                        };
-                        if (strFields.count(ma->member)) needsCStr = true;
+                // Emit as std::cout << arg1 << " " << arg2 << ... << "\n"
+                // This handles any type without needing format strings.
+                if (e->args.empty()) {
+                    write("std::cout << \"\\n\"");
+                } else {
+                    write("std::cout");
+                    for (size_t i = 0; i < e->args.size(); i++) {
+                        if (i > 0) write(" << \" \"");
+                        write(" << ");
+                        genExpr(e->args[i].get());
                     }
-                    if (needsCStr) write("(");
-                    genExpr(arg);
-                    if (needsCStr) write(").c_str()");
+                    write(" << \"\\n\"");
                 }
-                write(")");
                 return;
             }
 

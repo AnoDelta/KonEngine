@@ -445,7 +445,7 @@ private:
 		regConst("BLANK",      Color);
 
         // Window
-        reg("InitWindow",    {I32, I32, Str}, Void);
+        reg("InitWindow",    {}, Void); // variadic: (int, int, str, bool=false)
         reg("WindowShouldClose", {}, Bool);
         reg("Present",       {}, Void);
         reg("PollEvents",    {}, Void);
