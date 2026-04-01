@@ -1666,6 +1666,25 @@ let mut gvar_regs:  [Str] = [""];
 let mut gvar_types: [Str] = [""];
 let mut gvar_count: I32   = 0;
 
+
+// Track which global names are arrays (not strings)
+let mut gvar_array_names: [Str] = [""];
+let mut gvar_array_count: I32 = 0;
+
+func gvar_mark_array(name: Str) {
+    gvar_array_count = gvar_array_count + 1;
+    gvar_array_names.push(name);
+}
+
+func gvar_is_array(name: Str) -> Bool {
+    let mut i: I32 = gvar_array_count;
+    while i > 0 {
+        if gvar_array_names[i] == name { return true; }
+        i = i - 1;
+    }
+    return false;
+}
+
 func gvar_define(name: Str, reg: Str, typ: Str) {
     gvar_count = gvar_count + 1;
     gvar_names.push(name);
@@ -2153,9 +2172,15 @@ func ir_gen_expr(idx: I32) -> Str {
             // arglist already built above
             // Dispatch
             if method == "len" {
-                // Use _ks_str_len for strings, _ks_array_len for arrays
-                let obj_nt: Str = node_types[node_a[callee]];
-                if obj_nt.starts("[") {
+                // Use _ks_array_len for arrays, _ks_str_len for strings
+                // Check IRGen type of object - arrays have type starting with "["
+                let mut obj_irtype: Str = "Str";
+                if node_kinds[node_a[callee]] == NK_IDENT {
+                    let obj_name2: Str = node_str[node_a[callee]];
+                    if gvar_is_array(obj_name2) { obj_irtype = "["; }
+                    if node_types[node_a[callee]].starts("[") { obj_irtype = "["; }
+                }
+                if obj_irtype == "[" {
                     ir_emiti(f"%t{t} = call i32 @_ks_array_len(i8* {obj_v})");
                 } else {
                     ir_emiti(f"%t{t} = call i32 @_ks_str_len(i8* {obj_v})");
@@ -2250,7 +2275,17 @@ func ir_gen_expr(idx: I32) -> Str {
             ir_emiti(f"%t{t} = add {elem_t} 0, 0  ; index on null ptr");
             return ir_val(f"%t{t}", elem_t);
         }
-        ir_emiti(f"%t{t} = call i8* @_ks_array_get(i8* {pv}, i32 {iv})");
+        // Ensure index is i32 (may be i8* if from another array_get)
+        let mut iv_i32: Str = iv;
+        let ivt2: Str = ir_get_t(ivt);
+        if ivt2 != "i32" && ivt2 != "i1" {
+            let ti1: I32 = ir_tmp_id();
+            let ti2: I32 = ir_tmp_id();
+            ir_emiti(f"%t{ti1} = ptrtoint {ivt2} {iv} to i64");
+            ir_emiti(f"%t{ti2} = trunc i64 %t{ti1} to i32");
+            iv_i32 = f"%t{ti2}";
+        }
+        ir_emiti(f"%t{t} = call i8* @_ks_array_get(i8* {pv}, i32 {iv_i32})");
         if elem_t == "i8*" { return ir_val(f"%t{t}", "i8*"); }
         ir_emiti(f"%t{t2} = ptrtoint i8* %t{t} to i64");
         let t3: I32 = ir_tmp_id();
@@ -2735,6 +2770,7 @@ func irgen(prog_idx: I32) {
             } else {
                 ir_emit(f"@{gname} = global i8* null");
                 gvar_define(gname, f"@{gname}", "i8*");
+                gvar_mark_array(gname);
             }
         }
         decl = node_b[decl];
