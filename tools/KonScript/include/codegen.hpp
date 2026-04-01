@@ -426,6 +426,20 @@ private:
             if (f.init && !isTrivialInit(f.init.get()))
                 ctorInits.push_back(&f);
 
+        // Pre-populate m_ptrVars with all pointer-typed fields BEFORE emitting
+        // the constructor body — otherwise nested field.add() calls don't know
+        // that e.g. "player_node" is a pointer and emit .Add<> instead of ->AddChild<>.
+        std::vector<std::string> addedFieldPtrs;
+        for (auto& f : n->fields) {
+            std::string ct = cppType(f.type);
+            bool isPtr   = !ct.empty() && ct.back() == '*';
+            bool isUNode = m_userNodeTypes.count(f.type.base) > 0;
+            if (isPtr || isUNode) {
+                m_ptrVars.insert(f.name);
+                addedFieldPtrs.push_back(f.name);
+            }
+        }
+
         // Constructor
         if (m_target == Target::Engine) {
             write(std::string(m_indent * 4, ' '));
@@ -473,19 +487,6 @@ private:
             write(";\n");
         }
         if (!n->fields.empty()) line("");
-
-        // Register pointer-typed node fields in m_ptrVars so genMember
-        // correctly emits -> when accessing them inside methods
-        std::vector<std::string> addedFieldPtrs;
-        for (auto& f : n->fields) {
-            std::string ct = cppType(f.type);
-            bool isPtr   = !ct.empty() && ct.back() == '*';
-            bool isUNode = m_userNodeTypes.count(f.type.base) > 0;
-            if (isPtr || isUNode) {
-                m_ptrVars.insert(f.name);
-                addedFieldPtrs.push_back(f.name);
-            }
-        }
 
         for (auto& m : n->methods)
             genNodeMethod(m.get(), n->name);
