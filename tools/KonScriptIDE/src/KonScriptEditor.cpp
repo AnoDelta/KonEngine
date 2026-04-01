@@ -476,6 +476,13 @@ void KonScriptEditor::runSyntaxCheck() {
         clearErrors();
         return;
     }
+    // Skip scene files — they need recursive include context
+    // Detect by: has this.add() calls (scene pattern) or is in scenes/ folder
+    if (m_filePath.contains("/scenes/") || text.contains("this.add(")) {
+
+        clearErrors();
+        return;
+    }
 
     // Kill any running check
     if (m_checkProcess) {
