@@ -10,7 +10,7 @@
 #include <sstream>
 #include <optional>
 namespace { struct _KSInit {
-    _KSInit() { std::cout << std::boolalpha; }
+    _KSInit() { std::cout << std::boolalpha << std::unitbuf; }
 } _ks_init; }
 
 class Player;
@@ -45,7 +45,7 @@ public:
         col->y = -24.0f;
         anim->LoadFromFile("player.konani");
         anim->Play("idle");
-        std::cout << "[TestGame] Player Ready\n" << "\n";
+        std::cout << "[TestGame] Player Ready\n" << std::endl;
     }
     
     void Update(float dt) override {
@@ -90,11 +90,11 @@ public:
     
     void OnCollisionEnter(Collider2D* other) override {
         hits += 1;
-        std::cout << "[Collision] Player hit %s  total=%d\n" << " " << other->name << " " << hits << "\n";
+        std::cout << "[Collision] Player hit %s  total=%d\n" << " " << other->name << " " << hits << std::endl;
     }
     
     void OnCollisionExit(Collider2D* other) override {
-        std::cout << "[Collision] Player left %s\n" << " " << other->name << "\n";
+        std::cout << "[Collision] Player left %s\n" << " " << other->name << std::endl;
     }
     
 };
@@ -112,7 +112,7 @@ public:
     void Ready() override {
         col->width = w;
         col->height = h;
-        std::cout << "[TestGame] Wall Ready  col=%fx%f\n" << " " << col->width << " " << col->height << "\n";
+        std::cout << "[TestGame] Wall Ready  col=%fx%f\n" << " " << col->width << " " << col->height << std::endl;
     }
     
     void Draw() override {
@@ -156,7 +156,7 @@ int main() {
     scene.Scan();
     Camera2D cam = Camera2D(400.0f, 300.0f, 1.0f, 0.0f);
     int32_t boxCount = 0;
-    std::cout << "[TestGame] All nodes Ready\n" << "\n";
+    std::cout << "[TestGame] All nodes Ready\n" << std::endl;
     while (!WindowShouldClose()) {
         const float dt = GetDeltaTime();
         if (IsKeyPressed((Key::Code)(Key::Escape))) {

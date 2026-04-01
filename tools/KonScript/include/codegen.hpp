@@ -78,9 +78,11 @@ public:
             // Module file: guard against multiple inclusion
             line("#pragma once");
         } else {
-            // Entry file: one-time init for std::boolalpha
+            // Entry file: one-time init — boolalpha + unitbuf
+            // unitbuf forces flush after every output operation so Print()
+            // shows immediately in the editor's Output tab (piped subprocess).
             line("namespace { struct _KSInit {");
-            line("    _KSInit() { std::cout << std::boolalpha; }");
+            line("    _KSInit() { std::cout << std::boolalpha << std::unitbuf; }");
             line("} _ks_init; }");
         }
 
@@ -1009,10 +1011,10 @@ private:
             // For simplicity, we use printf but caller must use %s with .c_str().
             // We handle this by generating a KsPrint variadic that casts strings.
             if (id->name == "Print") {
-                // Emit as std::cout << arg1 << " " << arg2 << ... << "\n"
-                // This handles any type without needing format strings.
+                // Emit as std::cout << arg1 << " " << arg2 << ... << std::endl
+                // std::endl flushes immediately so output appears in real time.
                 if (e->args.empty()) {
-                    write("std::cout << \"\\n\"");
+                    write("std::cout << std::endl");
                 } else {
                     write("std::cout");
                     for (size_t i = 0; i < e->args.size(); i++) {
@@ -1020,7 +1022,7 @@ private:
                         write(" << ");
                         genExpr(e->args[i].get());
                     }
-                    write(" << \"\\n\"");
+                    write(" << std::endl");
                 }
                 return;
             }

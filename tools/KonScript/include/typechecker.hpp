@@ -445,7 +445,7 @@ private:
 		regConst("BLANK",      Color);
 
         // Window
-        reg("InitWindow",    {}, Void); // variadic: (int, int, str, bool=false)
+        reg("InitWindow",    {I32, I32, Str}, Void);
         reg("WindowShouldClose", {}, Bool);
         reg("Present",       {}, Void);
         reg("PollEvents",    {}, Void);
@@ -817,6 +817,33 @@ private:
         { Symbol s; s.name = "active";  s.type = Bool; s.mut = true;  nodeScope.define(s); }
         { Symbol s; s.name = "visible"; s.type = Bool; s.mut = true;  nodeScope.define(s); }
         { Symbol s; s.name = "name";    s.type = Type::make(Type::Kind::Str); s.mut = false; nodeScope.define(s); }
+
+        // Base-type specific fields
+        auto I32T = Type::make(Type::Kind::I32);
+        if (n->base == "Collider2D" || n->base == "CollisionShape2D") {
+            for (auto& nm : {"debugDraw","solid","staticBody","touching"}) {
+                Symbol s; s.name = nm; s.type = Bool; s.mut = true; nodeScope.define(s);
+            }
+            for (auto& nm : {"radius"}) {
+                Symbol s; s.name = nm; s.type = F64; s.mut = true; nodeScope.define(s);
+            }
+            for (auto& nm : {"layer","mask"}) {
+                Symbol s; s.name = nm; s.type = I32T; s.mut = true; nodeScope.define(s);
+            }
+        }
+        if (n->base == "Sprite2D" || n->base == "AnimatedSprite2D") {
+            for (auto& nm : {"flipH","flipV"}) {
+                Symbol s; s.name = nm; s.type = Bool; s.mut = true; nodeScope.define(s);
+            }
+        }
+        if (n->base == "CameraNode2D" || n->base == "Camera2D") {
+            for (auto& nm : {"smoothing","current"}) {
+                Symbol s; s.name = nm; s.type = Bool; s.mut = true; nodeScope.define(s);
+            }
+            for (auto& nm : {"zoom","smoothSpeed"}) {
+                Symbol s; s.name = nm; s.type = F64; s.mut = true; nodeScope.define(s);
+            }
+        }
 
         // this.add(Type, "name") — returns unknown, skip type-check
         // Register engine node component types as constructors in node scope

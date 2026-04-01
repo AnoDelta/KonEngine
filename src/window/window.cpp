@@ -180,13 +180,13 @@ void Present() {
 		s_hasCameraThisFrame = false;
 
 		if (IsMouseButtonPressed(Mouse::Left))
-			std::cout << "[KonEngine DEBUG] Mouse: LEFT clicked at (" << (int)mx << ", " << (int)my << ")\n";
+			std::cout << "[KonEngine DEBUG] Mouse: LEFT clicked at (" << (int)mx << ", " << (int)my << ")" << std::endl;
 		if (IsMouseButtonPressed(Mouse::Right))
-			std::cout << "[KonEngine DEBUG] Mouse: RIGHT clicked at (" << (int)mx << ", " << (int)my << ")\n";
+			std::cout << "[KonEngine DEBUG] Mouse: RIGHT clicked at (" << (int)mx << ", " << (int)my << ")" << std::endl;
 		if (IsMouseButtonPressed(Mouse::Middle))
-			std::cout << "[KonEngine DEBUG] Mouse: MIDDLE clicked at (" << (int)mx << ", " << (int)my << ")\n";
+			std::cout << "[KonEngine DEBUG] Mouse: MIDDLE clicked at (" << (int)mx << ", " << (int)my << ")" << std::endl;
 		float sc = GetMouseScroll();
-		if (sc != 0.0f) std::cout << "[KonEngine DEBUG] Mouse: SCROLL " << sc << "\n";
+		if (sc != 0.0f) std::cout << "[KonEngine DEBUG] Mouse: SCROLL " << sc << std::endl;
 	}
 
 	window->swapBuffers();
