@@ -225,7 +225,7 @@ func lex(src: Str) -> I32 {
                 if src.substr(i, 1) == "\n" {
                     line = line + 1; col = 1; i += 1;
                 } else {
-                    if src.substr(i, 1) == "*" && src.substr(i + 1, 1) == "/" {
+                    if src.substr(i, 1) == "*" && i + 1 < n && src.substr(i + 1, 1) == "/" {
                         i += 2; col += 2;
                         break;
                     }
@@ -1129,13 +1129,259 @@ func dump_node(idx: I32, indent: I32) {
     }
 }
 
+
+// ========================================================================
+// TYPECHECKER
+// ========================================================================
+let mut node_types: [Str] = [""];
+
+let mut sym_names:  [Str] = [""];
+let mut sym_types:  [Str] = [""];
+let mut sym_scopes: [I32] = [0];
+let mut sym_count:  I32   = 0;
+let mut cur_scope:  I32   = 0;
+
+let mut fn_names:    [Str] = [""];
+let mut fn_rettypes: [Str] = [""];
+let mut fn_count:    I32   = 0;
+
+func reset_tc() {
+    node_types.clear();
+    node_types.push("");
+    let mut i: I32 = 1;
+    while i < node_kinds.len() { node_types.push(""); i += 1; }
+    sym_names.clear();  sym_names.push("");
+    sym_types.clear();  sym_types.push("");
+    sym_scopes.clear(); sym_scopes.push(0);
+    sym_count = 0; cur_scope = 0;
+    fn_names.clear();    fn_names.push("");
+    fn_rettypes.clear(); fn_rettypes.push("");
+    fn_count = 0;
+}
+
+func tc_push_scope() { cur_scope = cur_scope + 1; }
+
+func tc_pop_scope() {
+    let mut i: I32 = sym_count;
+    while i > 0 {
+        if sym_scopes[i] == cur_scope { sym_count = sym_count - 1; }
+        i = i - 1;
+    }
+    cur_scope = cur_scope - 1;
+}
+
+func tc_define(name: Str, t: Str) {
+    sym_count = sym_count + 1;
+    sym_names.push(name);
+    sym_types.push(t);
+    sym_scopes.push(cur_scope);
+}
+
+func tc_lookup(name: Str) -> Str {
+    let mut i: I32 = sym_count;
+    while i > 0 {
+        if sym_names[i] == name { return sym_types[i]; }
+        i = i - 1;
+    }
+    let mut j: I32 = fn_count;
+    while j > 0 {
+        if fn_names[j] == name { return fn_rettypes[j]; }
+        j = j - 1;
+    }
+    return "?";
+}
+
+func tc_def_fn(name: Str, ret: Str) {
+    fn_count = fn_count + 1;
+    fn_names.push(name);
+    fn_rettypes.push(ret);
+}
+
+func tc_fn_ret(name: Str) -> Str {
+    let mut i: I32 = fn_count;
+    while i > 0 {
+        if fn_names[i] == name { return fn_rettypes[i]; }
+        i = i - 1;
+    }
+    return "?";
+}
+
+func tc_expr(idx: I32) -> Str {
+    if idx == 0 { return "void"; }
+    let k: I32 = node_kinds[idx];
+    if k == NK_INT     { node_types[idx] = "I32";  return "I32"; }
+    if k == NK_FLOAT   { node_types[idx] = "F32";  return "F32"; }
+    if k == NK_BOOL    { node_types[idx] = "Bool"; return "Bool"; }
+    if k == NK_STR_LIT { node_types[idx] = "Str";  return "Str"; }
+    if k == NK_NULL_LIT { node_types[idx] = "?";   return "?"; }
+    if k == NK_IDENT {
+        let t: Str = tc_lookup(node_str[idx]);
+        node_types[idx] = t; return t;
+    }
+    if k == NK_BINARY {
+        let lt: Str = tc_expr(node_a[idx]);
+        let rt: Str = tc_expr(node_b[idx]);
+        let op: Str = node_str[idx];
+        let mut t: Str = lt;
+        if op == "==" || op == "!=" || op == "<" || op == ">" ||
+           op == "<=" || op == ">=" || op == "&&" || op == "||" {
+            t = "Bool";
+        }
+        node_types[idx] = t; return t;
+    }
+    if k == NK_UNARY {
+        let t: Str = tc_expr(node_a[idx]);
+        if node_str[idx] == "!" { node_types[idx] = "Bool"; return "Bool"; }
+        node_types[idx] = t; return t;
+    }
+    if k == NK_ASSIGN {
+        tc_expr(node_a[idx]);
+        let t: Str = tc_expr(node_b[idx]);
+        node_types[idx] = t; return t;
+    }
+    if k == NK_CALL {
+        let callee: I32 = node_a[idx];
+        let mut ret: Str = "?";
+        if node_kinds[callee] == NK_IDENT { ret = tc_fn_ret(node_str[callee]); }
+        if node_kinds[callee] == NK_MEMBER {
+            let method: Str = node_str[callee];
+            if method == "len" { ret = "I32"; }
+            if method == "trim" || method == "upper" || method == "lower" ||
+               method == "replace" || method == "substr" { ret = "Str"; }
+            if method == "contains" || method == "starts" || method == "ends" ||
+               method == "isEmpty" || method == "has" { ret = "Bool"; }
+            if method == "split" { ret = "[Str]"; }
+        }
+        let mut arg: I32 = node_b[idx];
+        while arg != 0 { tc_expr(node_a[arg]); arg = node_b[arg]; }
+        node_types[idx] = ret; return ret;
+    }
+    if k == NK_MEMBER {
+        tc_expr(node_a[idx]);
+        let member: Str = node_str[idx];
+        let mut t: Str = "?";
+        if member == "ok" { t = "Bool"; }
+        if member == "value" || member == "error" { t = "Str"; }
+        if member == "len" { t = "I32"; }
+        node_types[idx] = t; return t;
+    }
+    if k == NK_INDEX {
+        let obj_t: Str = tc_expr(node_a[idx]);
+        tc_expr(node_b[idx]);
+        let mut t: Str = "?";
+        if obj_t.len() > 2 && obj_t.starts("[") {
+            t = obj_t.substr(1, obj_t.len() - 2);
+        }
+        node_types[idx] = t; return t;
+    }
+    if k == NK_CAST {
+        tc_expr(node_a[idx]);
+        node_types[idx] = node_str[idx]; return node_str[idx];
+    }
+    if k == NK_ARRAY_LIT {
+        let mut elem: I32 = node_a[idx];
+        let mut elem_t: Str = "?";
+        if elem != 0 { elem_t = tc_expr(node_a[elem]); }
+        let t: Str = f"[{elem_t}]";
+        node_types[idx] = t; return t;
+    }
+    return "?";
+}
+
+func tc_stmt(idx: I32) {
+    if idx == 0 { return; }
+    let k: I32 = node_kinds[idx];
+    if k == NK_LET {
+        let t: Str = tc_expr(node_a[idx]);
+        tc_define(node_str[idx], t);
+        node_types[idx] = t; return;
+    }
+    if k == NK_CONST_D {
+        let t: Str = tc_expr(node_a[idx]);
+        tc_define(node_str[idx], t);
+        node_types[idx] = t; return;
+    }
+    if k == NK_RETURN {
+        if node_a[idx] != 0 { tc_expr(node_a[idx]); }
+        return;
+    }
+    if k == NK_IF {
+        tc_expr(node_a[idx]);
+        tc_stmt(node_b[idx]);
+        if node_c[idx] != 0 { tc_stmt(node_c[idx]); }
+        return;
+    }
+    if k == NK_WHILE { tc_expr(node_a[idx]); tc_stmt(node_b[idx]); return; }
+    if k == NK_LOOP  { tc_stmt(node_a[idx]); return; }
+    if k == NK_FOR_IN {
+        let iter_t: Str = tc_expr(node_a[idx]);
+        tc_push_scope();
+        let mut elem_t: Str = "?";
+        if iter_t.len() > 2 && iter_t.starts("[") {
+            elem_t = iter_t.substr(1, iter_t.len() - 2);
+        }
+        tc_define(node_str[idx], elem_t);
+        tc_stmt(node_b[idx]);
+        tc_pop_scope(); return;
+    }
+    if k == NK_BLOCK {
+        tc_push_scope();
+        let mut s: I32 = node_a[idx];
+        while s != 0 { tc_stmt(node_a[s]); s = node_b[s]; }
+        tc_pop_scope(); return;
+    }
+    if k == NK_BREAK || k == NK_CONTINUE { return; }
+    tc_expr(idx);
+}
+
+func typecheck(prog_idx: I32) {
+    reset_tc();
+    let mut decl: I32 = node_a[prog_idx];
+    while decl != 0 {
+        let d: I32 = node_a[decl];
+        if node_kinds[d] == NK_FUNC    { tc_def_fn(node_str[d], "?"); }
+        if node_kinds[d] == NK_CONST_D { let t: Str = tc_expr(node_a[d]); tc_define(node_str[d], t); }
+        if node_kinds[d] == NK_LET     { let t: Str = tc_expr(node_a[d]); tc_define(node_str[d], t); }
+        decl = node_b[decl];
+    }
+    decl = node_a[prog_idx];
+    while decl != 0 {
+        let d: I32 = node_a[decl];
+        if node_kinds[d] == NK_FUNC {
+            tc_push_scope();
+            let mut pm: I32 = node_a[d];
+            while pm != 0 {
+                let pn: I32 = node_a[pm];
+                let ps: Str = node_str[pn];
+                let mut ci: I32 = 0;
+                let mut pname: Str = "";
+                let mut ptype: Str = "";
+                let mut found: Bool = false;
+                while ci < ps.len() {
+                    let ch: Str = ps.substr(ci, 1);
+                    if ch == ":" && !found {
+                        found = true;
+                        ptype = ps.substr(ci + 1, ps.len() - ci - 1);
+                        ci = ps.len();
+                    } else {
+                        if !found { pname = f"{pname}{ch}"; }
+                    }
+                    ci += 1;
+                }
+                if pname.len() > 0 { tc_define(pname, ptype); }
+                pm = node_b[pm];
+            }
+            tc_stmt(node_b[d]);
+            tc_pop_scope();
+        }
+        decl = node_b[decl];
+    }
+}
 // -----------------------------------------------------------------------
 // main
-//
-// Stage 1: read a .ks file, lex + parse it, dump the AST summary.
 // -----------------------------------------------------------------------
 func main() -> I32 {
-    Print("KonScript self-hosted compiler v0.1 — stage 1 (lexer + parser)");
+    Print("KonScript self-hosted compiler v0.1 — stage 1 (lex+parse+typecheck)");
     Print("");
 
     let path_result: Result<Str> = File.read(".ks_input");
@@ -1171,13 +1417,12 @@ func main() -> I32 {
     Print("Decls:   ", decl_count);
     Print("");
 
-    // Dump top-level declarations
-    let mut p: I32 = node_a[prog];
-    while p != 0 {
-        dump_node(node_a[p], 0);
-        p = node_b[p];
-    }
-
+    Print("Typechecking...");
+    typecheck(prog);
+    Print("Functions:    ", fn_count);
+    Print("Symbols:      ", sym_count);
+    Print("");
+    Print("OK");
     return 0;
 }
 
