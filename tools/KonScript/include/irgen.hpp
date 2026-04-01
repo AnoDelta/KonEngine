@@ -66,9 +66,12 @@ public:
     };
 
     const std::vector<Error>& errors() const { return m_errors; }
+    std::vector<const Program*> m_includes;
     bool hasErrors() const { return !m_errors.empty(); }
 
     void setTarget(Target t) { m_target = std::move(t); }
+
+    void addInclude(const Program& inc) { m_includes.push_back(&inc); }
 
     // -----------------------------------------------------------------------
     // Entry point — returns the full .ll file as a string
@@ -101,7 +104,14 @@ public:
         // Runtime declarations
         emitRuntimeDecls();
 
-        // First pass: record all function return types and struct layouts
+        // First pass: record symbols from includes then main
+        for (auto* _inc : m_includes)
+            for (auto& s : _inc->stmts) {
+                if (s->kind == Stmt::Kind::FuncDecl) {
+                    auto* f = static_cast<const FuncDecl*>(s.get());
+                    m_funcRetTypes[f->name] = f->returnType ? llvmType(*f->returnType) : "void";
+                }
+            }
         for (auto& s : prog.stmts) {
             if (s->kind == Stmt::Kind::FuncDecl) {
                 auto* f = static_cast<const FuncDecl*>(s.get());
@@ -131,6 +141,9 @@ public:
         emit("");
 
         // Generate all top-level definitions (may populate m_globalStr)
+        for (auto* _inc : m_includes)
+            for (auto& s : _inc->stmts)
+                genTopLevel(s.get());
         for (auto& s : prog.stmts)
             genTopLevel(s.get());
 
@@ -169,7 +182,7 @@ private:
     std::string m_funcRetType;
     // Local variable table: name → {alloca pointer, llvm type}
     using ValType = std::pair<std::string, std::string>;
-    struct LocalVar { std::string addr; std::string llvmTy; };
+    struct LocalVar { std::string addr; std::string llvmTy; std::string ksTy; };
     std::unordered_map<std::string, LocalVar> m_locals;
     // Global variable type table: name → llvm type
     std::unordered_map<std::string, std::string> m_globalTypes;
@@ -249,7 +262,7 @@ private:
     // Type mapping: KonScript TypeAnnotation → LLVM IR type string
     // -----------------------------------------------------------------------
     std::string llvmType(const TypeAnnotation& t) {
-        if (t.isArray)  return llvmType({t.base}) + "*"; // simplified: pointer
+        if (t.isArray)  return "i8*"; // arrays are opaque pointers to _KsArray runtime
         if (t.isTuple)  return "{ " + [&]{ // struct literal
             std::string s;
             for (size_t i=0;i<t.tupleTypes.size();i++){
@@ -259,6 +272,10 @@ private:
             return s;
         }() + " }";
         if (t.nullable) return llvmType({t.base}) + "*"; // nullable → pointer
+
+        // Generic types — opaque pointers to runtime structs
+        if (t.base == "Result")  return "i8*"; // _KsResult
+        if (t.base == "HashMap") return "i8*"; // std::unordered_map opaque
 
         const std::string& b = t.base;
         if (b=="I8"  || b=="Char") return "i8";
@@ -385,6 +402,40 @@ private:
         emit("declare i32 @strlen(i8*)");
         emit("declare i8* @strcpy(i8*, i8*)");
         emit("declare i8* @strcat(i8*, i8*)");
+        emit("");
+        emit("; --- KonScript stdlib (File, Str, Array, HashMap) ---");
+        // These are implemented in the _ks_runtime.c that gets linked in
+        emit("declare i8* @_ks_file_read(i8*)");
+        emit("declare i8* @_ks_file_write(i8*, i8*)");
+        emit("declare i8* @_ks_file_append(i8*, i8*)");
+        emit("declare i1  @_ks_file_exists(i8*)");
+        emit("declare i8* @_ks_file_delete(i8*)");
+        emit("declare i8* @_ks_file_lines(i8*)");
+        emit("declare i1  @_ks_result_ok(i8*)");
+        emit("declare i8* @_ks_result_value(i8*)");
+        emit("declare i8* @_ks_result_error(i8*)");
+        emit("declare i8* @_ks_str_trim(i8*)");
+        emit("declare i8* @_ks_str_upper(i8*)");
+        emit("declare i8* @_ks_str_lower(i8*)");
+        emit("declare i8* @_ks_str_replace(i8*, i8*, i8*)");
+        emit("declare i8* @_ks_str_split(i8*, i8*)");
+        emit("declare i1  @_ks_str_contains(i8*, i8*)");
+        emit("declare i1  @_ks_str_starts(i8*, i8*)");
+        emit("declare i1  @_ks_str_ends(i8*, i8*)");
+        emit("declare i32 @_ks_str_len(i8*)");
+        emit("declare i8* @_ks_str_substr(i8*, i32, i32)");
+        emit("declare i32 @_ks_str_toInt(i8*)");
+        emit("declare float @_ks_str_toFloat(i8*)");
+        emit("declare i8* @_ks_array_new(i32)");
+        emit("declare void @_ks_array_push(i8*, i8*)");
+        emit("declare i8* @_ks_array_pop(i8*)");
+        emit("declare i32 @_ks_array_len(i8*)");
+        emit("declare i1  @_ks_array_has(i8*, i8*)");
+        emit("declare i8* @_ks_hashmap_new()");
+        emit("declare void @_ks_hashmap_set(i8*, i8*, i8*)");
+        emit("declare i8* @_ks_hashmap_get(i8*, i8*)");
+        emit("declare i1  @_ks_hashmap_has(i8*, i8*)");
+        emit("declare i32 @_ks_hashmap_len(i8*)");
         emit("");
     }
 
@@ -593,21 +644,22 @@ private:
     void allocaParam(const std::string& name, const TypeAnnotation& type) {
         std::string lt  = llvmType(type);
         std::string reg = "%" + name + ".addr";
-        // If already defined (shadowing), make unique
         if (m_locals.count(name))
             reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
-        m_locals[name] = {reg, lt};
+        std::string ks = type.isArray ? "Array" : type.base;
+        m_locals[name] = {reg, lt, ks};
     }
 
     void allocaLocal(const std::string& name, const TypeAnnotation& type) {
         std::string lt  = llvmType(type);
         std::string reg = "%" + name + ".addr";
-        // If already defined (same name in inner scope), make unique
         if (m_locals.count(name))
             reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
-        m_locals[name] = {reg, lt};
+        // ksTy: use "Array" for arrays, "HashMap" stays as-is, otherwise base
+        std::string ks = type.isArray ? "Array" : type.base;
+        m_locals[name] = {reg, lt, ks};
     }
 
     // Load a variable — looks up locals first, then globals; returns {value, llvmType}
@@ -703,7 +755,14 @@ private:
         allocaLocal(l->name, l->type);
         if (l->init) {
             auto [val, lt] = genExpr(l->init.get(), l->type);
-            emitI("store " + lt + " " + val + ", " + lt + "* %" + l->name + ".addr");
+            std::string declTy = llvmType(l->type);
+            std::string storeVal = val;
+            // Coerce to declared type if mismatched
+            if (lt != declTy && !declTy.empty() && declTy != "void") {
+                storeVal = coerce(val, lt, declTy);
+                lt = declTy;
+            }
+            emitI("store " + declTy + " " + storeVal + ", " + declTy + "* %" + l->name + ".addr");
         }
     }
     void genConst(const Stmt* s) {
@@ -711,7 +770,12 @@ private:
         allocaLocal(c->name, c->type);
         if (c->init) {
             auto [val, lt] = genExpr(c->init.get(), c->type);
-            emitI("store " + lt + " " + val + ", " + lt + "* %" + c->name + ".addr");
+            std::string declTy = llvmType(c->type);
+            std::string storeVal = val;
+            if (lt != declTy && !declTy.empty() && declTy != "void") {
+                storeVal = coerce(val, lt, declTy);
+            }
+            emitI("store " + declTy + " " + storeVal + ", " + declTy + "* %" + c->name + ".addr");
         }
     }
 
@@ -876,15 +940,96 @@ private:
     // -----------------------------------------------------------------------
     // If / else
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Type coercion helpers
+    // -----------------------------------------------------------------------
+    std::string toBool(const std::string& val, const std::string& lt) {
+        if (lt == "i1") return val;
+        std::string t = tmp();
+        if (lt.back() == '*')
+            emitI(t + " = icmp ne " + lt + " " + val + ", null");
+        else
+            emitI(t + " = icmp ne " + lt + " " + val + ", 0");
+        return t;
+    }
+
+    // Integer bit width helper
+    static int intBitsOf(const std::string& ty) {
+        if (ty=="i1")  return 1;
+        if (ty=="i8")  return 8;
+        if (ty=="i16") return 16;
+        if (ty=="i32") return 32;
+        if (ty=="i64") return 64;
+        return 0;
+    }
+    static bool isIntTy(const std::string& ty) { return intBitsOf(ty) > 0; }
+
+    // Coerce val from srcTy to dstTy — correct for all common cases.
+    std::string coerce(const std::string& val, const std::string& srcTy,
+                       const std::string& dstTy) {
+        if (srcTy == dstTy) return val;
+        std::string t = tmp();
+
+        // Integer widening/narrowing
+        if (isIntTy(srcTy) && isIntTy(dstTy)) {
+            int sb = intBitsOf(srcTy), db = intBitsOf(dstTy);
+            if (db > sb)
+                emitI(t + " = sext " + srcTy + " " + val + " to " + dstTy);
+            else if (db < sb)
+                emitI(t + " = trunc " + srcTy + " " + val + " to " + dstTy);
+            else
+                return val; // same width, different alias
+            return t;
+        }
+        // Bool widening to integer
+        if (srcTy == "i1" && isIntTy(dstTy)) {
+            emitI(t + " = zext i1 " + val + " to " + dstTy); return t;
+        }
+        // Integer narrowing to bool
+        if (dstTy == "i1" && isIntTy(srcTy)) {
+            emitI(t + " = icmp ne " + srcTy + " " + val + ", 0"); return t;
+        }
+        // Float conversions
+        if ((srcTy=="float"||srcTy=="double") && isIntTy(dstTy)) {
+            emitI(t + " = fptosi " + srcTy + " " + val + " to " + dstTy); return t;
+        }
+        if (isIntTy(srcTy) && (dstTy=="float"||dstTy=="double")) {
+            emitI(t + " = sitofp " + srcTy + " " + val + " to " + dstTy); return t;
+        }
+        if (srcTy=="float" && dstTy=="double") {
+            emitI(t + " = fpext float " + val + " to double"); return t;
+        }
+        if (srcTy=="double" && dstTy=="float") {
+            emitI(t + " = fptrunc double " + val + " to float"); return t;
+        }
+        // Pointer ↔ pointer
+        if (srcTy.back()=='*' && dstTy.back()=='*') {
+            emitI(t + " = bitcast " + srcTy + " " + val + " to " + dstTy); return t;
+        }
+        // Int → pointer (boxing)
+        if (dstTy.back()=='*' && isIntTy(srcTy)) {
+            emitI(t + " = inttoptr " + srcTy + " " + val + " to " + dstTy); return t;
+        }
+        // Pointer → int
+        if (srcTy.back()=='*' && isIntTy(dstTy)) {
+            emitI(t + " = ptrtoint " + srcTy + " " + val + " to " + dstTy); return t;
+        }
+        // Fallback bitcast (same-size types)
+        emitI(t + " = bitcast " + srcTy + " " + val + " to " + dstTy);
+        return t;
+    }
+
+    // -----------------------------------------------------------------------
     void genIf(const Stmt* s) {
         auto* i   = static_cast<const IfStmt*>(s);
         std::string thenL = label(), elseL = label(), endL = label();
 
-        auto [cond, _] = genExpr(i->cond.get());
+        auto [cond, ct] = genExpr(i->cond.get());
+        std::string cond1 = toBool(cond, ct);
         if (i->else_) {
-            emitI("br i1 " + cond + ", label %" + thenL + ", label %" + elseL);
+            emitI("br i1 " + cond1 + ", label %" + thenL + ", label %" + elseL);
         } else {
-            emitI("br i1 " + cond + ", label %" + thenL + ", label %" + endL);
+            emitI("br i1 " + cond1 + ", label %" + thenL + ", label %" + endL);
         }
 
         emit(thenL + ":");
@@ -916,8 +1061,8 @@ private:
         emit(condL + ":");
         m_currentBlock = condL;
 
-        auto [cond, _] = genExpr(w->cond.get());
-        emitI("br i1 " + cond + ", label %" + bodyL + ", label %" + endL);
+        auto [cond, wct] = genExpr(w->cond.get());
+        emitI("br i1 " + toBool(cond, wct) + ", label %" + bodyL + ", label %" + endL);
 
         emit(bodyL + ":");
         m_currentBlock = bodyL;
@@ -1069,14 +1214,82 @@ private:
         case Expr::Kind::Assign:   return genAssign(static_cast<const AssignExpr*>(e));
         case Expr::Kind::Call:     return genCall(static_cast<const CallExpr*>(e));
         case Expr::Kind::Member:   return genMember(static_cast<const MemberExpr*>(e));
+        case Expr::Kind::SafeMember: return genMember(static_cast<const MemberExpr*>(e));
         case Expr::Kind::Cast:     return genCast(static_cast<const CastExpr*>(e));
         case Expr::Kind::Index:    return genIndex(static_cast<const IndexExpr*>(e));
+        case Expr::Kind::NullCoal:
+            return {"null", "i8*"};
+        case Expr::Kind::ForceUnwrap:
+            // x! — just return the inner value (runtime check omitted for now)
+            return genExpr(static_cast<const ForceUnwrapExpr*>(e)->value.get(), hint);
+        case Expr::Kind::Some_:
+            return genExpr(static_cast<const SomeExpr*>(e)->value.get(), hint);
+        case Expr::Kind::ArrayLit: {
+            auto* al = static_cast<const ArrayLitExpr*>(e);
+            int count = (int)al->elements.size();
+            // Create a _KsArray using the runtime — this way len/push/has all work
+            std::string arr = tmp();
+            emitI(arr + " = call i8* @_ks_array_new(i32 " + std::to_string(count) + ")");
+            TypeAnnotation noHint;
+            for (auto& el : al->elements) {
+                auto [v, vt] = genExpr(el.get(), noHint);
+                // Box non-pointer values to i8* via inttoptr
+                std::string vcast = v;
+                if (vt != "i8*" && vt.back() != '*') {
+                    std::string bc = tmp();
+                    emitI(bc + " = inttoptr " + vt + " " + v + " to i8*");
+                    vcast = bc;
+                }
+                emitI("call void @_ks_array_push(i8* " + arr + ", i8* " + vcast + ")");
+            }
+            return {arr, "i8*"};
+        }
+        case Expr::Kind::StructInit: {
+            // Struct init: allocate on stack, fill fields
+            auto* si = static_cast<const StructInitExpr*>(e);
+            std::string sty = "%struct." + si->typeName;
+            std::string alloca_ = tmp();
+            emitI(alloca_ + " = alloca " + sty);
+            for (int i = 0; i < (int)si->fields.size(); i++) {
+                auto [val, vty] = genExpr(si->fields[i].value.get());
+                std::string gep = tmp();
+                emitI(gep + " = getelementptr " + sty + ", " + sty + "* " +
+                      alloca_ + ", i32 0, i32 " + std::to_string(i));
+                emitI("store " + vty + " " + val + ", " + vty + "* " + gep);
+            }
+            return {alloca_, sty + "*"};
+        }
+        case Expr::Kind::TupleLit: {
+            // Tuples: alloca a struct, fill it
+            auto* tl = static_cast<const TupleLitExpr*>(e);
+            if (tl->elements.empty()) return {"undef", "i32"};
+            std::vector<ValType> elems;
+            for (auto& el : tl->elements) elems.push_back(genExpr(el.get()));
+            std::string sty = "{ ";
+            for (size_t i = 0; i < elems.size(); i++) {
+                if (i) sty += ", ";
+                sty += elems[i].second;
+            }
+            sty += " }";
+            std::string alloca_ = tmp();
+            emitI(alloca_ + " = alloca " + sty);
+            for (int i = 0; i < (int)elems.size(); i++) {
+                std::string gep = tmp();
+                emitI(gep + " = getelementptr " + sty + ", " + sty + "* " +
+                      alloca_ + ", i32 0, i32 " + std::to_string(i));
+                emitI("store " + elems[i].second + " " + elems[i].first +
+                      ", " + elems[i].second + "* " + gep);
+            }
+            std::string loaded = tmp();
+            emitI(loaded + " = load " + sty + ", " + sty + "* " + alloca_);
+            return {loaded, sty};
+        }
         default:
             error("IRGen: unsupported expression kind " + std::to_string((int)e->kind),
                   e->line, e->col);
             return {"undef", "i32"};
-        }
-    }
+        } // end switch
+    } // end genExpr
 
     ValType genIntLit(const IntLitExpr* e, const TypeAnnotation& hint) {
         std::string lt = hint.base.empty() ? "i32" : llvmType(hint);
@@ -1340,6 +1553,161 @@ private:
             return {ptr, "i8*"};
         }
 
+        // ---- Builtin constructors / factory functions ----
+        if (callee == "HashMap") {
+            std::string t = tmp();
+            emitI(t + " = call i8* @_ks_hashmap_new()");
+            return {t, "i8*"};
+        }
+
+        // ---- File.method(args) → @_ks_file_* runtime calls ----
+        if (e->callee->kind == Expr::Kind::Member) {
+            auto* m = static_cast<const MemberExpr*>(e->callee.get());
+            // File.read/write/etc
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                if (objId->name == "File") {
+                    static const std::unordered_map<std::string,
+                        std::pair<std::string,std::string>> fileFns = {
+                        {"read",   {"@_ks_file_read",   "i8*"}},
+                        {"write",  {"@_ks_file_write",  "i8*"}},
+                        {"append", {"@_ks_file_append", "i8*"}},
+                        {"delete", {"@_ks_file_delete", "i8*"}},
+                        {"lines",  {"@_ks_file_lines",  "i8*"}},
+                        {"exists", {"@_ks_file_exists", "i1"}},
+                    };
+                    auto fit = fileFns.find(m->member);
+                    if (fit != fileFns.end()) {
+                        std::string argList;
+                        for (size_t i = 0; i < e->args.size(); i++) {
+                            if (i) argList += ", ";
+                            auto [v,t] = genExpr(e->args[i].get());
+                            argList += t + " " + v;
+                        }
+                        std::string t2 = tmp();
+                        emitI(t2 + " = call " + fit->second.second +
+                              " " + fit->second.first + "(" + argList + ")");
+                        return {t2, fit->second.second};
+                    }
+                }
+            }
+
+            // result.ok / result.value / result.error
+            if (m->member == "ok" || m->member == "value" || m->member == "error") {
+                auto [obj, oty] = genExpr(m->object.get());
+                std::string t2 = tmp();
+                if (m->member == "ok") {
+                    emitI(t2 + " = call i1 @_ks_result_ok(i8* " + obj + ")");
+                    return {t2, "i1"};
+                } else if (m->member == "value") {
+                    emitI(t2 + " = call i8* @_ks_result_value(i8* " + obj + ")");
+                    return {t2, "i8*"};
+                } else {
+                    emitI(t2 + " = call i8* @_ks_result_error(i8* " + obj + ")");
+                    return {t2, "i8*"};
+                }
+            }
+
+            // Collection methods: len, push, pop, has, set, get, isEmpty, etc.
+            // Look up KonScript type of object to route correctly.
+            auto getObjKsTy = [&]() -> std::string {
+                if (m->object->kind == Expr::Kind::Ident) {
+                    auto* id = static_cast<const IdentExpr*>(m->object.get());
+                    auto it = m_locals.find(id->name);
+                    if (it != m_locals.end()) return it->second.ksTy;
+                }
+                return "";
+            };
+            std::string objKsTy = getObjKsTy();
+            bool isStr  = (objKsTy == "Str" || objKsTy == "str" || objKsTy == "String");
+            bool isMap  = (objKsTy == "HashMap");
+
+            // Route len/isEmpty/has based on object type
+            if (m->member == "len" || m->member == "isEmpty" || m->member == "has") {
+                auto [obj, oty] = genExpr(m->object.get());
+                std::string t2 = tmp();
+                if (m->member == "len") {
+                    if (isStr)
+                        emitI(t2 + " = call i32 @_ks_str_len(i8* " + obj + ")");
+                    else if (isMap)
+                        emitI(t2 + " = call i32 @_ks_hashmap_len(i8* " + obj + ")");
+                    else
+                        emitI(t2 + " = call i32 @_ks_array_len(i8* " + obj + ")");
+                    return {t2, "i32"};
+                }
+                if (m->member == "isEmpty") {
+                    if (isStr)
+                        emitI(t2 + " = call i32 @_ks_str_len(i8* " + obj + ")");
+                    else
+                        emitI(t2 + " = call i32 @_ks_array_len(i8* " + obj + ")");
+                    std::string t3 = tmp();
+                    emitI(t3 + " = icmp eq i32 " + t2 + ", 0");
+                    return {t3, "i1"};
+                }
+                if (m->member == "has" && !e->args.empty()) {
+                    auto [v, vt] = genExpr(e->args[0].get());
+                    std::string vcast = v;
+                    // For array.has(i32), box the int to i8* via inttoptr
+                    if (vt != "i8*" && vt.back() != '*') {
+                        std::string bc = tmp();
+                        emitI(bc + " = inttoptr " + vt + " " + v + " to i8*");
+                        vcast = bc;
+                    }
+                    if (isMap)
+                        emitI(t2 + " = call i1 @_ks_hashmap_has(i8* " + obj + ", i8* " + vcast + ")");
+                    else
+                        emitI(t2 + " = call i1 @_ks_array_has(i8* " + obj + ", i8* " + vcast + ")");
+                    return {t2, "i1"};
+                }
+            }
+
+            static const std::unordered_map<std::string,
+                std::pair<std::string,std::string>> collMethods = {
+                {"push",     {"@_ks_array_push",   "void"}},
+                {"pop",      {"@_ks_array_pop",    "i8*"}},
+                // String methods
+                {"trim",     {"@_ks_str_trim",     "i8*"}},
+                {"upper",    {"@_ks_str_upper",    "i8*"}},
+                {"lower",    {"@_ks_str_lower",    "i8*"}},
+                {"replace",  {"@_ks_str_replace",  "i8*"}},
+                {"split",    {"@_ks_str_split",    "i8*"}},
+                {"contains", {"@_ks_str_contains", "i1"}},
+                {"starts",   {"@_ks_str_starts",   "i1"}},
+                {"ends",     {"@_ks_str_ends",      "i1"}},
+                {"substr",   {"@_ks_str_substr",   "i8*"}},
+                {"toInt",    {"@_ks_str_toInt",    "i32"}},
+                {"toFloat",  {"@_ks_str_toFloat",  "float"}},
+                // HashMap methods
+                {"set",      {"@_ks_hashmap_set",  "void"}},
+                {"get",      {"@_ks_hashmap_get",  "i8*"}},
+            };
+            auto cit = collMethods.find(m->member);
+            if (cit != collMethods.end()) {
+                auto [obj, oty] = genExpr(m->object.get());
+                // For push: box non-pointer args to i8*
+                std::string argList = oty + " " + obj;
+                for (auto& arg : e->args) {
+                    auto [v,t] = genExpr(arg.get());
+                    if (t != "i8*" && t.back() != '*') {
+                        // box int to i8* via inttoptr
+                        std::string bc = tmp();
+                        emitI(bc + " = inttoptr " + t + " " + v + " to i8*");
+                        argList += ", i8* " + bc;
+                    } else {
+                        argList += ", " + t + " " + v;
+                    }
+                }
+                std::string t2 = tmp();
+                if (cit->second.second == "void") {
+                    emitI("call void " + cit->second.first + "(" + argList + ")");
+                    return {"0", "i32"};
+                }
+                emitI(t2 + " = call " + cit->second.second +
+                      " " + cit->second.first + "(" + argList + ")");
+                return {t2, cit->second.second};
+            }
+        }
+
         // ---- Regular user-defined function call ----
         std::vector<std::string> argParts;
         for (auto& arg : e->args) {
@@ -1458,9 +1826,27 @@ private:
 
     // Member read — GEP then load
     ValType genMember(const MemberExpr* e) {
+        // ── Result<T> field access — delegate to runtime functions ────────
+        // result.ok → @_ks_result_ok(i8*)   → i1
+        // result.value → @_ks_result_value(i8*) → i8*
+        // result.error → @_ks_result_error(i8*) → i8*
+        if (e->member == "ok" || e->member == "value" || e->member == "error") {
+            auto [obj, oty] = genExpr(e->object.get());
+            std::string t = tmp();
+            if (e->member == "ok") {
+                emitI(t + " = call i1 @_ks_result_ok(i8* " + obj + ")");
+                return {t, "i1"};
+            } else if (e->member == "value") {
+                emitI(t + " = call i8* @_ks_result_value(i8* " + obj + ")");
+                return {t, "i8*"};
+            } else {
+                emitI(t + " = call i8* @_ks_result_error(i8* " + obj + ")");
+                return {t, "i8*"};
+            }
+        }
+
         auto [gepPtr, fieldTy] = genMemberAddr(e);
         if (gepPtr.empty()) {
-            // Unresolvable — emit 0 with a comment
             std::string t = tmp();
             emitI(t + " = add i32 0, 0  ; unresolved member ." + e->member);
             return {t, "i32"};

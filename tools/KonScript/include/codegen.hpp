@@ -65,8 +65,10 @@ public:
             line("#include <tuple>");
         }
 
-        // _KsResult<T> — the runtime type for Result<T>
-        // ok=true means success, value holds the result, error holds the message.
+        // _KsResult<T> and all _ks_* helpers wrapped in a guard
+        // so the unity build only defines them once.
+        line("#ifndef _KS_STDLIB_HELPERS_DEFINED");
+        line("#define _KS_STDLIB_HELPERS_DEFINED");
         line("template<typename T>");
         line("struct _KsResult {");
         line("    bool        ok    = false;");
@@ -121,6 +123,7 @@ public:
         // _ks_has: works on vector (std::find) and unordered_map (.count)
         line("template<typename C,typename V> inline bool _ks_has(const C& c,const V& v){return std::find(c.begin(),c.end(),v)!=c.end();}");
         line("template<typename K,typename MV,typename Q> inline bool _ks_has(const std::unordered_map<K,MV>& m,const Q& k){return m.count(K(k))>0;}");
+        line("#endif // _KS_STDLIB_HELPERS_DEFINED");
         line("");
         // Emit #pragma once for module files (included by others),
         // but NOT for entry files that have a main() — they're .cpp not headers.

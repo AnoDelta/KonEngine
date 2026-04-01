@@ -15,6 +15,7 @@
 #include <climits>
 #include <cstdlib>
 #include <ctime>
+#include <time.h>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -112,6 +113,78 @@ static void usage() {
         "  konscript --llvm game.ks               → game.ll\n";
 }
 
+// -----------------------------------------------------------------------
+// Progress bar helpers
+// -----------------------------------------------------------------------
+// ANSI color codes
+#define KS_RESET   "\033[0m"
+#define KS_BOLD    "\033[1m"
+#define KS_GREEN   "\033[32m"
+#define KS_YELLOW  "\033[33m"
+#define KS_CYAN    "\033[36m"
+#define KS_DIM     "\033[2m"
+
+// Print a completed stage bar:
+//   [1/4] Lexing         ████████████████████  0.3ms
+static void printStageOK(int step, int total, const std::string& name,
+                         double ms, bool isLast = false) {
+    // Bar: 20 filled blocks
+    const int W = 20;
+    std::string bar(W, '\0');
+    for (int i = 0; i < W; i++) bar[i] = '\xe2'; // UTF-8 for ████
+    // Actually use ASCII-safe blocks
+    std::string filled(W, '#');
+    std::string empty(0,  '-');
+
+    // Format step label
+    char stepBuf[8];
+    std::snprintf(stepBuf, sizeof(stepBuf), "[%d/%d]", step, total);
+
+    // Pad name to 16 chars
+    std::string padded = name;
+    while ((int)padded.size() < 16) padded += ' ';
+
+    // Time string
+    char timeBuf[32];
+    if (ms < 1000.0)
+        std::snprintf(timeBuf, sizeof(timeBuf), "%.1fms", ms);
+    else
+        std::snprintf(timeBuf, sizeof(timeBuf), "%.2fs", ms / 1000.0);
+
+    std::cout << KS_DIM << stepBuf << KS_RESET
+              << " " << KS_BOLD << padded << KS_RESET
+              << " " << KS_GREEN;
+    // Print filled blocks (unicode full block ▓)
+    for (int i = 0; i < W; i++) std::cout << "\xe2\x96\x93";
+    std::cout << KS_RESET
+              << "  " << KS_DIM << timeBuf << KS_RESET
+              << "\n";
+    std::cout << std::flush;
+}
+
+// Print an in-progress stage (partial bar with spinner feel)
+static void printStageDoing(int step, int total, const std::string& name) {
+    const int W = 20;
+    char stepBuf[8];
+    std::snprintf(stepBuf, sizeof(stepBuf), "[%d/%d]", step, total);
+    std::string padded = name;
+    while ((int)padded.size() < 16) padded += ' ';
+
+    std::cout << KS_DIM << stepBuf << KS_RESET
+              << " " << KS_BOLD << padded << KS_RESET
+              << " " << KS_YELLOW;
+    for (int i = 0; i < W / 2; i++) std::cout << "\xe2\x96\x91"; // light blocks
+    for (int i = W / 2; i < W; i++) std::cout << "\xe2\x96\x91";
+    std::cout << KS_RESET << "  ...\r" << std::flush;
+}
+
+static double msNow() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+
 static std::string readFile(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
@@ -202,8 +275,32 @@ static std::string runIRGen(
     const std::string& outDir,
     const std::string& stem)
 {
+    std::vector<KonScript::Program> _irIncludes;
+    std::unordered_set<std::string> _irVis;
+    std::function<void(const KonScript::Program&, const std::string&)> _colIR;
+    _colIR = [&](const KonScript::Program& p, const std::string& base) {
+        for (auto& s : p.stmts) {
+            if (s->kind != KonScript::Stmt::Kind::Include) continue;
+            auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+            if (inc->isSystem || inc->path == "engine") continue;
+            std::string ip = inc->path;
+            if (!fs::path(ip).is_absolute())
+                ip = fs::path(base).parent_path().string() + "/" + inc->path;
+            ip = fs::weakly_canonical(ip).string();
+            if (!fs::exists(ip) || _irVis.count(ip)) continue;
+            _irVis.insert(ip);
+            std::string _s = readFile(ip);
+            KonScript::Lexer _lx(_s, ip); auto _t = _lx.tokenize();
+            KonScript::Parser _px(std::move(_t), ip);
+            auto _p = _px.parse();
+            _colIR(_p, ip);
+            _irIncludes.push_back(std::move(_p));
+        }
+    };
+    _colIR(prog, prog.filename);
     KonScript::IRGen irgen;
     irgen.setTarget(resolveTarget(targetName));
+    for (auto& _inc : _irIncludes) irgen.addInclude(_inc);
     std::string ir = irgen.generate(prog);
     if (irgen.hasErrors()) {
         for (auto& e : irgen.errors())
@@ -324,9 +421,11 @@ int main(int argc, char** argv) {
     std::string src = readFile(path);
 
     // ── Lex ───────────────────────────────────────────────────────────────
+    printStageDoing(1, 4, "Lexing");
+    double t0 = msNow();
     KonScript::Lexer lexer(src, path);
     auto tokens = lexer.tokenize();
-    std::cout << "[1/4] Lexing... OK\n" << std::flush;
+    printStageOK(1, 4, "Lexing", msNow() - t0);
     if (lexer.hasErrors()) {
         for (auto& e : lexer.errors()) std::cerr << e.message << "\n";
         return 1;
@@ -342,9 +441,11 @@ int main(int argc, char** argv) {
     bool engineTarget = hasEngineInclude(tokens);
 
     // ── Parse ─────────────────────────────────────────────────────────────
+    printStageDoing(2, 4, "Parsing");
+    double t1 = msNow();
     KonScript::Parser parser(std::move(tokens), path);
     auto prog = parser.parse();
-    std::cout << "[2/4] Parsing... OK\n" << std::flush;
+    printStageOK(2, 4, "Parsing", msNow() - t1);
     if (parser.hasErrors()) {
         for (auto& e : parser.errors()) std::cerr << e << "\n";
         return 1;
@@ -383,8 +484,10 @@ int main(int argc, char** argv) {
         };
         prepass(prog, path);
     }
+    printStageDoing(3, 4, "Type checking");
+    double t2 = msNow();
     checker.check(prog);
-    std::cout << "[3/4] Type checking... OK\n" << std::flush;
+    printStageOK(3, 4, "Type checking", msNow() - t2);
     if (checker.hasErrors()) {
         for (auto& e : checker.errors())
             std::cerr << path << ":" << e.line << ":" << e.col
@@ -392,6 +495,35 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (checkOnly) { std::cout << path << ": OK\n"; return 0; }
+
+    // Print source file summary for multi-file builds
+    {
+        std::vector<std::string> _srcList;
+        std::unordered_set<std::string> _srcVis;
+        std::function<void(const KonScript::Program&, const std::string&)> _cntInc;
+        _cntInc = [&](const KonScript::Program& p, const std::string& base) {
+            for (auto& s : p.stmts) {
+                if (s->kind != KonScript::Stmt::Kind::Include) continue;
+                auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+                if (inc->isSystem || inc->path == "engine") continue;
+                std::string ip = inc->path;
+                if (!fs::path(ip).is_absolute())
+                    ip = fs::path(base).parent_path().string() + "/" + inc->path;
+                ip = fs::weakly_canonical(ip).string();
+                if (!fs::exists(ip) || _srcVis.count(ip)) continue;
+                _srcVis.insert(ip);
+                _srcList.push_back(fs::path(ip).filename().string());
+            }
+        };
+        _cntInc(prog, path);
+        if (!_srcList.empty()) {
+            std::cout << "\n" << KS_DIM << "  Sources (" << (_srcList.size()+1) << " files):\n" << KS_RESET;
+            for (auto& f : _srcList)
+                std::cout << KS_DIM << "    " << f << "\n" << KS_RESET;
+            std::cout << KS_DIM << "    " << fs::path(path).filename().string()
+                      << "  " << KS_CYAN << "(entry)" << KS_RESET << "\n\n";
+        }
+    }
 
     // ── --ir: print IR to stdout ───────────────────────────────────────────
     if (irDump) {
@@ -425,8 +557,13 @@ int main(int argc, char** argv) {
         }
         std::ofstream out(outPath);
         if (!out.is_open()) { std::cerr << "konscript: cannot write '" << outPath << "'\n"; return 1; }
+        printStageDoing(4, 4, "IRGen");
+        double tIR = msNow();
         out << ir;
-        std::cout << "[ir/" << targetName << "] " << path << " -> " << outPath << "\n";
+        printStageOK(4, 4, "IRGen", msNow() - tIR);
+        std::cout << "\n" << KS_BOLD << KS_GREEN << "  ✓ " << KS_RESET
+                  << KS_BOLD << outPath << KS_RESET
+                  << KS_DIM << "  [ir/" << targetName << "]" << KS_RESET << "\n\n";
         return 0;
     }
 
@@ -450,9 +587,14 @@ int main(int argc, char** argv) {
         }
         std::ofstream out(outPath);
         if (!out.is_open()) { std::cerr << "konscript: cannot write '" << outPath << "'\n"; return 1; }
+        printStageDoing(4, 4, "Transpiling");
+        double tCpp = msNow();
         out << cpp;
-        std::cout << (engineTarget ? "[engine] " : "[standalone] ")
-                  << path << " -> " << outPath << "\n";
+        printStageOK(4, 4, "Transpiling", msNow() - tCpp);
+        std::string tgtLabel = engineTarget ? "engine" : "standalone";
+        std::cout << "\n" << KS_BOLD << KS_GREEN << "  ✓ " << KS_RESET
+                  << KS_BOLD << outPath << KS_RESET
+                  << KS_DIM << "  [" << tgtLabel << "]" << KS_RESET << "\n\n";
 
         // Also transpile each included .ks file to .ks.cpp next to main
         std::string cppDir = fs::path(outPath).parent_path().string();
@@ -542,8 +684,13 @@ int main(int argc, char** argv) {
         collectIncludes(prog, path);
 
         // Transpile each included .ks file in order (dependencies first)
+        int _nFiles = (int)ksIncludes.size() + 1;
+        int _fIdx = 0;
         for (auto& incPath : ksIncludes) {
+            _fIdx++;
             std::string incStem = fs::path(incPath).stem().string();
+            printStageDoing(_fIdx, _nFiles, incStem);
+            double _tF = msNow();
             std::string incCpp  = tmpDir + "/" + incStem + ".cpp";
             std::string incSrc  = readFile(incPath);
             KonScript::Lexer lx(incSrc, incPath);
@@ -555,6 +702,7 @@ int main(int argc, char** argv) {
             std::string incCppSrc = cgInc.generate(incProg);
             { std::ofstream f(incCpp); f << incCppSrc; }
             allCppFiles.push_back(incCpp);
+            printStageOK(_fIdx, _nFiles, incStem, msNow() - _tF);
         }
 
         // Transpile main file — codegen skips .ks includes automatically
@@ -589,9 +737,19 @@ int main(int argc, char** argv) {
                         if (line.find("#include <functional>") != std::string::npos) continue;
                         if (line.find("#include <iostream>") != std::string::npos) continue;
                         if (line.find("#include <optional>") != std::string::npos) continue;
+                        if (line.find("#include <fstream>") != std::string::npos) continue;
+                        if (line.find("#include <unordered_map>") != std::string::npos) continue;
+                        if (line.find("#include <algorithm>") != std::string::npos) continue;
                         if (line.find("namespace { struct _KSInit") != std::string::npos) continue;
                         if (line.find("_KSInit() {") != std::string::npos) continue;
                         if (line.find("} _ks_init; }") != std::string::npos) continue;
+                        // Strip _ks_* stdlib helpers from non-first files
+                        if (line.find("_KsResult") != std::string::npos) continue;
+                        if (line.find("_ks_file_") != std::string::npos) continue;
+                        if (line.find("_ks_str_") != std::string::npos) continue;
+                        if (line.find("_ks_has(") != std::string::npos) continue;
+                        if (line.find("template<typename C") != std::string::npos) continue;
+                        if (line.find("template<typename K,typename MV") != std::string::npos) continue;
                     }
                     unity << line << "\n";
                 }
@@ -842,14 +1000,37 @@ int main(int argc, char** argv) {
         + " \"" + llFile + "\""
         + " -o \"" + objFile + "\"";
 
+    printStageDoing(4, 5, "Compiling IR");
+    double t3 = msNow();
     if (std::system(llcCmd.c_str()) != 0) {
-        std::cerr << "konscript: llc failed\n"
+        std::cerr << "\nkonscript: llc failed\n"
                   << "  Toolchain: " << (toolchainDir.empty() ? "(system PATH)" : toolchainDir) << "\n"
                   << "  Run bundle-toolchain.sh to set up the bundled toolchain.\n";
         return 1;
     }
+    printStageOK(4, 5, "Compiling IR", msNow() - t3);
 
-    // lld → binary
+    // Compile _ks_runtime.c → _ks_runtime.o (stdlib implementation for File/Str/Array/HashMap)
+    bool hasRuntime = false;
+    std::string runtimeObj = buildDir + "/_ks_runtime.o";
+    {
+        std::string runtimeSrc = selfDir() + "/_ks_runtime.c";
+        if (fs::exists(runtimeSrc)) {
+            std::string cc = "cc";
+            if (!toolchainDir.empty()) {
+                std::string bundledClang = toolchainDir + "/llvm/bin/clang" + exe;
+                if (fs::exists(bundledClang)) cc = bundledClang;
+            }
+            std::string rtCmd = "\"" + cc + "\" -O2 -D_POSIX_C_SOURCE=200809L -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -c \""
+                              + runtimeSrc + "\" -o \"" + runtimeObj + "\"";
+            if (std::system(rtCmd.c_str()) == 0) {
+                hasRuntime = true;
+            } else {
+                std::cerr << "konscript: warning: _ks_runtime.c compile failed"
+                          << " — stdlib File/Str/HashMap unavailable\n";
+            }
+        }
+    }
     bool isWindows = (targetName == "windows64" || targetName == "windows");
     bool isWasm    = (targetName == "wasm32"    || targetName == "wasm");
 
@@ -865,27 +1046,24 @@ int main(int argc, char** argv) {
     std::string linkCmd;
 
     if (isWindows) {
-        // Windows target: use lld-link (COFF/PE linker)
         std::string sr = toolchainDir.empty() ? "" : toolchainDir + "/sysroot/windows64/lib";
         linkCmd = "\"" + lld + "\""
             + " /OUT:\"" + outPath + "\""
             + " /SUBSYSTEM:CONSOLE"
             + " /ENTRY:mainCRTStartup";
         if (!sr.empty() && fs::exists(sr + "/crt2.o")) {
-            // Full MinGW sysroot available — link against CRT + import libs
             linkCmd += " \"" + sr + "/crt2.o\""
-                     + " \"" + objFile + "\""
-                     + " \"" + sr + "/libmingw32.a\""
+                     + " \"" + objFile + "\"";
+            if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
+            linkCmd += " \"" + sr + "/libmingw32.a\""
                      + " \"" + sr + "/libmingwex.a\""
                      + " \"" + sr + "/libmsvcrt.a\""
                      + " \"" + sr + "/libkernel32.a\"";
-            if (fs::exists(sr + "/libucrt.a"))
-                linkCmd += " \"" + sr + "/libucrt.a\"";
-            if (fs::exists(sr + "/libgcc.a"))
-                linkCmd += " \"" + sr + "/libgcc.a\"";
+            if (fs::exists(sr + "/libucrt.a")) linkCmd += " \"" + sr + "/libucrt.a\"";
+            if (fs::exists(sr + "/libgcc.a"))  linkCmd += " \"" + sr + "/libgcc.a\"";
         } else {
-            // No sysroot — bare link (will fail without MinGW; show helpful error)
             linkCmd += " \"" + objFile + "\"";
+            if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
             if (sr.empty() || !fs::exists(sr))
                 std::cerr << "konscript: warning: Windows sysroot not found at "
                           << (toolchainDir + "/sysroot/windows64/lib") << "\n"
@@ -894,30 +1072,33 @@ int main(int argc, char** argv) {
     } else if (isWasm) {
         linkCmd = "\"" + lld + "\""
             + " --export-all --no-entry"
-            + " \"" + objFile + "\""
-            + " -o \"" + outPath + "\"";
+            + " \"" + objFile + "\"";
+        if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
+        linkCmd += " -o \"" + outPath + "\"";
     } else if (!toolchainDir.empty()) {
-        // Linux target with bundled musl — fully self-contained
         std::string sr = toolchainDir + "/sysroot/linux64/lib";
         linkCmd = "\"" + lld + "\""
             + " -static"
             + " \"" + sr + "/crt1.o\""
             + " \"" + sr + "/crti.o\""
-            + " \"" + objFile + "\""
-            + " \"" + sr + "/libc.a\""
+            + " \"" + objFile + "\"";
+        if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
+        linkCmd += " \"" + sr + "/libc.a\""
             + " \"" + sr + "/libm.a\""
             + " \"" + sr + "/crtn.o\""
             + " -o \"" + outPath + "\"";
     } else {
-        // No bundled toolchain — fall back to system linker
         linkCmd = "\"" + lld + "\""
-            + " \"" + objFile + "\""
-            + " -lm -lc"
+            + " \"" + objFile + "\"";
+        if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
+        linkCmd += std::string(" -lm -lc")
             + " -o \"" + outPath + "\"";
     }
 
+    printStageDoing(5, 5, "Linking");
+    double t4 = msNow();
     if (std::system(linkCmd.c_str()) != 0) {
-        std::cerr << "konscript: link failed\n";
+        std::cerr << "\nkonscript: link failed\n";
 #ifdef _WIN32
         std::cerr << "  Run: powershell -ExecutionPolicy Bypass -File bundle-toolchain.ps1\n";
 #else
@@ -925,7 +1106,12 @@ int main(int argc, char** argv) {
 #endif
         return 1;
     }
+    printStageOK(5, 5, "Linking", msNow() - t4);
 
-    std::cout << "[build/" << targetName << "] " << path << " -> " << outPath << "\n";
+    // Final success line
+    std::string tgt = targetName.empty() ? "linux64" : targetName;
+    std::cout << "\n" << KS_BOLD << KS_GREEN << "  ✓ " << KS_RESET
+              << KS_BOLD << outPath << KS_RESET
+              << KS_DIM << "  [" << tgt << "]" << KS_RESET << "\n\n";
     return 0;
 }
