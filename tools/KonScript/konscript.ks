@@ -235,6 +235,44 @@ func lex(src: Str) -> I32 {
             continue;
         }
 
+
+        // ── F-string literal  f"..."  ──────────────────────────────
+        if c == "f" && i + 1 < n && src.substr(i + 1, 1) == "\"" {
+            let tok_col: I32 = col;
+            let mut val: Str = "";
+            i += 2; col += 2; // skip f"
+            let mut depth: I32 = 0;
+            while i < n {
+                let fsc: Str = src.substr(i, 1);
+                if fsc == "\"" && depth == 0 {
+                    i += 1; col += 1;
+                    break;
+                }
+                if fsc == "{" { depth = depth + 1; val = val + "{"; i += 1; col += 1; }
+                else {
+                    if fsc == "}" && depth > 0 { depth = depth - 1; val = val + "}"; i += 1; col += 1; }
+                    else {
+                        if fsc == "\\" && i + 1 < n {
+                            let fesc: Str = src.substr(i + 1, 1);
+                            if fesc == "n"  { val = f"{val}\n"; i += 2; col += 2; }
+                            else {
+                                if fesc == "t"  { val = f"{val}\t"; i += 2; col += 2; }
+                                else {
+                                    val = f"{val}{fesc}";
+                                    i += 2; col += 2;
+                                }
+                            }
+                        } else {
+                            if fsc == "\n" { line = line + 1; col = 1; val = f"{val}\n"; i += 1; }
+                            else { val = f"{val}{fsc}"; i += 1; col += 1; }
+                        }
+                    }
+                }
+            }
+            emit_token(TK_FSTR, val, line, tok_col);
+            continue;
+        }
+
         // ── String literal  "..."  ─────────────────────────────────
         if c == "\"" {
             let tok_col: I32 = col;
@@ -398,6 +436,7 @@ func token_kind_name(k: I32) -> Str {
     if k == TK_INT        { return "INT"; }
     if k == TK_FLOAT      { return "FLOAT"; }
     if k == TK_STR        { return "STR"; }
+    if k == TK_FSTR       { return "FSTR"; }
     if k == TK_IDENT      { return "IDENT"; }
     if k == TK_FUNC       { return "func"; }
     if k == TK_LET        { return "let"; }
@@ -528,6 +567,7 @@ const NK_INT:       I32 = 1;  // str=value
 const NK_FLOAT:     I32 = 2;  // str=value
 const NK_BOOL:      I32 = 3;  // str="true"/"false"
 const NK_STR_LIT:   I32 = 4;  // str=value
+const NK_FSTR:      I32 = 40; // f-string
 const NK_IDENT:     I32 = 5;  // str=name
 const NK_BINARY:    I32 = 6;  // str=op,  a=left,   b=right
 const NK_UNARY:     I32 = 7;  // str=op,  a=operand
@@ -682,6 +722,11 @@ func parse_primary() -> I32 {
     if chk(TK_STR) {
         let v: Str = pk_val(); adv();
         return alloc_node(NK_STR_LIT, 0, 0, 0, v);
+    }
+    // F-string literal
+    if chk(TK_FSTR) {
+        let v: Str = pk_val(); adv();
+        return alloc_node(NK_FSTR, 0, 0, 0, v);
     }
     // Bool literals
     if chk(TK_TRUE)  { adv(); return alloc_node(NK_BOOL, 0, 0, 0, "true"); }
@@ -1236,6 +1281,7 @@ func tc_expr(idx: I32) -> Str {
     if k == NK_FLOAT   { node_types[idx] = "F32";  return "F32"; }
     if k == NK_BOOL    { node_types[idx] = "Bool"; return "Bool"; }
     if k == NK_STR_LIT { node_types[idx] = "Str";  return "Str"; }
+    if k == NK_FSTR    { node_types[idx] = "Str";  return "Str"; }
     if k == NK_NULL_LIT { node_types[idx] = "?";   return "?"; }
     if k == NK_IDENT {
         let t: Str = tc_lookup(node_str[idx]);
@@ -1276,7 +1322,8 @@ func tc_expr(idx: I32) -> Str {
             if method == "split" { ret = "[Str]"; }
         }
         let mut arg: I32 = node_b[idx];
-        while arg != 0 { tc_expr(node_a[arg]); arg = node_b[arg]; }
+        while arg != 0 {
+            Print("[DBG arg iter] arg=", arg, " node_a[arg]=", node_a[arg], " node_b[arg]=", node_b[arg]); tc_expr(node_a[arg]); arg = node_b[arg]; }
         node_types[idx] = ret; return ret;
     }
     if k == NK_MEMBER {
@@ -1599,6 +1646,7 @@ func irv_reset() {
 // Current function return type
 let mut ir_ret_type: Str = "void";
 
+
 func ir_gen_expr(idx: I32) -> Str {
     if idx == 0 { return ir_val("0", "i32"); }
     let k: I32  = node_kinds[idx];
@@ -1622,6 +1670,67 @@ func ir_gen_expr(idx: I32) -> Str {
         return ir_val("null", "i8*");
     }
 
+
+    if k == NK_FSTR {
+        // F-string: emit runtime string building via _ks_str_concat
+        // Parse template: split on { and }, emit concat for each piece
+        let raw: Str = node_str[idx];
+        let n_raw: I32 = raw.len();
+        let mut i_raw: I32 = 0;
+        // Start with empty string
+        let empty_si: I32 = ir_str_const("");
+        let t_empty: I32 = ir_tmp_id();
+        ir_emiti(f"%t{t_empty} = getelementptr inbounds [1 x i8], [1 x i8]* @str.{empty_si}, i32 0, i32 0");
+        let mut cur_reg: Str = f"%t{t_empty}";
+        while i_raw < n_raw {
+            // Find next {
+            let mut j_raw: I32 = i_raw;
+            while j_raw < n_raw && raw.substr(j_raw, 1) != "{" {
+                j_raw = j_raw + 1;
+            }
+            // Emit literal segment i_raw..j_raw
+            if j_raw > i_raw {
+                let lit: Str = raw.substr(i_raw, j_raw - i_raw);
+                let lit_si: I32 = ir_str_const(lit);
+                let lit_len: I32 = lit.len() + 1;
+                let t_lit: I32 = ir_tmp_id();
+                ir_emiti(f"%t{t_lit} = getelementptr inbounds [{lit_len} x i8], [{lit_len} x i8]* @str.{lit_si}, i32 0, i32 0");
+                let t_cat: I32 = ir_tmp_id();
+                ir_emiti(f"%t{t_cat} = call i8* @_ks_str_concat(i8* {cur_reg}, i8* %t{t_lit})");
+                cur_reg = f"%t{t_cat}";
+            }
+            if j_raw >= n_raw { i_raw = n_raw; }
+            else {
+                // Found {, find matching }
+                j_raw = j_raw + 1;
+                let mut k_raw: I32 = j_raw;
+                while k_raw < n_raw && raw.substr(k_raw, 1) != "}" {
+                    k_raw = k_raw + 1;
+                }
+                let varname: Str = raw.substr(j_raw, k_raw - j_raw);
+                // Look up variable - emit load and convert
+                let var_reg: Str = irv_lookup_reg(varname);
+                if var_reg.len() > 0 {
+                    let var_type: Str = irv_lookup_type(varname);
+                    let t_load: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{t_load} = load {var_type}, {var_type}* {var_reg}");
+                    if var_type == "i8*" {
+                        let t_cat2: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{t_cat2} = call i8* @_ks_str_concat(i8* {cur_reg}, i8* %t{t_load})");
+                        cur_reg = f"%t{t_cat2}";
+                    } else {
+                        let t_conv: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{t_conv} = call i8* @_ks_int_to_str(i32 %t{t_load})");
+                        let t_cat2: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{t_cat2} = call i8* @_ks_str_concat(i8* {cur_reg}, i8* %t{t_conv})");
+                        cur_reg = f"%t{t_cat2}";
+                    }
+                }
+                i_raw = k_raw + 1;
+            }
+        }
+        return ir_val(cur_reg, "i8*");
+    }
     if k == NK_STR_LIT {
         let sidx: I32 = ir_str_const(node_str[idx]);
         let slen: I32 = node_str[idx].len() + 1;
@@ -1806,22 +1915,16 @@ func ir_gen_expr(idx: I32) -> Str {
 
     if k == NK_CALL {
         let callee: I32 = node_a[idx];
-        // Collect args
-        let mut args: [Str] = [""];
-        args.clear();
+        // Build arglist inline (avoid array method calls)
+        let mut arglist: Str = "";
         let mut arg: I32 = node_b[idx];
+        let mut first_arg: Bool = true;
         while arg != 0 {
             let avt: Str = ir_gen_expr(node_a[arg]);
-            args.push(f"{ir_get_t(avt)} {ir_get_v(avt)}");
+            let astr: Str = f"{ir_get_t(avt)} {ir_get_v(avt)}";
+            if !first_arg { arglist = f"{arglist}, {astr}"; }
+            if first_arg  { arglist = astr; first_arg = false; }
             arg = node_b[arg];
-        }
-        // Build arg list string
-        let mut arglist: Str = "";
-        let mut ai: I32 = 1;
-        while ai < args.len() {
-            if ai > 1 { arglist = f"{arglist}, "; }
-            arglist = f"{arglist}{args[ai]}";
-            ai = ai + 1;
         }
         let t: I32 = ir_tmp_id();
         // Callee name
@@ -2250,12 +2353,8 @@ func irgen(prog_idx: I32) {
     ir_emit("declare void @free(i8*)");
     ir_emit("declare i32 @strlen(i8*)");
     ir_emit("declare i32 @Print(...)");
-    ir_emit("declare i8* @ir_escape_str(i8*)");
-    ir_emit("declare void @ir_gen_func(i32)");
-    ir_emit("declare void @ir_gen_stmt(i32)");
-    ir_emit("declare void @irgen(i32)");
-    ir_emit("declare void @ir_pre_alloca(i32)");
-    ir_emit("declare i8* @ir_to_string()");
+    ir_emit("declare i8* @_ks_str_concat(i8*, i8*)");
+    ir_emit("declare i8* @_ks_int_to_str(i32)");
     // Pre-register return types for self-referential functions
     tc_def_fn("ir_escape_str", "Str");
     tc_def_fn("ir_get_v", "Str");
