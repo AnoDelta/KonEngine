@@ -431,12 +431,28 @@ void KonEditor::openProject(const QString& path) {
         if      (QFile::exists(ksScene))   lastScene = ksScene;
         else if (QFile::exists(jsonScene)) lastScene = jsonScene;
     }
-    if (!lastScene.isEmpty() && QFile::exists(lastScene)) {
+if (!lastScene.isEmpty() && QFile::exists(lastScene)) {
+    // Set scene path immediately so autoSave works before timer fires
+    m_sceneTree->setScenePath(lastScene);
+    fprintf(stderr, "[Editor] Loading scene: %s\n", lastScene.toUtf8().constData());
+    QTimer::singleShot(200, this, [this, lastScene]{
         m_sceneTree->loadScene(lastScene);
         QTimer::singleShot(100, this, [this]{ rebuildViewport(); });
-    } else {
-        m_sceneTree->newScene();
+    });
+} else {
+    fprintf(stderr, "[Editor] No scene found, creating default Main.ks\n");
+    // Create default scene file
+    QString scenesDir = dir + "/scenes";
+    QDir().mkpath(scenesDir);
+    QString defaultScene = scenesDir + "/Main.ks";
+    QFile sf(defaultScene);
+    if (sf.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream(&sf) << "# Main.ks\n#include <engine>\n\nnode Main : Node2D {\n    func Ready() {\n    }\n}\n";
+        sf.flush(); sf.close();
     }
+    m_sceneTree->setScenePath(defaultScene);
+    m_sceneTree->newScene();
+}
 }
 
 void KonEditor::onNewProject() {

@@ -19,6 +19,7 @@ public:
     void saveScene(const QString& path);
     bool hasScene() const { return m_sceneLoaded; }
     QString scenePath() const { return m_scenePath; }
+    void setScenePath(const QString& p) { m_scenePath = p; }
     QTreeWidget* treeWidget() const { return m_tree; }
 
 signals:

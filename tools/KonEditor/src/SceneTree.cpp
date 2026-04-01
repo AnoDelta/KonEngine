@@ -232,7 +232,13 @@ SceneTree::SceneTree(QWidget* parent) : QWidget(parent) {
     newScene();
 }
 
-void SceneTree::setProjectRoot(const QString& root) { m_projectRoot = root; }
+void SceneTree::setProjectRoot(const QString& root) {
+    m_projectRoot = root;
+    if (!root.isEmpty() && m_scenePath.isEmpty()) {
+        QString ks = root + "/scenes/Main.ks";
+        if (QFile::exists(ks)) m_scenePath = ks;
+    }
+}
 
 void SceneTree::newScene() {
     m_loading = true;  // prevent autoSave during init
@@ -276,6 +282,9 @@ void SceneTree::onAddNode() {
     QString name = QInputDialog::getText(this, "Node Name", "Name:",
         QLineEdit::Normal, type, &ok);
     if (!ok || name.trimmed().isEmpty()) return;
+    // Sanitize: replace spaces/special chars with underscores
+    name = name.trimmed().replace(' ', '_').replace('-', '_')
+               .replace('.', '_').replace('/', '_');
 
     // Add under selected item, or root if nothing selected
     QTreeWidgetItem* parent = m_tree->currentItem();
@@ -316,12 +325,38 @@ void SceneTree::onAddNode() {
 void SceneTree::onDeleteNode() {
     auto* item = m_tree->currentItem();
     if (!item || !item->parent()) return; // don't delete root
+    QString nodeName = item->data(0, Qt::UserRole + 1).toString();
     QMessageBox::StandardButton r = QMessageBox::question(
         this, "Delete Node",
-        "Delete \"" + item->data(0, Qt::UserRole + 1).toString() + "\" and all children?",
+        "Delete \"" + nodeName + "\" and all children?",
         QMessageBox::Yes | QMessageBox::Cancel);
     if (r != QMessageBox::Yes) return;
     delete item;
+    // Remove from scene file
+    if (!m_scenePath.isEmpty() && QFile::exists(m_scenePath)) {
+        QFile f(m_scenePath);
+        if (f.open(QIODevice::ReadOnly)) {
+            QString src = QTextStream(&f).readAll();
+            f.close();
+            QString var = nodeName.toLower();
+            // Remove: let mut var: Type = this.add(...);
+            QRegularExpression reLine(
+                QString(R"(
+[ 	]*let\s+mut\s+%1\s*:[^;]+;)").arg(
+                    QRegularExpression::escape(var)));
+            src.remove(reLine);
+            // Remove: var.x = ...; var.y = ...;
+            QRegularExpression rePos(
+                QString(R"(
+[ 	]*%1\.[xy]\s*=[^;]+;)").arg(
+                    QRegularExpression::escape(var)));
+            src.remove(rePos);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                QTextStream(&f) << src;
+                f.flush(); f.close();
+            }
+        }
+    }
     emit sceneChanged();
 }
 
@@ -463,7 +498,12 @@ void SceneTree::updateNodePosition(const QString& name, float x, float y) {
 }
 
 void SceneTree::autoSaveScene() {
-    // Disabled — save only on explicit Ctrl+S
+    fprintf(stderr, "[SceneTree] autoSave: loading=%d path=%s\n", m_loading, m_scenePath.toUtf8().constData());
+    if (m_loading) return;
+    if (m_scenePath.isEmpty()) return;
+    auto* root = m_tree->topLevelItem(0);
+    if (!root || root->childCount() == 0) return;
+    saveScene(m_scenePath);
 }
 
 void SceneTree::saveCurrentScene() {
@@ -658,7 +698,10 @@ void SceneTree::saveScene(const QString& path) {
                 if (m.hasMatch()) useType = m.captured(1);
             }
         }
-        ks += indent + "let mut " + name.toLower() + ": " + useType +
+        // Avoid var name == type name (C++ conflict)
+        QString varName = name.toLower();
+        if (varName == useType.toLower()) varName += "_node";
+        ks += indent + "let mut " + varName + ": " + useType +
               " = this.add(" + useType + ", \"" + name + "\");\n";
         for (int i = 0; i < item->childCount(); i++)
             writeNode(item->child(i), depth);
@@ -683,8 +726,11 @@ void SceneTree::saveScene(const QString& path) {
         float x = vx.isValid() ? vx.toFloat() : 0.0f;
         float y = vy.isValid() ? vy.toFloat() : 0.0f;
         QString varName = name.toLower();
+        QString typeName2 = item->data(0, Qt::UserRole).toString().toLower();
+        if (varName == typeName2) varName += "_node";
         ks += "        " + varName + ".x = " + QString::number(x, 'f', 1) + ";\n";
         ks += "        " + varName + ".y = " + QString::number(y, 'f', 1) + ";\n";
+        (void)typeName2; // suppress warning
         for (int i = 0; i < item->childCount(); i++)
             writePositions(item->child(i));
     };
