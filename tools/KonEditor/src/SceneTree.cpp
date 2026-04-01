@@ -269,7 +269,6 @@ QTreeWidgetItem* SceneTree::addNode(QTreeWidgetItem* parent,
 }
 
 void SceneTree::onAddNode() {
-    // Need a scene root first
     if (m_tree->topLevelItemCount() == 0) newScene();
 
     NodePickerDialog dlg(this);
@@ -277,16 +276,13 @@ void SceneTree::onAddNode() {
     QString type = dlg.selectedType();
     if (type.isEmpty()) return;
 
-    // Ask for name
     bool ok;
     QString name = QInputDialog::getText(this, "Node Name", "Name:",
         QLineEdit::Normal, type, &ok);
     if (!ok || name.trimmed().isEmpty()) return;
-    // Sanitize: replace spaces/special chars with underscores
     name = name.trimmed().replace(' ', '_').replace('-', '_')
                .replace('.', '_').replace('/', '_');
 
-    // Add under selected item, or root if nothing selected
     QTreeWidgetItem* parent = m_tree->currentItem();
     if (!parent) parent = m_tree->topLevelItem(0);
 
@@ -301,26 +297,92 @@ void SceneTree::onAddNode() {
             QFile f(scriptPath);
             if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 QTextStream(&f) << sa.generateScript(name, type);
-                // Store script ref on node
                 newNode->setData(0, Qt::UserRole + 2, scriptPath);
                 newNode->setToolTip(0, type + " — script: src/" + scriptName);
             }
         }
-        // Auto-save scene
-        autoSaveScene();
     }
 
-    // Auto-select the new node so inspector shows it immediately
-    m_tree->setCurrentItem(newNode);
-    onItemClicked(newNode);
+    // ── Node helpers ────────────────────────────────────────────────────────
+    // Physics bodies: offer to auto-add a CollisionShape2D child
+    static const QStringList physicsTypes = {
+        "RigidBody2D", "KinematicBody2D", "StaticBody2D", "Area2D"
+    };
+    if (physicsTypes.contains(type)) {
+        auto btn = QMessageBox::question(this,
+            "Add Collision Shape?",
+            QString("Add a CollisionShape2D child to \"%1\"?\n\n"
+                    "This is needed for collision to work.").arg(name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (btn == QMessageBox::Yes) {
+            QString shapeName = name + "_shape";
+            auto* shapeNode = addNode(newNode, shapeName, "CollisionShape2D");
+            // CollisionShape2D is a builtin — no script needed, but store defaults
+            shapeNode->setData(0, Qt::UserRole + 3, 0.0f); // x
+            shapeNode->setData(0, Qt::UserRole + 4, 0.0f); // y
+            newNode->setExpanded(true);
+        }
+    }
 
-    // Auto-select the new node so inspector shows it immediately
+    // Sprite2D / AnimatedSprite2D: offer to add AnimationPlayer child
+    static const QStringList spriteTypes = { "Sprite2D", "AnimatedSprite2D" };
+    if (spriteTypes.contains(type)) {
+        auto btn = QMessageBox::question(this,
+            "Add AnimationPlayer?",
+            QString("Add an AnimationPlayer child to \"%1\"?").arg(name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (btn == QMessageBox::Yes) {
+            addNode(newNode, name + "_anim", "AnimationPlayer");
+            newNode->setExpanded(true);
+        }
+    }
+
+    // CameraNode2D: offer to configure as follow camera
+    if (type == "CameraNode2D") {
+        auto btn = QMessageBox::question(this,
+            "Follow Camera?",
+            QString("Generate a follow-camera script for \"%1\"?\n\n"
+                    "This will create a starter script that smoothly follows a target node.").arg(name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (btn == QMessageBox::Yes && !m_projectRoot.isEmpty()) {
+            QString scriptPath = m_projectRoot + "/src/" + name.toLower() + ".ks";
+            if (!QFile::exists(scriptPath)) {
+                QFile f(scriptPath);
+                if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                    QString src;
+                    src += "# " + name + ".ks\n";
+                    src += "#include <engine>\n\n";
+                    src += "node " + name + " : CameraNode2D {\n";
+                    src += "    let mut smoothSpeed: F64 = 5.0;\n\n";
+                    src += "    func Ready() {\n";
+                    src += "        x = 0.0;\n";
+                    src += "        y = 0.0;\n";
+                    src += "    }\n\n";
+                    src += "    func Update(dt: F64) {\n";
+                    src += "        # Replace GetNode(\"target\") with your target node name\n";
+                    src += "        # x += (target.x - x) * smoothSpeed * dt;\n";
+                    src += "        # y += (target.y - y) * smoothSpeed * dt;\n";
+                    src += "    }\n";
+                    src += "}\n";
+                    QTextStream(&f) << src;
+                    newNode->setData(0, Qt::UserRole + 2, scriptPath);
+                    newNode->setToolTip(0, type + " — script: src/" + name.toLower() + ".ks");
+                }
+            }
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
+    if (!m_projectRoot.isEmpty())
+        autoSaveScene();
+
     m_tree->setCurrentItem(newNode);
     onItemClicked(newNode);
 
     emit nodeAdded(name, type);
     emit sceneChanged();
 }
+
 
 void SceneTree::onDeleteNode() {
     auto* item = m_tree->currentItem();

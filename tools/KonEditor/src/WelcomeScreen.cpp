@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QApplication>
 #include <QLineEdit>
+#include "ProjectManager.hpp"
 
 WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     setWindowTitle("KonEditor");
@@ -235,7 +236,6 @@ bool WelcomeScreen::eventFilter(QObject* obj, QEvent* event) {
             m_hoveredItem = nullptr;
         }
         if (event->type() == QEvent::Resize) {
-            // Reposition trash button if visible
             if (m_hoveredItem && m_trashBtn->isVisible()) {
                 QRect r = m_recentList->visualItemRect(m_hoveredItem);
                 m_trashBtn->move(m_recentList->viewport()->width() - 32,
@@ -261,7 +261,6 @@ void WelcomeScreen::mouseMoveEvent(QMouseEvent* e) {
 void WelcomeScreen::updateEmptyState() {
     bool has = m_recentList->count() > 0;
     m_recentList->setVisible(has);
-    // find emptyState label
     auto* empty = findChild<QLabel*>("emptyState");
     if (empty) empty->setVisible(!has);
 }
@@ -307,43 +306,15 @@ void WelcomeScreen::onNewProject() {
     if (!ok || name.trimmed().isEmpty()) return;
 
     QString projDir = dir + "/" + name;
-    QDir().mkpath(projDir + "/src");
-    QDir().mkpath(projDir + "/scenes");
-    QDir().mkpath(projDir + "/assets");
-    QDir().mkpath(projDir + "/build");
 
-    QFile ks(projDir + "/src/main.ks");
-    if (ks.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        ks.write(QString(
-R"(#include <engine>
-
-func main() {
-    InitWindow(800, 600, "%1");
-    SetTargetFPS(60);
-    SetVsync(true);
-
-    while !WindowShouldClose() {
-        ClearBackground(0.1, 0.1, 0.15);
-        Present();
-        PollEvents();
-    }
-}
-)").arg(name).toUtf8());
+    ProjectManager pm;
+    if (!pm.create(projDir)) {
+        QMessageBox::critical(this, "Error", "Failed to create project in:\n" + projDir);
+        return;
     }
 
-    QString projPath = projDir + "/" + name + ".konproj";
-    QFile pf(projPath);
-    if (pf.open(QIODevice::WriteOnly)) {
-        QJsonObject o;
-        o["name"]    = name;
-        o["version"] = "0.1.0";
-        o["entry"]   = "src/main.ks";
-        o["created"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-        pf.write(QJsonDocument(o).toJson(QJsonDocument::Indented));
-    }
-
-    addRecent(projPath);
-    m_selectedProject = projPath;
+    addRecent(pm.path());
+    m_selectedProject = pm.path();
     accept();
 }
 

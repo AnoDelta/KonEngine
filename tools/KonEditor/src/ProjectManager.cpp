@@ -20,7 +20,7 @@ bool ProjectManager::create(const QString& dir) {
     d.mkpath("build");
     d.mkpath("scenes");
 
-    // Write starter main.ks with scene integration
+    // Write starter main.ks
     QString mainKs = dir + "/src/main.ks";
     if (!QFile::exists(mainKs)) {
         QFile f(mainKs);
@@ -37,14 +37,10 @@ bool ProjectManager::create(const QString& dir) {
                 "    let mut scene: Scene = Scene();\n"
                 "    scene.add(Main, \"Main\");\n"
                 "\n"
-                "    let mut cam: Camera2D = Camera2D(0.0, 0.0, 1.0, 0.0);\n"
-                "\n"
                 "    while !WindowShouldClose() {\n"
                 "        scene.update(GetDeltaTime());\n"
                 "        ClearBackground(0.1, 0.1, 0.15);\n"
-                "        BeginCamera2D(cam);\n"
-                "            scene.draw();\n"
-                "        EndCamera2D();\n"
+                "        scene.draw();\n"
                 "        Present();\n"
                 "        PollEvents();\n"
                 "    }\n"
