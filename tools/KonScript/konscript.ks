@@ -1322,8 +1322,7 @@ func tc_expr(idx: I32) -> Str {
             if method == "split" { ret = "[Str]"; }
         }
         let mut arg: I32 = node_b[idx];
-        while arg != 0 {
-            Print("[DBG arg iter] arg=", arg, " node_a[arg]=", node_a[arg], " node_b[arg]=", node_b[arg]); tc_expr(node_a[arg]); arg = node_b[arg]; }
+        while arg != 0 { tc_expr(node_a[arg]); arg = node_b[arg]; }
         node_types[idx] = ret; return ret;
     }
     if k == NK_MEMBER {
@@ -1414,6 +1413,47 @@ func typecheck(prog_idx: I32) {
         if node_kinds[d] == NK_LET     { let t: Str = tc_expr(node_a[d]); tc_define(node_str[d], t); }
         decl = node_b[decl];
     }
+    // Pre-register known return types for IRGen functions
+    tc_def_fn("ir_escape_str", "Str");
+    tc_def_fn("ir_get_v", "Str");
+    tc_def_fn("ir_get_t", "Str");
+    tc_def_fn("ir_val", "Str");
+    tc_def_fn("func_name", "Str");
+    tc_def_fn("func_ret", "Str");
+    tc_def_fn("ir_type", "Str");
+    tc_def_fn("tc_fn_ret", "Str");
+    tc_def_fn("tc_lookup", "Str");
+    tc_def_fn("loop_cond_top", "Str");
+    tc_def_fn("loop_end_top", "Str");
+    tc_def_fn("ir_to_string", "Str");
+    tc_def_fn("irv_lookup_reg", "Str");
+    tc_def_fn("irv_lookup_type", "Str");
+    tc_def_fn("gconst_lookup", "Str");
+    tc_def_fn("ir_gen_expr", "Str");
+    tc_def_fn("ir_arglist_append", "Str");
+    tc_def_fn("ir_arg_str", "Str");
+    tc_def_fn("ir_tmp_id", "I32");
+    tc_def_fn("ir_label_id", "I32");
+    tc_def_fn("ir_str_const", "I32");
+    tc_def_fn("ir_gen_func", "void");
+    tc_def_fn("ir_gen_stmt", "void");
+    tc_def_fn("ir_emit", "void");
+    tc_def_fn("ir_emiti", "void");
+    tc_def_fn("irv_push_scope", "void");
+    tc_def_fn("irv_pop_scope", "void");
+    tc_def_fn("irv_def", "void");
+    tc_def_fn("loop_push", "void");
+    tc_def_fn("loop_pop", "void");
+    tc_def_fn("typecheck", "void");
+    tc_def_fn("irgen", "void");
+    tc_def_fn("ir_reset", "void");
+    tc_def_fn("irv_reset", "void");
+    tc_def_fn("reset_tc", "void");
+    tc_def_fn("tc_define", "void");
+    tc_def_fn("tc_push_scope", "void");
+    tc_def_fn("tc_pop_scope", "void");
+    tc_def_fn("gconst_define", "void");
+    tc_def_fn("tc_stmt", "void");
     decl = node_a[prog_idx];
     while decl != 0 {
         let d: I32 = node_a[decl];
@@ -1647,6 +1687,22 @@ func irv_reset() {
 let mut ir_ret_type: Str = "void";
 
 
+
+// Build "type val" arg string for IR call (no f-strings)
+func ir_arg_str(atype: Str, aval: Str) -> Str {
+    let sp: Str = " ";
+    return atype + sp + aval;
+}
+
+// Append arg to arglist (no f-strings - works at IRGen compile time)
+func ir_arglist_append(lst: Str, atype: Str, aval: Str) -> Str {
+    let sp: Str = " ";
+    let piece: Str = atype + sp + aval;
+    if lst.len() == 0 { return piece; }
+    let comma: Str = ", ";
+    return lst + comma + piece;
+}
+
 func ir_gen_expr(idx: I32) -> Str {
     if idx == 0 { return ir_val("0", "i32"); }
     let k: I32  = node_kinds[idx];
@@ -1764,10 +1820,22 @@ func ir_gen_expr(idx: I32) -> Str {
         let op: Str   = node_str[idx];
         let t: I32    = ir_tmp_id();
         if op == "+" {
-            // String concat: use placeholder (runtime needed)
-            if llt == "i8*" || llt.ends("*") {
-                ir_emiti(f"%t{t} = add i32 0, 0  ; str concat placeholder");
-                return ir_val(f"%t{t}", "i32");
+            let rlt: Str = ir_get_t(rvt);
+            if llt == "i8*" || llt.ends("*") || rlt == "i8*" || rlt.ends("*") {
+                let mut lv8: Str = lv;
+                let mut rv8: Str = rv;
+                if llt != "i8*" {
+                    let ct: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{ct} = inttoptr {llt} {lv} to i8*");
+                    lv8 = f"%t{ct}";
+                }
+                if rlt != "i8*" {
+                    let ct: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{ct} = inttoptr {rlt} {rv} to i8*");
+                    rv8 = f"%t{ct}";
+                }
+                ir_emiti(f"%t{t} = call i8* @_ks_str_concat(i8* {lv8}, i8* {rv8})");
+                return ir_val(f"%t{t}", "i8*");
             }
             ir_emiti(f"%t{t} = add {llt} {lv}, {rv}");
             return ir_val(f"%t{t}", llt);
@@ -1959,15 +2027,117 @@ func ir_gen_expr(idx: I32) -> Str {
                 ir_emiti(f"%t{pt4} = call i32 (i8*, ...) @printf(i8* %t{pt3})");
                 return ir_val("0", "void");
             }
-            let fret: Str = ir_type(tc_fn_ret(fname));
-            if fret == "void" || tc_fn_ret(fname) == "?" {
+            let fret_raw: Str = tc_fn_ret(fname);
+            let fret: Str = ir_type(fret_raw);
+            // Only emit as void if explicitly void
+            if fret == "void" {
                 ir_emiti(f"call void @{fname}({arglist})");
                 return ir_val("0", "void");
             }
+            // For unknown (?) return type, emit as i32 with result
             ir_emiti(f"%t{t} = call {fret} @{fname}({arglist})");
             return ir_val(f"%t{t}", fret);
         }
-        // Method call — emit 0 placeholder (TODO: implement)
+        // Method calls — dispatch by method name
+        if node_kinds[callee] == NK_MEMBER {
+            let method: Str = node_str[callee];
+            // Build method arglist FIRST (needed for namespace methods)
+            let mut m_arglist: Str = "";
+            let mut pre_arg: I32 = node_b[idx];
+            while pre_arg != 0 {
+                let pre_avt: Str  = ir_gen_expr(node_a[pre_arg]);
+                let pre_at: Str = ir_get_t(pre_avt);
+                let pre_av: Str  = ir_get_v(pre_avt);
+                m_arglist = ir_arglist_append(m_arglist, pre_at, pre_av);
+                pre_arg = node_b[pre_arg];
+            }
+            let obj_vt: Str = ir_gen_expr(node_a[callee]);
+            let obj_v_raw: Str = ir_get_v(obj_vt);
+            let obj_lt: Str    = ir_get_t(obj_vt);
+            // Guard: if object is null/0, check for namespace first
+            if obj_v_raw == "0" || obj_v_raw == "null" {
+                // Check for namespace methods (File.read etc)
+                let callee_ident_kind: I32 = node_kinds[node_a[callee]];
+                if callee_ident_kind == NK_IDENT {
+                    let ns_name: Str = node_str[node_a[callee]];
+                    if ns_name == "File" {
+                        if method == "read" {
+                            ir_emiti(f"%t{t} = call i8* @_ks_file_read({m_arglist})");
+                            return ir_val(f"%t{t}", "i8*");
+                        }
+                        if method == "write" {
+                            ir_emiti(f"%t{t} = call i8* @_ks_file_write({m_arglist})");
+                            return ir_val(f"%t{t}", "i8*");
+                        }
+                    }
+                }
+                ir_emiti(f"%t{t} = add i32 0, 0  ; method on null obj");
+                return ir_val(f"%t{t}", "i32");
+            }
+            if false {
+                ir_emiti(f"%t{t} = add i32 0, 0  ; method on null obj");
+                return ir_val(f"%t{t}", "i32");
+            }
+            // Cast to i8* if needed for string/array methods
+            let mut obj_v: Str = obj_v_raw;
+            if obj_lt != "i8*" {
+                let ct: I32 = ir_tmp_id();
+                ir_emiti(f"%t{ct} = inttoptr {obj_lt} {obj_v_raw} to i8*");
+                obj_v = f"%t{ct}";
+            }
+            // Build method arglist
+            // arglist already built above
+            // Dispatch
+            if method == "len" {
+                ir_emiti(f"%t{t} = call i32 @_ks_str_len(i8* {obj_v})");
+                return ir_val(f"%t{t}", "i32");
+            }
+            if method == "push" {
+                if obj_v != "0" && obj_v != "null" {
+                    ir_emiti(f"call void @_ks_array_push(i8* {obj_v}, {m_arglist})");
+                }
+                return ir_val("0", "void");
+            }
+            if method == "clear" {
+                if obj_v != "0" && obj_v != "null" {
+                    ir_emiti(f"call void @_ks_array_clear(i8* {obj_v})");
+                }
+                return ir_val("0", "void");
+            }
+            if method == "substr" {
+                ir_emiti(f"%t{t} = call i8* @_ks_str_substr(i8* {obj_v}, {m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "trim" {
+                ir_emiti(f"%t{t} = call i8* @_ks_str_trim(i8* {obj_v})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "starts" {
+                ir_emiti(f"%t{t} = call i1 @_ks_str_starts(i8* {obj_v}, {m_arglist})");
+                return ir_val(f"%t{t}", "i1");
+            }
+            if method == "ends" {
+                ir_emiti(f"%t{t} = call i1 @_ks_str_ends(i8* {obj_v}, {m_arglist})");
+                return ir_val(f"%t{t}", "i1");
+            }
+            if method == "contains" {
+                ir_emiti(f"%t{t} = call i1 @_ks_str_contains(i8* {obj_v}, {m_arglist})");
+                return ir_val(f"%t{t}", "i1");
+            }
+            if method == "replace" {
+                ir_emiti(f"%t{t} = call i8* @_ks_str_replace(i8* {obj_v}, {m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "read" {
+                ir_emiti(f"%t{t} = call i8* @_ks_file_read(i8* {m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "write" {
+                ir_emiti(f"%t{t} = call i32 @_ks_file_write(i8* {obj_v}, {m_arglist})");
+                return ir_val(f"%t{t}", "i32");
+            }
+        }
+        // Unknown method — placeholder
         ir_emiti(f"%t{t} = add i32 0, 0  ; method call placeholder");
         return ir_val(f"%t{t}", "i32");
     }
@@ -2014,6 +2184,41 @@ func ir_gen_expr(idx: I32) -> Str {
         return ir_val(f"%t{t}", to_t);
     }
 
+
+    if k == NK_MEMBER {
+        let obj_vt2: Str = ir_gen_expr(node_a[idx]);
+        let obj_v2: Str  = ir_get_v(obj_vt2);
+        let obj_lt2: Str = ir_get_t(obj_vt2);
+        let member2: Str = node_str[idx];
+        // Cast to i8* if needed
+        let mut obj_ptr: Str = obj_v2;
+        if obj_lt2 != "i8*" && obj_v2 != "0" {
+            let ct2: I32 = ir_tmp_id();
+            ir_emiti(f"%t{ct2} = inttoptr {obj_lt2} {obj_v2} to i8*");
+            obj_ptr = f"%t{ct2}";
+        }
+        let t2: I32 = ir_tmp_id();
+        if member2 == "ok" {
+            if obj_v2 == "0" { ir_emiti(f"%t{t2} = add i32 0, 0"); return ir_val(f"%t{t2}", "i1"); }
+            ir_emiti(f"%t{t2} = call i32 @_ks_result_ok(i8* {obj_ptr})");
+            let t3: I32 = ir_tmp_id();
+            ir_emiti(f"%t{t3} = trunc i32 %t{t2} to i1");
+            return ir_val(f"%t{t3}", "i1");
+        }
+        if member2 == "value" {
+            if obj_v2 == "0" { ir_emiti(f"%t{t2} = inttoptr i32 0 to i8*"); return ir_val(f"%t{t2}", "i8*"); }
+            ir_emiti(f"%t{t2} = call i8* @_ks_result_value(i8* {obj_ptr})");
+            return ir_val(f"%t{t2}", "i8*");
+        }
+        if member2 == "error" {
+            if obj_v2 == "0" { ir_emiti(f"%t{t2} = inttoptr i32 0 to i8*"); return ir_val(f"%t{t2}", "i8*"); }
+            ir_emiti(f"%t{t2} = call i8* @_ks_result_error(i8* {obj_ptr})");
+            return ir_val(f"%t{t2}", "i8*");
+        }
+        // Unknown member — placeholder
+        ir_emiti(f"%t{t2} = add i32 0, 0  ; unknown member {member2}");
+        return ir_val(f"%t{t2}", "i32");
+    }
     // fallback
     let t: I32 = ir_tmp_id();
     ir_emiti(f"%t{t} = add i32 0, 0  ; unhandled nk={k}");
@@ -2354,7 +2559,19 @@ func irgen(prog_idx: I32) {
     ir_emit("declare i32 @strlen(i8*)");
     ir_emit("declare i32 @Print(...)");
     ir_emit("declare i8* @_ks_str_concat(i8*, i8*)");
+    ir_emit("declare i32 @_ks_result_ok(i8*)");
+    ir_emit("declare i8* @_ks_result_value(i8*)");
+    ir_emit("declare i8* @_ks_result_error(i8*)");
     ir_emit("declare i8* @_ks_int_to_str(i32)");
+    ir_emit("declare i32 @_ks_str_len(i8*)");
+    ir_emit("declare i1 @_ks_str_ends(i8*, i8*)");
+    ir_emit("declare i1 @_ks_str_starts(i8*, i8*)");
+    ir_emit("declare i1 @_ks_str_contains(i8*, i8*)");
+    ir_emit("declare i8* @_ks_str_trim(i8*)");
+    ir_emit("declare i8* @_ks_str_substr(i8*, i32, i32)");
+    ir_emit("declare i8* @_ks_str_replace(i8*, i8*, i8*)");
+    ir_emit("declare i8* @_ks_file_read(i8*)");
+    ir_emit("declare i8* @_ks_file_write(i8*, i8*)");
     // Pre-register return types for self-referential functions
     tc_def_fn("ir_escape_str", "Str");
     tc_def_fn("ir_get_v", "Str");
@@ -2367,6 +2584,9 @@ func irgen(prog_idx: I32) {
     tc_def_fn("loop_cond_top", "Str");
     tc_def_fn("loop_end_top", "Str");
     tc_def_fn("ir_to_string", "Str");
+    tc_def_fn("ir_arglist_append", "Str");
+    tc_def_fn("ir_arg_str", "Str");
+    tc_def_fn("ir_arg_str", "Str");
     tc_def_fn("ir_tmp_id", "I32");
     tc_def_fn("ir_label_id", "I32");
     tc_def_fn("ir_str_const", "I32");
