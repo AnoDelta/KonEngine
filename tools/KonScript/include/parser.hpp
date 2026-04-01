@@ -7,6 +7,7 @@
 #include "ast.hpp"
 #include <stdexcept>
 #include <sstream>
+#include <unordered_set>
 
 namespace KonScript {
 
@@ -218,6 +219,21 @@ private:
                 error("expected type, got '" + tok.value + "'");
         }
         advance();
+
+        // Parse generic type parameters: Result<Str>, HashMap<Str, I32>, etc.
+        // Detect '<' only when it follows a known generic type name to avoid
+        // ambiguity with less-than in expressions.
+        static const std::unordered_set<std::string> genericTypes = {
+            "Result", "HashMap", "Option", "Array", "Vec"
+        };
+        if (genericTypes.count(ta.base) && check(TokenType::Lt)) {
+            advance(); // consume '<'
+            while (!check(TokenType::Gt) && !atEnd()) {
+                ta.typeParams.push_back(parseType());
+                if (!match(TokenType::Comma)) break;
+            }
+            expect(TokenType::Gt, "expected '>' after type parameters");
+        }
 
         if (check(TokenType::Question)) { advance(); ta.nullable = true; }
         return ta;

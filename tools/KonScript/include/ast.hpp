@@ -23,12 +23,13 @@ using StmtPtr = std::unique_ptr<Stmt>;
 // e.g. I32, F64, Node2D, [I32], (F64, F64), I32?
 // -----------------------------------------------------------------------
 struct TypeAnnotation {
-    std::string base;           // "I32", "F64", "Node2D", etc.
+    std::string base;           // "I32", "F64", "Result", "HashMap", etc.
     bool        nullable = false; // T?
     bool        isArray  = false; // [T]
     int         arraySize = -1; // [T; N] -- -1 means dynamic
     std::vector<TypeAnnotation> tupleTypes; // (T, T, ...)
     bool        isTuple  = false;
+    std::vector<TypeAnnotation> typeParams; // Result<T>, HashMap<K,V>, etc.
 };
 
 // -----------------------------------------------------------------------

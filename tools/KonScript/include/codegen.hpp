@@ -57,10 +57,71 @@ public:
         line("#include <iostream>");
         line("#include <sstream>");
         line("#include <optional>");
+        line("#include <fstream>");
+        line("#include <unordered_map>");
+        line("#include <algorithm>");
         if (m_target == Target::Standalone) {
             line("#include <cstdint>");
             line("#include <tuple>");
         }
+
+        // _KsResult<T> — the runtime type for Result<T>
+        // ok=true means success, value holds the result, error holds the message.
+        line("template<typename T>");
+        line("struct _KsResult {");
+        line("    bool        ok    = false;");
+        line("    T           value = {};");
+        line("    std::string error;");
+        line("    static _KsResult<T> Ok(T v) { _KsResult<T> r; r.ok=true;  r.value=std::move(v); return r; }");
+        line("    static _KsResult<T> Err(const std::string& e) { _KsResult<T> r; r.ok=false; r.error=e; return r; }");
+        line("};");
+
+        // File I/O helpers
+        line("inline _KsResult<std::string> _ks_file_read(const std::string& p){");
+        line("    std::ifstream f(p);if(!f)return _KsResult<std::string>::Err(\"cannot open: \"+p);");
+        line("    std::ostringstream ss;ss<<f.rdbuf();return _KsResult<std::string>::Ok(ss.str());}");
+        line("inline _KsResult<std::string> _ks_file_write(const std::string& p,const std::string& c){");
+        line("    std::ofstream f(p,std::ios::trunc);if(!f)return _KsResult<std::string>::Err(\"cannot write: \"+p);");
+        line("    f<<c;return _KsResult<std::string>::Ok(\"\");}");
+        line("inline _KsResult<std::string> _ks_file_append(const std::string& p,const std::string& c){");
+        line("    std::ofstream f(p,std::ios::app);if(!f)return _KsResult<std::string>::Err(\"cannot append: \"+p);");
+        line("    f<<c;return _KsResult<std::string>::Ok(\"\");}");
+        line("inline bool _ks_file_exists(const std::string& p){std::ifstream f(p);return f.good();}");
+        line("inline _KsResult<std::string> _ks_file_delete(const std::string& p){");
+        line("    return std::remove(p.c_str())==0?_KsResult<std::string>::Ok(\"\")");
+        line("        :_KsResult<std::string>::Err(\"cannot delete: \"+p);}");
+        line("inline _KsResult<std::vector<std::string>> _ks_file_lines(const std::string& p){");
+        line("    std::ifstream f(p);if(!f)return _KsResult<std::vector<std::string>>::Err(\"cannot open: \"+p);");
+        line("    std::vector<std::string> out;std::string l;");
+        line("    while(std::getline(f,l))out.push_back(l);");
+        line("    return _KsResult<std::vector<std::string>>::Ok(out);}");
+
+        // String helpers
+        line("inline int _ks_str_len(const std::string& s){return(int)s.size();}");
+        line("inline std::vector<std::string> _ks_str_split(const std::string& s,const std::string& d){");
+        line("    std::vector<std::string> r;size_t p=0,f;");
+        line("    while((f=s.find(d,p))!=std::string::npos){r.push_back(s.substr(p,f-p));p=f+d.size();}");
+        line("    r.push_back(s.substr(p));return r;}");
+        line("inline std::string _ks_str_trim(const std::string& s){");
+        line("    auto l=s.find_first_not_of(\" \\t\\n\\r\");auto r=s.find_last_not_of(\" \\t\\n\\r\");");
+        line("    return l==std::string::npos?\"\":s.substr(l,r-l+1);}");
+        line("inline bool _ks_str_contains(const std::string& s,const std::string& sub){return s.find(sub)!=std::string::npos;}");
+        line("inline std::string _ks_str_replace(const std::string& s,const std::string& f,const std::string& t){");
+        line("    std::string r=s;size_t p=0;");
+        line("    while((p=r.find(f,p))!=std::string::npos){r.replace(p,f.size(),t);p+=t.size();}return r;}");
+        line("inline bool _ks_str_starts(const std::string& s,const std::string& p){return s.rfind(p,0)==0;}");
+        line("inline bool _ks_str_ends(const std::string& s,const std::string& e){");
+        line("    return s.size()>=e.size()&&s.compare(s.size()-e.size(),e.size(),e)==0;}");
+        line("inline std::string _ks_str_upper(std::string s){for(auto&c:s)c=toupper(c);return s;}");
+        line("inline std::string _ks_str_lower(std::string s){for(auto&c:s)c=tolower(c);return s;}");
+        line("inline std::string _ks_str_substr(const std::string& s,int p,int l){return s.substr(p,l);}");
+        line("inline int _ks_str_toInt(const std::string& s){return std::stoi(s);}");
+        line("inline float _ks_str_toFloat(const std::string& s){return std::stof(s);}");
+        line("inline bool _ks_str_isEmpty(const std::string& s){return s.empty();}");
+        // _ks_has: works on vector (std::find) and unordered_map (.count)
+        line("template<typename C,typename V> inline bool _ks_has(const C& c,const V& v){return std::find(c.begin(),c.end(),v)!=c.end();}");
+        line("template<typename K,typename MV,typename Q> inline bool _ks_has(const std::unordered_map<K,MV>& m,const Q& k){return m.count(K(k))>0;}");
+        line("");
         // Emit #pragma once for module files (included by others),
         // but NOT for entry files that have a main() — they're .cpp not headers.
         // Detect whether this file has a main() function.
@@ -151,11 +212,23 @@ private:
         }
         if (ta.isArray) {
             TypeAnnotation inner; inner.base = ta.base;
+            inner.typeParams = ta.typeParams;
             std::string elem = cppType(inner);
             if (ta.arraySize >= 0)
                 return "std::array<" + elem + ", " +
                        std::to_string(ta.arraySize) + ">";
             return "std::vector<" + elem + ">";
+        }
+        // Result<T> → _KsResult<T>
+        if (ta.base == "Result") {
+            std::string inner = ta.typeParams.empty() ? "std::string" : cppType(ta.typeParams[0]);
+            return "_KsResult<" + inner + ">";
+        }
+        // HashMap<K,V> → std::unordered_map<K,V>
+        if (ta.base == "HashMap") {
+            std::string k = ta.typeParams.empty() ? "std::string" : cppType(ta.typeParams[0]);
+            std::string v = ta.typeParams.size() < 2 ? "std::string" : cppType(ta.typeParams[1]);
+            return "std::unordered_map<" + k + ", " + v + ">";
         }
         std::string base = cppBaseType(ta.base);
         if (ta.nullable) return "std::optional<" + base + ">";
@@ -174,7 +247,9 @@ private:
         if (name == "F32")    return "float";
         if (name == "F64")    return "float"; // engine uses float throughout
         if (name == "Bool")   return "bool";
-        if (name == "str")    return "const char*";
+        // str/Str → std::string (used as value type in templates, arrays, etc.)
+        // Note: as a local variable type we keep std::string too for consistency
+        if (name == "str" || name == "Str") return "std::string";
         if (name == "String") return "std::string";
         if (name == "Vec2")   return "Vector2";
         if (name == "Color")  return "Color";
@@ -1082,6 +1157,12 @@ private:
                 return;
             }
 
+            // HashMap() → {} (default construct the unordered_map)
+            if (id->name == "HashMap") {
+                write("{}");
+                return;
+            }
+
             // Camera2D(x, y, zoom, rot) -> Camera2D{x, y, zoom, rot}
             if (id->name == "Camera2D") {
                 write("Camera2D(");
@@ -1168,6 +1249,141 @@ private:
                 }
                 write(")");
                 return;
+            }
+
+            // ── File.method(args) ───────────────────────────────────────
+            // File.read(path) → _ks_file_read(path)  etc.
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                if (objId->name == "File") {
+                    static const std::unordered_map<std::string,std::string> fileMethods = {
+                        {"read",   "_ks_file_read"},
+                        {"write",  "_ks_file_write"},
+                        {"append", "_ks_file_append"},
+                        {"exists", "_ks_file_exists"},
+                        {"delete", "_ks_file_delete"},
+                        {"lines",  "_ks_file_lines"},
+                    };
+                    auto it = fileMethods.find(m->member);
+                    if (it != fileMethods.end()) {
+                        write(it->second + "(");
+                        for (size_t i = 0; i < e->args.size(); i++) {
+                            if (i > 0) write(", ");
+                            genExpr(e->args[i].get());
+                        }
+                        write(")");
+                        return;
+                    }
+                }
+            }
+
+            // ── Universal collection methods (work on strings, arrays, maps) ──
+            // Emitted as direct C++ so they work on any container type.
+            if (m->member == "len" && e->args.empty()) {
+                write("(int)"); genExpr(m->object.get()); write(".size()");
+                return;
+            }
+            if (m->member == "isEmpty" && e->args.empty()) {
+                genExpr(m->object.get()); write(".empty()");
+                return;
+            }
+            if (m->member == "clear" && e->args.empty()) {
+                genExpr(m->object.get()); write(".clear()");
+                return;
+            }
+
+            // ── Array method calls: arr.push(v), arr.pop(), etc. ────────
+            if (m->member == "push" && e->args.size() == 1) {
+                genExpr(m->object.get()); write(".push_back(");
+                genExpr(e->args[0].get()); write(")");
+                return;
+            }
+            if (m->member == "pop" && e->args.empty()) {
+                write("([&](){ auto _v = ");
+                genExpr(m->object.get()); write(".back(); ");
+                genExpr(m->object.get()); write(".pop_back(); return _v; }())");
+                return;
+            }
+            if (m->member == "first" && e->args.empty()) {
+                write("("); genExpr(m->object.get());
+                write(".empty() ? std::nullopt : std::make_optional(");
+                genExpr(m->object.get()); write(".front()))");
+                return;
+            }
+            if (m->member == "last" && e->args.empty()) {
+                write("("); genExpr(m->object.get());
+                write(".empty() ? std::nullopt : std::make_optional(");
+                genExpr(m->object.get()); write(".back()))");
+                return;
+            }
+            // arr.has(v) — for vector: std::find; for map: .count()
+            // Since we can't distinguish at codegen time, we emit .count() which
+            // exists on unordered_map, and a find-based helper for vectors.
+            // KonScript convention: use .has() on both, codegen picks the right one
+            // by checking if the object name is a known map var (not possible here),
+            // so we emit a generic approach that compiles for both via template deduction.
+            if (m->member == "has" && e->args.size() == 1) {
+                write("(_ks_has("); genExpr(m->object.get());
+                write(", "); genExpr(e->args[0].get()); write("))");
+                return;
+            }
+
+            // ── HashMap method calls ─────────────────────────────────────
+            if (m->member == "set" && e->args.size() == 2) {
+                genExpr(m->object.get()); write("[");
+                genExpr(e->args[0].get()); write("] = ");
+                genExpr(e->args[1].get());
+                return;
+            }
+            if (m->member == "get" && e->args.size() == 1) {
+                write("([&]() -> std::optional<decltype(");
+                genExpr(m->object.get()); write(".begin()->second)> {");
+                write(" auto _it = "); genExpr(m->object.get());
+                write(".find("); genExpr(e->args[0].get()); write(");");
+                write(" return _it == "); genExpr(m->object.get());
+                write(".end() ? std::nullopt : std::make_optional(_it->second); }())");
+                return;
+            }
+            if (m->member == "remove" && e->args.size() == 1) {
+                genExpr(m->object.get()); write(".erase(");
+                genExpr(e->args[0].get()); write(")");
+                return;
+            }
+            // map.has(k) — use .count() which is correct for unordered_map
+            if (m->member == "mapHas" && e->args.size() == 1) {
+                write("("); genExpr(m->object.get()); write(".count(");
+                genExpr(e->args[0].get()); write(") > 0)");
+                return;
+            }
+            // For HashMap.has() we also accept plain .has() and emit .count()
+            // This is safe because std::vector doesn't have .count()
+            // so at runtime the right container's method will be called.
+            // We wrap in parens to fix operator precedence with <<.
+
+            // ── Str method calls: str.split(delim) etc. ─────────────────
+            // Only string-specific methods here — len/isEmpty/clear handled above
+            {
+                static const std::unordered_map<std::string,std::string> strMethods = {
+                    {"split",    "_ks_str_split"},
+                    {"trim",     "_ks_str_trim"},
+                    {"contains", "_ks_str_contains"},
+                    {"replace",  "_ks_str_replace"},
+                    {"starts",   "_ks_str_starts"},
+                    {"ends",     "_ks_str_ends"},
+                    {"upper",    "_ks_str_upper"},
+                    {"lower",    "_ks_str_lower"},
+                    {"substr",   "_ks_str_substr"},
+                    {"toInt",    "_ks_str_toInt"},
+                    {"toFloat",  "_ks_str_toFloat"},
+                };
+                auto it = strMethods.find(m->member);
+                if (it != strMethods.end()) {
+                    write(it->second + "(");
+                    genExpr(m->object.get());
+                    for (auto& arg : e->args) { write(", "); genExpr(arg.get()); }
+                    write(")");
+                    return;
+                }
             }
 
             // AssetManager.init(...)  -> AssetManager::init(...)

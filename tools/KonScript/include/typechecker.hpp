@@ -33,11 +33,13 @@ struct Type {
         Enum,
         Class,
         Nullable,   // T?
+        Result,     // Result<T> — ok/value/error
+        HashMap,    // HashMap<K, V>
         Unknown,    // error recovery
     } kind = Kind::Unknown;
 
     std::string name;           // for named types (Node2D, MyStruct, etc.)
-    std::vector<Type> inner;   // array element, tuple elements, nullable inner
+    std::vector<Type> inner;   // array element, tuple elements, nullable inner, Result<T>
     bool nullable = false;
 
     static Type make(Kind k, const std::string& n = "") {
@@ -59,6 +61,19 @@ struct Type {
         t.inner = std::move(elems);
         return t;
     }
+    // Result<T> — inner[0] = value type
+    static Type makeResult(Type valueType) {
+        Type t; t.kind = Kind::Result;
+        t.inner.push_back(std::move(valueType));
+        return t;
+    }
+    // HashMap<K, V> — inner[0] = key, inner[1] = value
+    static Type makeHashMap(Type keyType, Type valueType) {
+        Type t; t.kind = Kind::HashMap;
+        t.inner.push_back(std::move(keyType));
+        t.inner.push_back(std::move(valueType));
+        return t;
+    }
     static Type unknown() { return make(Kind::Unknown); }
     static Type void_()   { return make(Kind::Void); }
 
@@ -77,6 +92,8 @@ struct Type {
     }
     bool isUnknown() const { return kind == Kind::Unknown; }
     bool isVoid()    const { return kind == Kind::Void; }
+    bool isResult()  const { return kind == Kind::Result; }
+    Type resultInner() const { return inner.empty() ? unknown() : inner[0]; }
 
     std::string toString() const {
         switch (kind) {
@@ -96,6 +113,11 @@ struct Type {
             case Kind::String:  return "String";
             case Kind::Vec2:    return "Vec2";
             case Kind::Unknown: return "?";
+            case Kind::Result:
+                return "Result<" + (inner.empty() ? "?" : inner[0].toString()) + ">";
+            case Kind::HashMap:
+                return "HashMap<" + (inner.size()<2 ? "?,?" :
+                    inner[0].toString()+","+inner[1].toString()) + ">";
             case Kind::Array:
                 return "[" + (inner.empty() ? "?" : inner[0].toString()) + "]";
             case Kind::Nullable:
@@ -271,7 +293,17 @@ private:
             t = Type::makeTuple(std::move(elems));
         } else if (ta.isArray) {
             TypeAnnotation inner; inner.base = ta.base;
+            inner.typeParams = ta.typeParams;
             t = Type::makeArray(resolve(inner));
+        } else if (ta.base == "Result") {
+            // Result<T> — inner type is the success value type
+            Type inner = ta.typeParams.empty() ? Type::unknown() : resolve(ta.typeParams[0]);
+            t = Type::makeResult(inner);
+        } else if (ta.base == "HashMap") {
+            // HashMap<K, V>
+            Type key = ta.typeParams.empty() ? Type::unknown() : resolve(ta.typeParams[0]);
+            Type val = ta.typeParams.size() < 2 ? Type::unknown() : resolve(ta.typeParams[1]);
+            t = Type::makeHashMap(key, val);
         } else {
             t = resolveBase(ta.base);
         }
@@ -590,6 +622,54 @@ private:
         reg("EndCamera2D",   {}, Void);
         reg("GetWorldMouseX", {Type::make(Type::Kind::Struct, "Camera2D")}, F64);
         reg("GetWorldMouseY", {Type::make(Type::Kind::Struct, "Camera2D")}, F64);
+
+        // ── File I/O ────────────────────────────────────────────────────
+        // All file ops return Result<T> so errors are handled explicitly.
+        // File.read(path)           -> Result<Str>
+        // File.write(path, content) -> Result<Str>   (ok="" on success)
+        // File.append(path,content) -> Result<Str>
+        // File.exists(path)         -> Bool
+        // File.delete(path)         -> Result<Str>
+        // File.lines(path)          -> Result<[Str]>
+        auto StrResult  = Type::makeResult(Str);
+        auto StrArrRes  = Type::makeResult(Type::makeArray(Str));
+        auto FileT      = Type::make(Type::Kind::Struct, "File");
+        // Register File as a namespace object with method-style calls
+        // e.g. File.read("x.txt") typechecks as a member call on File struct
+        {
+            Symbol s; s.name = "File";
+            s.type   = FileT;
+            s.mut    = false;
+            s.isFunc = false;
+            m_globalSymbols["File"] = s;
+        }
+        // Also register as free functions for direct call support
+        reg("File_read",   {Str},      StrResult);
+        reg("File_write",  {Str, Str}, StrResult);
+        reg("File_append", {Str, Str}, StrResult);
+        reg("File_exists", {Str},      Bool);
+        reg("File_delete", {Str},      StrResult);
+        reg("File_lines",  {Str},      StrArrRes);
+
+        // ── String methods ──────────────────────────────────────────────
+        // Registered as free functions: Str_split, Str_trim etc.
+        // Member calls (str.split(",")) are handled in checkMemberCall.
+        reg("Str_len",      {Str},      I32);
+        reg("Str_split",    {Str, Str}, Type::makeArray(Str));
+        reg("Str_trim",     {Str},      Str);
+        reg("Str_contains", {Str, Str}, Bool);
+        reg("Str_replace",  {Str, Str, Str}, Str);
+        reg("Str_starts",   {Str, Str}, Bool);
+        reg("Str_ends",     {Str, Str}, Bool);
+        reg("Str_upper",    {Str},      Str);
+        reg("Str_lower",    {Str},      Str);
+        reg("Str_substr",   {Str, I32, I32}, Str);
+        reg("Str_toInt",    {Str},      I32);
+        reg("Str_toFloat",  {Str},      F64);
+
+        // ── HashMap ─────────────────────────────────────────────────────
+        // HashMap<K,V> constructor — variadic, skip arg check
+        reg("HashMap",     {}, Type::make(Type::Kind::Struct, "HashMap"));
     }
 
     // -----------------------------------------------------------------------
@@ -1026,14 +1106,94 @@ private:
                     obj.kind != Type::Kind::Nullable && !obj.isUnknown())
                     error("safe access '?.' used on non-nullable type '" +
                           obj.toString() + "'", e->line, e->col);
+
+                // ── Result<T> members ──────────────────────────────────
+                // result.ok    -> Bool
+                // result.value -> T
+                // result.error -> Str
+                if (obj.kind == Type::Kind::Result) {
+                    if (m->member == "ok")    return Type::make(Type::Kind::Bool);
+                    if (m->member == "value") return obj.inner.empty() ? Type::unknown() : obj.inner[0];
+                    if (m->member == "error") return Type::make(Type::Kind::Str);
+                    error("Result has no member '" + m->member + "' (use .ok, .value, .error)",
+                          e->line, e->col);
+                    return Type::unknown();
+                }
+
+                // ── HashMap<K,V> members ───────────────────────────────
+                // map.get(key) -> V?    map.set(key, val)  map.has(key) -> Bool
+                // map.remove(key)       map.len() -> I32   map.keys() -> [K]
+                if (obj.kind == Type::Kind::HashMap) {
+                    Type K = obj.inner.size() > 0 ? obj.inner[0] : Type::unknown();
+                    Type V = obj.inner.size() > 1 ? obj.inner[1] : Type::unknown();
+                    if (m->member == "get")    return Type::makeNullable(V);
+                    if (m->member == "set")    return Type::void_();
+                    if (m->member == "has")    return Type::make(Type::Kind::Bool);
+                    if (m->member == "remove") return Type::void_();
+                    if (m->member == "len")    return Type::make(Type::Kind::I32);
+                    if (m->member == "keys")   return Type::makeArray(K);
+                    if (m->member == "values") return Type::makeArray(V);
+                    if (m->member == "clear")  return Type::void_();
+                    return Type::unknown();
+                }
+
+                // ── File namespace member calls ────────────────────────
+                // File.read(path) -> Result<Str>  etc.
+                if (obj.kind == Type::Kind::Struct && obj.name == "File") {
+                    auto Str2   = Type::make(Type::Kind::Str);
+                    auto Bool2  = Type::make(Type::Kind::Bool);
+                    if (m->member == "read")   return Type::makeResult(Str2);
+                    if (m->member == "write")  return Type::makeResult(Str2);
+                    if (m->member == "append") return Type::makeResult(Str2);
+                    if (m->member == "exists") return Bool2;
+                    if (m->member == "delete") return Type::makeResult(Str2);
+                    if (m->member == "lines")  return Type::makeResult(Type::makeArray(Str2));
+                    error("File has no member '" + m->member + "'", e->line, e->col);
+                    return Type::unknown();
+                }
+
+                // ── Str/String method calls ────────────────────────────
+                // "hello".len() -> I32  etc.
+                if (obj.kind == Type::Kind::Str || obj.kind == Type::Kind::String) {
+                    auto Str2  = Type::make(Type::Kind::Str);
+                    auto Bool2 = Type::make(Type::Kind::Bool);
+                    auto I32T  = Type::make(Type::Kind::I32);
+                    auto F64T  = Type::make(Type::Kind::F64);
+                    if (m->member == "len")      return I32T;
+                    if (m->member == "split")    return Type::makeArray(Str2);
+                    if (m->member == "trim")     return Str2;
+                    if (m->member == "contains") return Bool2;
+                    if (m->member == "replace")  return Str2;
+                    if (m->member == "starts")   return Bool2;
+                    if (m->member == "ends")     return Bool2;
+                    if (m->member == "upper")    return Str2;
+                    if (m->member == "lower")    return Str2;
+                    if (m->member == "substr")   return Str2;
+                    if (m->member == "toInt")    return I32T;
+                    if (m->member == "toFloat")  return F64T;
+                    if (m->member == "isEmpty")  return Bool2;
+                    // Unknown string method — let through
+                }
+
+                // ── Array members ──────────────────────────────────────
+                if (obj.kind == Type::Kind::Array) {
+                    Type elem = obj.inner.empty() ? Type::unknown() : obj.inner[0];
+                    if (m->member == "len")    return Type::make(Type::Kind::I32);
+                    if (m->member == "push")   return Type::void_();
+                    if (m->member == "pop")    return elem;
+                    if (m->member == "first")  return Type::makeNullable(elem);
+                    if (m->member == "last")   return Type::makeNullable(elem);
+                    if (m->member == "isEmpty")return Type::make(Type::Kind::Bool);
+                    if (m->member == "clear")  return Type::void_();
+                    if (m->member == "has")    return Type::make(Type::Kind::Bool);
+                }
+
                 // Struct field access
                 if (obj.kind == Type::Kind::Struct) {
                     auto it = m_structs.find(obj.name);
                     if (it != m_structs.end()) {
                         for (auto& [fname, ftype] : it->second.fields)
                             if (fname == m->member) return ftype;
-                        // Only error if it has known fields — opaque engine
-                        // objects (AssetManager etc.) have no field list
                         if (!it->second.fields.empty())
                             error("struct '" + obj.name + "' has no field '" +
                                   m->member + "'", e->line, e->col);
@@ -1179,6 +1339,24 @@ private:
         // Node subtype: any Node2D/Sprite2D etc. is compatible with Node
         if (expected.kind == Type::Kind::Node &&
             actual.kind == Type::Kind::Node) return true;
+
+        // HashMap<K,V> is compatible with bare HashMap struct (from constructor)
+        if (expected.kind == Type::Kind::HashMap &&
+            actual.kind == Type::Kind::Struct &&
+            actual.name == "HashMap") return true;
+
+        // Result<T> is compatible with bare Result struct
+        if (expected.kind == Type::Kind::Result &&
+            actual.kind == Type::Kind::Struct &&
+            actual.name == "Result") return true;
+
+        // Two HashMaps are compatible regardless of type params (like two arrays)
+        if (expected.kind == Type::Kind::HashMap &&
+            actual.kind == Type::Kind::HashMap) return true;
+
+        // Two Results are compatible regardless of inner type (covariant-ish)
+        if (expected.kind == Type::Kind::Result &&
+            actual.kind == Type::Kind::Result) return true;
 
         return false;
     }
