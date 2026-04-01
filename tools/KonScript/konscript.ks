@@ -1380,8 +1380,587 @@ func typecheck(prog_idx: I32) {
 // -----------------------------------------------------------------------
 // main
 // -----------------------------------------------------------------------
+// ========================================================================
+// IRGEN — emit LLVM IR from the AST
+// ========================================================================
+// Output goes to a string that's written to a .ll file.
+// Uses the same parallel-array AST from the parser.
+
+// ── IR output buffer ──────────────────────────────────────────────────────
+let mut ir_lines: [Str] = [""];
+let mut ir_tmp:   I32   = 0;
+let mut ir_str:   I32   = 0;
+let mut ir_label: I32   = 0;
+
+// Global string constants: value → label index
+let mut gstr_vals:   [Str] = [""];
+let mut gstr_labels: [I32] = [0];
+let mut gstr_count:  I32   = 0;
+
+func ir_reset() {
+    ir_lines.clear(); ir_lines.push("");
+    ir_tmp = 0; ir_str = 0; ir_label = 0;
+    gstr_vals.clear();   gstr_vals.push("");
+    gstr_labels.clear(); gstr_labels.push(0);
+    gstr_count = 0;
+}
+
+func ir_emit(line: Str)  { ir_lines.push(line); }
+func ir_emiti(line: Str) { ir_lines.push(f"  {line}"); }
+
+func ir_tmp_id() -> I32 {
+    let t: I32 = ir_tmp;
+    ir_tmp = ir_tmp + 1;
+    return t;
+}
+
+func ir_label_id() -> I32 {
+    let l: I32 = ir_label;
+    ir_label = ir_label + 1;
+    return l;
+}
+
+// ── Global string dedup ───────────────────────────────────────────────────
+func ir_str_const(val: Str) -> I32 {
+    // Check if already exists
+    let mut i: I32 = 1;
+    while i <= gstr_count {
+        if gstr_vals[i] == val { return gstr_labels[i]; }
+        i = i + 1;
+    }
+    // New string
+    gstr_count = gstr_count + 1;
+    let idx: I32 = gstr_count;
+    gstr_vals.push(val);
+    gstr_labels.push(idx);
+    return idx;
+}
+
+// ── LLVM type from KonScript type string ──────────────────────────────────
+func ir_type(t: Str) -> Str {
+    if t == "I32"  { return "i32"; }
+    if t == "I64"  { return "i64"; }
+    if t == "F32"  { return "float"; }
+    if t == "F64"  { return "double"; }
+    if t == "Bool" { return "i1"; }
+    if t == "Str"  { return "i8*"; }
+    if t == "void" { return "void"; }
+    if t == "?"    { return "i32"; }
+    // Array types → opaque pointer
+    if t.starts("[") { return "i8*"; }
+    return "i8*"; // default: opaque pointer
+}
+
+// ── Expression code generation ────────────────────────────────────────────
+// Returns {value_str, type_str} packed as "val|type"
+func ir_val(v: Str, t: Str) -> Str { return f"{v}|{t}"; }
+func ir_get_v(vt: Str) -> Str {
+    let mut i: I32 = 0;
+    while i < vt.len() {
+        if vt.substr(i, 1) == "|" { return vt.substr(0, i); }
+        i = i + 1;
+    }
+    return vt;
+}
+func ir_get_t(vt: Str) -> Str {
+    let mut i: I32 = 0;
+    while i < vt.len() {
+        if vt.substr(i, 1) == "|" { return vt.substr(i + 1, vt.len() - i - 1); }
+        i = i + 1;
+    }
+    return "i32";
+}
+
+// Local variable table for IRGen: name → alloca register
+let mut irv_names: [Str] = [""];
+let mut irv_regs:  [Str] = [""];
+let mut irv_types: [Str] = [""];
+let mut irv_count: I32   = 0;
+let mut irv_scope: I32   = 0;
+let mut irv_scopes:[I32] = [0];
+
+func irv_push_scope() { irv_scope = irv_scope + 1; }
+func irv_pop_scope() {
+    let mut i: I32 = irv_count;
+    while i > 0 {
+        if irv_scopes[i] == irv_scope { irv_count = irv_count - 1; }
+        i = i - 1;
+    }
+    irv_scope = irv_scope - 1;
+}
+func irv_def(name: Str, reg: Str, t: Str) {
+    irv_count = irv_count + 1;
+    irv_names.push(name);
+    irv_regs.push(reg);
+    irv_types.push(t);
+    irv_scopes.push(irv_scope);
+}
+func irv_lookup_reg(name: Str) -> Str {
+    let mut i: I32 = irv_count;
+    while i > 0 {
+        if irv_names[i] == name { return irv_regs[i]; }
+        i = i - 1;
+    }
+    return "";
+}
+func irv_lookup_type(name: Str) -> Str {
+    let mut i: I32 = irv_count;
+    while i > 0 {
+        if irv_names[i] == name { return irv_types[i]; }
+        i = i - 1;
+    }
+    return "i32";
+}
+func irv_reset() {
+    irv_names.clear();  irv_names.push("");
+    irv_regs.clear();   irv_regs.push("");
+    irv_types.clear();  irv_types.push("");
+    irv_scopes.clear(); irv_scopes.push(0);
+    irv_count = 0; irv_scope = 0;
+}
+
+// Current function return type
+let mut ir_ret_type: Str = "void";
+
+func ir_gen_expr(idx: I32) -> Str {
+    if idx == 0 { return ir_val("0", "i32"); }
+    let k: I32  = node_kinds[idx];
+    let nt: Str = node_types[idx];
+    let lt: Str = ir_type(nt);
+
+    if k == NK_INT {
+        return ir_val(node_str[idx], "i32");
+    }
+
+    if k == NK_FLOAT {
+        return ir_val(node_str[idx], "float");
+    }
+
+    if k == NK_BOOL {
+        if node_str[idx] == "true"  { return ir_val("1", "i1"); }
+        return ir_val("0", "i1");
+    }
+
+    if k == NK_NULL_LIT {
+        return ir_val("null", "i8*");
+    }
+
+    if k == NK_STR_LIT {
+        let sidx: I32 = ir_str_const(node_str[idx]);
+        let slen: I32 = node_str[idx].len() + 1;
+        let t: I32 = ir_tmp_id();
+        ir_emiti(f"%t{t} = getelementptr inbounds [{slen} x i8], [{slen} x i8]* @str.{sidx}, i32 0, i32 0");
+        return ir_val(f"%t{t}", "i8*");
+    }
+
+    if k == NK_IDENT {
+        let name: Str = node_str[idx];
+        let reg: Str  = irv_lookup_reg(name);
+        if reg.len() > 0 {
+            let vt: Str = irv_lookup_type(name);
+            let t: I32 = ir_tmp_id();
+            ir_emiti(f"%t{t} = load {vt}, {vt}* {reg}");
+            return ir_val(f"%t{t}", vt);
+        }
+        // Global constant — just return as i32
+        return ir_val(name, "i32");
+    }
+
+    if k == NK_BINARY {
+        let lvt: Str  = ir_gen_expr(node_a[idx]);
+        let rvt: Str  = ir_gen_expr(node_b[idx]);
+        let lv: Str   = ir_get_v(lvt);
+        let rv: Str   = ir_get_v(rvt);
+        let llt: Str  = ir_get_t(lvt);
+        let op: Str   = node_str[idx];
+        let t: I32    = ir_tmp_id();
+        if op == "+"  { ir_emiti(f"%t{t} = add {llt} {lv}, {rv}");  return ir_val(f"%t{t}", llt); }
+        if op == "-"  { ir_emiti(f"%t{t} = sub {llt} {lv}, {rv}");  return ir_val(f"%t{t}", llt); }
+        if op == "*"  { ir_emiti(f"%t{t} = mul {llt} {lv}, {rv}");  return ir_val(f"%t{t}", llt); }
+        if op == "/"  { ir_emiti(f"%t{t} = sdiv {llt} {lv}, {rv}"); return ir_val(f"%t{t}", llt); }
+        if op == "%"  { ir_emiti(f"%t{t} = srem {llt} {lv}, {rv}"); return ir_val(f"%t{t}", llt); }
+        if op == "==" { ir_emiti(f"%t{t} = icmp eq {llt} {lv}, {rv}");  return ir_val(f"%t{t}", "i1"); }
+        if op == "!=" { ir_emiti(f"%t{t} = icmp ne {llt} {lv}, {rv}");  return ir_val(f"%t{t}", "i1"); }
+        if op == "<"  { ir_emiti(f"%t{t} = icmp slt {llt} {lv}, {rv}"); return ir_val(f"%t{t}", "i1"); }
+        if op == ">"  { ir_emiti(f"%t{t} = icmp sgt {llt} {lv}, {rv}"); return ir_val(f"%t{t}", "i1"); }
+        if op == "<=" { ir_emiti(f"%t{t} = icmp sle {llt} {lv}, {rv}"); return ir_val(f"%t{t}", "i1"); }
+        if op == ">=" { ir_emiti(f"%t{t} = icmp sge {llt} {lv}, {rv}"); return ir_val(f"%t{t}", "i1"); }
+        if op == "&&" {
+            ir_emiti(f"%t{t} = and i1 {lv}, {rv}");
+            return ir_val(f"%t{t}", "i1");
+        }
+        if op == "||" {
+            ir_emiti(f"%t{t} = or i1 {lv}, {rv}");
+            return ir_val(f"%t{t}", "i1");
+        }
+        return ir_val(f"%t{t}", llt);
+    }
+
+    if k == NK_UNARY {
+        let avt: Str = ir_gen_expr(node_a[idx]);
+        let av: Str  = ir_get_v(avt);
+        let alt: Str = ir_get_t(avt);
+        let t: I32   = ir_tmp_id();
+        if node_str[idx] == "-" {
+            ir_emiti(f"%t{t} = sub {alt} 0, {av}");
+            return ir_val(f"%t{t}", alt);
+        }
+        if node_str[idx] == "!" {
+            ir_emiti(f"%t{t} = xor i1 {av}, true");
+            return ir_val(f"%t{t}", "i1");
+        }
+        return avt;
+    }
+
+    if k == NK_ASSIGN {
+        let rvt: Str = ir_gen_expr(node_b[idx]);
+        let rv: Str  = ir_get_v(rvt);
+        let rlt: Str = ir_get_t(rvt);
+        // Target: ident or index
+        let tgt: I32 = node_a[idx];
+        if node_kinds[tgt] == NK_IDENT {
+            let reg: Str = irv_lookup_reg(node_str[tgt]);
+            if reg.len() > 0 {
+                ir_emiti(f"store {rlt} {rv}, {rlt}* {reg}");
+            }
+        }
+        if node_kinds[tgt] == NK_INDEX {
+            let ptr_vt: Str = ir_gen_expr(node_a[tgt]);
+            let ptr_v: Str  = ir_get_v(ptr_vt);
+            let idx_vt: Str = ir_gen_expr(node_b[tgt]);
+            let idx_v: Str  = ir_get_v(idx_vt);
+            let tp: I32 = ir_tmp_id();
+            ir_emiti(f"%t{tp} = getelementptr {rlt}, {rlt}* {ptr_v}, i32 {idx_v}");
+            ir_emiti(f"store {rlt} {rv}, {rlt}* %t{tp}");
+        }
+        return rvt;
+    }
+
+    if k == NK_CALL {
+        let callee: I32 = node_a[idx];
+        // Collect args
+        let mut args: [Str] = [""];
+        args.clear();
+        let mut arg: I32 = node_b[idx];
+        while arg != 0 {
+            let avt: Str = ir_gen_expr(node_a[arg]);
+            args.push(f"{ir_get_t(avt)} {ir_get_v(avt)}");
+            arg = node_b[arg];
+        }
+        // Build arg list string
+        let mut arglist: Str = "";
+        let mut ai: I32 = 1;
+        while ai < args.len() {
+            if ai > 1 { arglist = f"{arglist}, "; }
+            arglist = f"{arglist}{args[ai]}";
+            ai = ai + 1;
+        }
+        let t: I32 = ir_tmp_id();
+        // Callee name
+        if node_kinds[callee] == NK_IDENT {
+            let fname: Str = node_str[callee];
+            let fret: Str = ir_type(tc_fn_ret(fname));
+            if fret == "void" {
+                ir_emiti(f"call void @{fname}({arglist})");
+                return ir_val("0", "void");
+            }
+            ir_emiti(f"%t{t} = call {fret} @{fname}({arglist})");
+            return ir_val(f"%t{t}", fret);
+        }
+        // Method call — skip for now
+        return ir_val(f"%t{t}", "i32");
+    }
+
+    if k == NK_INDEX {
+        let pvt: Str = ir_gen_expr(node_a[idx]);
+        let ivt: Str = ir_gen_expr(node_b[idx]);
+        let pv: Str  = ir_get_v(pvt);
+        let iv: Str  = ir_get_v(ivt);
+        let elem_t: Str = ir_type(nt);
+        let t: I32 = ir_tmp_id();
+        let t2: I32 = ir_tmp_id();
+        ir_emiti(f"%t{t} = getelementptr {elem_t}, {elem_t}* {pv}, i32 {iv}");
+        ir_emiti(f"%t{t2} = load {elem_t}, {elem_t}* %t{t}");
+        return ir_val(f"%t{t2}", elem_t);
+    }
+
+    if k == NK_CAST {
+        let avt: Str = ir_gen_expr(node_a[idx]);
+        let av: Str  = ir_get_v(avt);
+        let from_t: Str = ir_get_t(avt);
+        let to_t: Str   = ir_type(node_str[idx]);
+        let t: I32 = ir_tmp_id();
+        if from_t == to_t { return avt; }
+        ir_emiti(f"%t{t} = bitcast {from_t} {av} to {to_t}");
+        return ir_val(f"%t{t}", to_t);
+    }
+
+    // fallback
+    let t: I32 = ir_tmp_id();
+    ir_emiti(f"%t{t} = add i32 0, 0  ; unhandled node kind {k}");
+    return ir_val(f"%t{t}", "i32");
+}
+
+func ir_gen_stmt(idx: I32) {
+    if idx == 0 { return; }
+    let k: I32 = node_kinds[idx];
+
+    if k == NK_LET || k == NK_CONST_D {
+        let name: Str = node_str[idx];
+        let nt: Str   = node_types[idx];
+        let lt: Str   = ir_type(nt);
+        let reg: Str  = f"%{name}.addr";
+        ir_emiti(f"{reg} = alloca {lt}");
+        irv_def(name, reg, lt);
+        if node_a[idx] != 0 {
+            let vt: Str = ir_gen_expr(node_a[idx]);
+            let v: Str  = ir_get_v(vt);
+            let vlt: Str = ir_get_t(vt);
+            ir_emiti(f"store {vlt} {v}, {vlt}* {reg}");
+        }
+        return;
+    }
+
+    if k == NK_RETURN {
+        if node_a[idx] == 0 {
+            ir_emiti("ret void");
+        } else {
+            let vt: Str = ir_gen_expr(node_a[idx]);
+            let v: Str  = ir_get_v(vt);
+            let lt: Str = ir_get_t(vt);
+            ir_emiti(f"ret {lt} {v}");
+        }
+        return;
+    }
+
+    if k == NK_IF {
+        let cond_vt: Str = ir_gen_expr(node_a[idx]);
+        let cond_v: Str  = ir_get_v(cond_vt);
+        let cond_lt: Str = ir_get_t(cond_vt);
+        let lbl: I32     = ir_label_id();
+        let then_l: Str  = f"then.{lbl}";
+        let else_l: Str  = f"else.{lbl}";
+        let end_l: Str   = f"end.{lbl}";
+        // Coerce to i1 if needed
+        let mut cond_i1: Str = cond_v;
+        if cond_lt != "i1" {
+            let ct: I32 = ir_tmp_id();
+            ir_emiti(f"%t{ct} = icmp ne {cond_lt} {cond_v}, 0");
+            cond_i1 = f"%t{ct}";
+        }
+        if node_c[idx] != 0 {
+            ir_emiti(f"br i1 {cond_i1}, label %{then_l}, label %{else_l}");
+        } else {
+            ir_emiti(f"br i1 {cond_i1}, label %{then_l}, label %{end_l}");
+        }
+        ir_emit(f"{then_l}:");
+        irv_push_scope();
+        ir_gen_stmt(node_b[idx]);
+        irv_pop_scope();
+        ir_emiti(f"br label %{end_l}");
+        if node_c[idx] != 0 {
+            ir_emit(f"{else_l}:");
+            irv_push_scope();
+            ir_gen_stmt(node_c[idx]);
+            irv_pop_scope();
+            ir_emiti(f"br label %{end_l}");
+        }
+        ir_emit(f"{end_l}:");
+        return;
+    }
+
+    if k == NK_WHILE {
+        let lbl: I32    = ir_label_id();
+        let cond_l: Str = f"cond.{lbl}";
+        let body_l: Str = f"body.{lbl}";
+        let end_l: Str  = f"endw.{lbl}";
+        ir_emiti(f"br label %{cond_l}");
+        ir_emit(f"{cond_l}:");
+        let cvt: Str = ir_gen_expr(node_a[idx]);
+        let cv: Str  = ir_get_v(cvt);
+        let clt: Str = ir_get_t(cvt);
+        let mut ci1: Str = cv;
+        if clt != "i1" {
+            let ct: I32 = ir_tmp_id();
+            ir_emiti(f"%t{ct} = icmp ne {clt} {cv}, 0");
+            ci1 = f"%t{ct}";
+        }
+        ir_emiti(f"br i1 {ci1}, label %{body_l}, label %{end_l}");
+        ir_emit(f"{body_l}:");
+        irv_push_scope();
+        ir_gen_stmt(node_b[idx]);
+        irv_pop_scope();
+        ir_emiti(f"br label %{cond_l}");
+        ir_emit(f"{end_l}:");
+        return;
+    }
+
+    if k == NK_LOOP {
+        let lbl: I32    = ir_label_id();
+        let body_l: Str = f"loop.{lbl}";
+        let end_l: Str  = f"endl.{lbl}";
+        ir_emiti(f"br label %{body_l}");
+        ir_emit(f"{body_l}:");
+        irv_push_scope();
+        ir_gen_stmt(node_a[idx]);
+        irv_pop_scope();
+        ir_emiti(f"br label %{body_l}");
+        ir_emit(f"{end_l}:");
+        return;
+    }
+
+    if k == NK_BREAK    { ir_emiti("br label %endl.0 ; break");    return; }
+    if k == NK_CONTINUE { ir_emiti("br label %cond.0 ; continue"); return; }
+
+    if k == NK_BLOCK {
+        irv_push_scope();
+        let mut s: I32 = node_a[idx];
+        while s != 0 {
+            ir_gen_stmt(node_a[s]);
+            s = node_b[s];
+        }
+        irv_pop_scope();
+        return;
+    }
+
+    // Expression statement
+    ir_gen_expr(idx);
+}
+
+func ir_gen_func(idx: I32) {
+    irv_reset();
+    let name: Str = node_str[idx];
+    // Build param list
+    let mut params: Str = "";
+    let mut pm: I32 = node_a[idx];
+    let mut first: Bool = true;
+    while pm != 0 {
+        let pn: I32  = node_a[pm];
+        let ps: Str  = node_str[pn];
+        // Parse "name:type"
+        let mut ci: I32 = 0;
+        let mut pname: Str = "";
+        let mut ptype: Str = "";
+        let mut found: Bool = false;
+        while ci < ps.len() {
+            let ch: Str = ps.substr(ci, 1);
+            if ch == ":" && !found {
+                found = true;
+                ptype = ps.substr(ci + 1, ps.len() - ci - 1);
+                ci = ps.len();
+            } else {
+                if !found { pname = f"{pname}{ch}"; }
+            }
+            ci = ci + 1;
+        }
+        let plt: Str = ir_type(ptype);
+        if !first { params = f"{params}, "; }
+        params = f"{params}{plt} %{pname}.arg";
+        first = false;
+        pm = node_b[pm];
+    }
+    // Return type from fn_rettypes
+    let ret: Str   = tc_fn_ret(name);
+    let retlt: Str = ir_type(ret);
+    if name == "main" {
+        ir_emit(f"define i32 @main({params}) " + "{");
+    } else {
+        ir_emit(f"define {retlt} @{name}({params}) " + "{");
+    }
+    // Alloca for params
+    pm = node_a[idx];
+    while pm != 0 {
+        let pn: I32  = node_a[pm];
+        let ps: Str  = node_str[pn];
+        let mut ci: I32 = 0;
+        let mut pname: Str = "";
+        let mut ptype: Str = "";
+        let mut found: Bool = false;
+        while ci < ps.len() {
+            let ch: Str = ps.substr(ci, 1);
+            if ch == ":" && !found {
+                found = true;
+                ptype = ps.substr(ci + 1, ps.len() - ci - 1);
+                ci = ps.len();
+            } else {
+                if !found { pname = f"{pname}{ch}"; }
+            }
+            ci = ci + 1;
+        }
+        let plt: Str = ir_type(ptype);
+        ir_emiti(f"%{pname}.addr = alloca {plt}");
+        ir_emiti(f"store {plt} %{pname}.arg, {plt}* %{pname}.addr");
+        irv_def(pname, f"%{pname}.addr", plt);
+        pm = node_b[pm];
+    }
+    ir_ret_type = retlt;
+    ir_gen_stmt(node_b[idx]);
+    // Default return
+    if retlt == "void"  { ir_emiti("ret void"); }
+    if retlt == "i32"   { ir_emiti("ret i32 0"); }
+    if retlt == "i1"    { ir_emiti("ret i1 false"); }
+    if retlt == "i8*"   { ir_emiti("ret i8* null"); }
+    ir_emit("}");
+    ir_emit("");
+}
+
+func irgen(prog_idx: I32) {
+    ir_reset();
+
+    // Emit header
+    ir_emit("; KonScript self-hosted IR");
+    ir_emit("target datalayout = \"e-m:e-i64:64-f80:128-n8:16:32:64-S128\"");
+    ir_emit("target triple = \"x86_64-pc-linux-gnu\"");
+    ir_emit("");
+    ir_emit("; runtime declarations");
+    ir_emit("declare i32 @printf(i8* nocapture readonly, ...)");
+    ir_emit("declare i8* @malloc(i64)");
+    ir_emit("declare void @free(i8*)");
+    ir_emit("declare i32 @strlen(i8*)");
+    ir_emit("");
+
+    // First pass: emit global constants and register functions
+    let mut decl: I32 = node_a[prog_idx];
+    while decl != 0 {
+        let d: I32 = node_a[decl];
+        if node_kinds[d] == NK_CONST_D {
+            // Inline constant — skip global emission, handled in expr
+        }
+        decl = node_b[decl];
+    }
+
+    // Second pass: emit functions
+    decl = node_a[prog_idx];
+    while decl != 0 {
+        let d: I32 = node_a[decl];
+        if node_kinds[d] == NK_FUNC {
+            ir_gen_func(d);
+        }
+        decl = node_b[decl];
+    }
+
+    // Emit global string constants
+    let mut si: I32 = 1;
+    while si <= gstr_count {
+        let sv: Str = gstr_vals[si];
+        let sl: I32 = sv.len() + 1;
+        ir_emit(f"@str.{si} = private unnamed_addr constant [{sl} x i8] c\"{sv}\\00\"");
+        si = si + 1;
+    }
+}
+
+func ir_to_string() -> Str {
+    let mut out: Str = "";
+    let mut i: I32 = 1;
+    while i < ir_lines.len() {
+        out = f"{out}{ir_lines[i]}\n";
+        i = i + 1;
+    }
+    return out;
+}
+
 func main() -> I32 {
-    Print("KonScript self-hosted compiler v0.1 — stage 1 (lex+parse+typecheck)");
+    Print("KonScript self-hosted compiler v0.1 — stage 1 (full pipeline)");
     Print("");
 
     let path_result: Result<Str> = File.read(".ks_input");
@@ -1404,23 +1983,31 @@ func main() -> I32 {
 
     let src: Str = src_result.value;
 
-    // Stage 1: Lex
-    Print("Lexing:  ", input_path);
+    Print("Lexing...");
     let ntoks: I32 = lex(src);
-    Print("Tokens:  ", ntoks);
+    Print("Tokens:   ", ntoks);
 
-    // Stage 2: Parse
     Print("Parsing...");
     let prog: I32 = parse(ntoks);
-    let decl_count: I32 = node_b[prog];
-    Print("Nodes:   ", node_kinds.len());
-    Print("Decls:   ", decl_count);
-    Print("");
+    Print("Nodes:    ", node_kinds.len());
 
     Print("Typechecking...");
     typecheck(prog);
-    Print("Functions:    ", fn_count);
-    Print("Symbols:      ", sym_count);
+    Print("Functions:", fn_count);
+
+    Print("Generating IR...");
+    irgen(prog);
+
+    let ir: Str = ir_to_string();
+    let out_path: Str = "/tmp/konscript_out.ll";
+    let write_result: Result<Str> = File.write(out_path, ir);
+    if !write_result.ok {
+        Print("error: cannot write IR: ", write_result.error);
+        return 1;
+    }
+
+    Print("IR lines: ", ir_lines.len());
+    Print("Written:  ", out_path);
     Print("");
     Print("OK");
     return 0;
