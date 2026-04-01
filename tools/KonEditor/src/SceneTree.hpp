@@ -31,10 +31,10 @@ signals:
     void sceneLoaded(const QString& path);
 
 private slots:
-    void autoSaveScene();
     void onAttachScript();
     void onViewAsText();
 public slots:
+    void autoSaveScene();
     void attachScriptToSelected();
     void selectNodeByName(const QString& name);
     void updateNodePosition(const QString& name, float x, float y);

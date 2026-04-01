@@ -231,6 +231,9 @@ void KonEditor::setupLayout() {
     connect(m_inspector, &Inspector::scriptFileChanged,
             [this](const QString& path){
                 m_scriptEditor->reloadFile(path);
+                // Any script change → autosave scene + rebuild viewport
+                m_sceneTree->autoSaveScene();
+                QTimer::singleShot(50, this, [this]{ rebuildViewport(); });
             });
 
     // Wire inspector open/attach script signals
@@ -242,9 +245,9 @@ void KonEditor::setupLayout() {
                 } else if (prop == "__attachScript__") {
                     m_sceneTree->attachScriptToSelected();
                 } else if (prop == "x" || prop == "y") {
-                    // Update viewport immediately when x/y changes in inspector
                     bool ok;
                     float v = val.toFloat(&ok);
+                    if (!ok) return;
                     auto nodes = m_viewport->nodes();
                     for (auto& vn : nodes) {
                         if (vn.name == node) {
@@ -253,9 +256,16 @@ void KonEditor::setupLayout() {
                         }
                     }
                     m_viewport->setNodes(nodes);
-                    m_sceneTree->updateNodePosition(node,
-                        prop == "x" ? v : m_viewport->nodeX(node),
-                        prop == "y" ? v : m_viewport->nodeY(node));
+                    float nx = (prop == "x") ? v : m_viewport->nodeX(node);
+                    float ny = (prop == "y") ? v : m_viewport->nodeY(node);
+                    m_sceneTree->updateNodePosition(node, nx, ny);
+                    QString scenePath = m_sceneTree->scenePath();
+                    if (!scenePath.isEmpty())
+                        writeInstancePosition(scenePath, node.toLower(), nx, ny);
+                } else {
+                    // Any other property change — autosave scene and rebuild viewport
+                    m_sceneTree->autoSaveScene();
+                    QTimer::singleShot(50, this, [this]{ rebuildViewport(); });
                 }
             });
 
@@ -264,6 +274,7 @@ void KonEditor::setupLayout() {
 
     connect(m_sceneTree, &SceneTree::nodeSelectedWithScript,
             this, [this](const QString& name, const QString& type, const QString& script){
+                m_selectedNode = name;  // remember for post-rebuild re-selection
                 m_inspector->showNodeFromFile(name, type, script);
                 syncInspectorPosition(name);
             });
@@ -310,6 +321,40 @@ void KonEditor::setupLayout() {
             this, [this](const QString& name, float x, float y) {
                 m_inspector->updatePosition(name, x, y);
                 m_sceneTree->updateNodePosition(name, x, y);
+                // Update child world positions in the viewport without full rebuild
+                // (full rebuild would kill the drag pointer)
+                // Find this node's children in the tree and offset them
+                auto* treeWidget = m_sceneTree->treeWidget();
+                if (!treeWidget) return;
+                std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findItem;
+                findItem = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
+                    if (item->data(0, Qt::UserRole+1).toString() == n) return item;
+                    for (int i = 0; i < item->childCount(); i++)
+                        if (auto* r = findItem(item->child(i), n)) return r;
+                    return nullptr;
+                };
+                if (!treeWidget->topLevelItemCount()) return;
+                auto* movedItem = findItem(treeWidget->topLevelItem(0), name);
+                if (!movedItem) return;
+                // Update children world positions in viewport nodes list
+                auto nodes = m_viewport->nodes();
+                std::function<void(QTreeWidgetItem*, float, float)> updateChildren;
+                updateChildren = [&](QTreeWidgetItem* item, float pwx, float pwy) {
+                    for (int i = 0; i < item->childCount(); i++) {
+                        auto* child = item->child(i);
+                        QString cname = child->data(0, Qt::UserRole+1).toString();
+                        QVariant vx = child->data(0, Qt::UserRole+3);
+                        QVariant vy = child->data(0, Qt::UserRole+4);
+                        float lx = vx.isValid() ? vx.toFloat() : 0.0f;
+                        float ly = vy.isValid() ? vy.toFloat() : 0.0f;
+                        float wx = pwx + lx, wy = pwy + ly;
+                        for (auto& vn : nodes)
+                            if (vn.name == cname) { vn.x = wx; vn.y = wy; break; }
+                        updateChildren(child, wx, wy);
+                    }
+                };
+                updateChildren(movedItem, x, y);
+                m_viewport->updateNodePositions(nodes);
             });
 
     // Write to script only when drag ends (not every frame)
@@ -325,9 +370,8 @@ void KonEditor::setupLayout() {
     connect(m_viewport, &Viewport::nodeSelected,
             this, [this](const QString& name){
                 if (name.isEmpty()) return;
-                // Select in scene tree
+                m_selectedNode = name;
                 m_sceneTree->selectNodeByName(name);
-                // Show in inspector
                 syncInspectorPosition(name);
             });
 
@@ -385,6 +429,7 @@ void KonEditor::setupLayout() {
                 m_gameProcess = proc;
                 updateRunButtons(true);
                 m_statusLabel->setText("  Running...");
+                m_bottomTabs->setCurrentWidget(m_debugConsole);
                 connect(proc, &QProcess::readyReadStandardOutput,
                         this, &KonEditor::onGameProcessOutput);
                 connect(proc, &QProcess::readyReadStandardError,
@@ -650,28 +695,83 @@ void KonEditor::syncInspectorPosition(const QString& name) {
 
 void KonEditor::rebuildViewport() {
     QList<ViewportNode> nodes;
-    // Walk the scene tree recursively
-    std::function<void(QTreeWidgetItem*)> walk = [&](QTreeWidgetItem* item) {
+
+    // Resolve the engine base type for a node.
+    // Stored type may be a KonScript class name ("cam") not the engine base ("CameraNode2D").
+    auto resolveBaseType = [&](const QString& type, const QString& scriptPath) -> QString {
+        static const QStringList engineTypes = {
+            "Node","Node2D","Sprite2D","AnimatedSprite2D",
+            "KinematicBody2D","StaticBody2D","RigidBody2D",
+            "Collider2D","Area2D","CameraNode2D","Camera2D",
+            "AudioStreamPlayer","Timer","Label"
+        };
+        if (engineTypes.contains(type)) return type;
+        if (scriptPath.isEmpty() || !QFile::exists(scriptPath)) return type;
+        QFile f(scriptPath);
+        if (!f.open(QIODevice::ReadOnly)) return type;
+        QString src = QTextStream(&f).readAll();
+        QRegularExpression re(R"(node\s+\w+\s*:\s*(\w+))");
+        auto m = re.match(src);
+        return m.hasMatch() ? m.captured(1) : type;
+    };
+
+    // Walk with parent world position so children are offset correctly
+    std::function<void(QTreeWidgetItem*, float, float)> walk;
+    walk = [&](QTreeWidgetItem* item, float parentWorldX, float parentWorldY) {
         if (!item) return;
-        QString name = item->data(0, Qt::UserRole + 1).toString();
-        QString type = item->data(0, Qt::UserRole).toString();
+        QString name   = item->data(0, Qt::UserRole + 1).toString();
+        QString type   = item->data(0, Qt::UserRole).toString();
+        QString script = item->data(0, Qt::UserRole + 2).toString();
         if (type == "Scene" || name.isEmpty()) {
             for (int i = 0; i < item->childCount(); i++)
-                walk(item->child(i));
+                walk(item->child(i), parentWorldX, parentWorldY);
             return;
         }
-        ViewportNode vn;
-        vn.name = name;
-        vn.type = type;
-        // Restore saved position
+
+        QString baseType = resolveBaseType(type, script);
+
         QVariant vx = item->data(0, Qt::UserRole + 3);
         QVariant vy = item->data(0, Qt::UserRole + 4);
-        vn.x = vx.isValid() ? vx.toFloat() : 0.0f;
-        vn.y = vy.isValid() ? vy.toFloat() : 0.0f;
-        vn.w    = (type == "CollisionShape2D") ? 64 :
-                  (type == "Camera2D") ? 32 : 48;
-        vn.h    = vn.w;
-        if (type == "Camera2D" || type == "CameraNode2D") {
+        float localX = vx.isValid() ? vx.toFloat() : 0.0f;
+        float localY = vy.isValid() ? vy.toFloat() : 0.0f;
+        float worldX = parentWorldX + localX;
+        float worldY = parentWorldY + localY;
+
+        ViewportNode vn;
+        vn.name = name;
+        vn.type = baseType;
+        vn.x    = worldX;
+        vn.y    = worldY;
+
+        // Default sizes
+        vn.w = (baseType == "CameraNode2D" || baseType == "Camera2D") ? 32 : 48;
+        vn.h = vn.w;
+
+        // For colliders, read actual width/height from the script's Ready() block
+        if (baseType == "Collider2D" && !script.isEmpty() && QFile::exists(script)) {
+            QFile sf(script);
+            if (sf.open(QIODevice::ReadOnly)) {
+                QString src = QTextStream(&sf).readAll();
+                QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
+                auto rm = reReady.match(src);
+                if (rm.hasMatch()) {
+                    int start = rm.capturedEnd(), depth = 1, pos = start;
+                    while (pos < src.size() && depth > 0) {
+                        if (src[pos] == '{') depth++;
+                        else if (src[pos] == '}') depth--;
+                        if (depth > 0) pos++;
+                    }
+                    QString body = src.mid(start, pos - start);
+                    QRegularExpression rwRe(R"(width\s*=\s*([\d.]+))");
+                    QRegularExpression rhRe(R"(height\s*=\s*([\d.]+))");
+                    auto mw = rwRe.match(body); auto mh = rhRe.match(body);
+                    if (mw.hasMatch()) vn.w = mw.captured(1).toFloat();
+                    if (mh.hasMatch()) vn.h = mh.captured(1).toFloat();
+                    if (!mw.hasMatch() && !mh.hasMatch()) { vn.w = 32; vn.h = 32; }
+                }
+            }
+        }
+        if (baseType == "Camera2D" || baseType == "CameraNode2D") {
             vn.camW = m_project->isOpen() ?
                 m_project->json().value("width").toInt(800) : 800;
             vn.camH = m_project->isOpen() ?
@@ -680,27 +780,41 @@ void KonEditor::rebuildViewport() {
         }
         nodes.append(vn);
         for (int i = 0; i < item->childCount(); i++)
-            walk(item->child(i));
+            walk(item->child(i), worldX, worldY);
     };
 
     auto* sceneTree = m_sceneTree->treeWidget();
     if (sceneTree && sceneTree->topLevelItemCount() > 0)
-        walk(sceneTree->topLevelItem(0));
+        walk(sceneTree->topLevelItem(0), 0.0f, 0.0f);
 
     m_viewport->setNodes(nodes);
     m_viewport->setGameResolution(
         m_project->isOpen() ? m_project->json().value("width").toInt(800) : 800,
         m_project->isOpen() ? m_project->json().value("height").toInt(600) : 600);
+    // Re-select the previously selected node so inspector edits don't lose selection
+    if (!m_selectedNode.isEmpty())
+        m_viewport->selectNode(m_selectedNode);
 }
 
 void KonEditor::writeInstancePosition(const QString& scenePath, const QString& varName, float x, float y) {
     QFile f(scenePath);
+    if (!f.open(QIODevice::ReadOnly)) return;
     QString src = QTextStream(&f).readAll();
     f.close();
+
+    // Resolve actual var name from scene source — display name may differ from var name.
+    // e.g. display "cam" → var "cam_node" when name==type
+    QString actualVar = varName;
+    QRegularExpression reFind(
+        QString(R"(let\s+mut\s+(\w+)\s*:\s*\w+\s*=\s*\w+\.add\s*\([^,]+,\s*"%1"\s*\))")
+            .arg(QRegularExpression::escape(varName)));
+    auto fm = reFind.match(src);
+    if (fm.hasMatch()) actualVar = fm.captured(1);
 
     // Find Ready() block
     QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
     auto rm = reReady.match(src);
+    if (!rm.hasMatch()) return;
 
     int start = rm.capturedEnd();
     int depth = 1, pos = start;
@@ -711,15 +825,13 @@ void KonEditor::writeInstancePosition(const QString& scenePath, const QString& v
     }
     QString body = src.mid(start, pos - start);
 
-    // Remove old assignments for this instance
-    QRegularExpression rxX(QString(R"(\n?[ \t]*%1\.x\s*=[^;]+;)").arg(varName));
-    QRegularExpression rxY(QString(R"(\n?[ \t]*%1\.y\s*=[^;]+;)").arg(varName));
+    QRegularExpression rxX(QString(R"(\n?[ \t]*%1\.x\s*=[^;]+;)").arg(actualVar));
+    QRegularExpression rxY(QString(R"(\n?[ \t]*%1\.y\s*=[^;]+;)").arg(actualVar));
     body.remove(rxX);
     body.remove(rxY);
 
-    // Prepend new positions
-    body.prepend(QString("\n        %1.y = %2;").arg(varName).arg(y, 0, 'f', 1));
-    body.prepend(QString("\n        %1.x = %2;").arg(varName).arg(x, 0, 'f', 1));
+    body.prepend(QString("\n        %1.y = %2;").arg(actualVar).arg(y, 0, 'f', 1));
+    body.prepend(QString("\n        %1.x = %2;").arg(actualVar).arg(x, 0, 'f', 1));
 
     src.replace(start, pos - start, body);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))

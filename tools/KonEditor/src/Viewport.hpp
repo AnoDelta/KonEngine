@@ -22,6 +22,7 @@ public:
     explicit Viewport(QWidget* parent = nullptr);
 
     void setNodes(const QList<ViewportNode>& nodes);
+    void updateNodePositions(const QList<ViewportNode>& nodes); // update x/y only, preserves drag state
     void setGameResolution(int w, int h);
     void selectNode(const QString& name);
     void clearNodes();

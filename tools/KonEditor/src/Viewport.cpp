@@ -110,6 +110,17 @@ void Viewport::setNodes(const QList<ViewportNode>& nodes) {
     update();
 }
 
+// Update only x/y of existing nodes — does not replace the list or reset drag state.
+// Used when a parent moves and we need children to follow without interrupting drag.
+void Viewport::updateNodePositions(const QList<ViewportNode>& updated) {
+    for (auto& u : updated) {
+        for (auto& n : m_nodes) {
+            if (n.name == u.name) { n.x = u.x; n.y = u.y; break; }
+        }
+    }
+    update();
+}
+
 void Viewport::clearNodes() {
     m_nodes.clear();
     m_hasCamera = false;
@@ -161,10 +172,15 @@ QPointF Viewport::screenToWorld(float x, float y) const {
 ViewportNode* Viewport::nodeAt(QPointF sp) {
     for (int i = m_nodes.size()-1; i >= 0; i--) {
         auto& n = m_nodes[i];
-        if (n.type == "Camera2D" || n.type == "CameraNode2D") continue;
         QPointF s = worldToScreen(n.x, n.y);
-        float hw = (n.w * 0.5f) * m_zoom;
-        float hh = (n.h * 0.5f) * m_zoom;
+        // Give cameras a larger hit area so they're easier to select
+        float hw, hh;
+        if (n.type == "Camera2D" || n.type == "CameraNode2D") {
+            hw = 24.0f; hh = 24.0f; // fixed screen-space size, not zoom-scaled
+        } else {
+            hw = (n.w * 0.5f) * m_zoom;
+            hh = (n.h * 0.5f) * m_zoom;
+        }
         if (sp.x() >= s.x()-hw && sp.x() <= s.x()+hw &&
             sp.y() >= s.y()-hh && sp.y() <= s.y()+hh)
             return &n;

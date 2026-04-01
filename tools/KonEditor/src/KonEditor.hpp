@@ -76,6 +76,7 @@ private:
 
     // Run state
     QProcess*  m_gameProcess  = nullptr;
+    QString    m_selectedNode;  // tracks current selection so rebuild preserves it
     QAction*   m_runAction    = nullptr;
     QAction*   m_stopAction   = nullptr;
     QLabel*    m_statusLabel  = nullptr;

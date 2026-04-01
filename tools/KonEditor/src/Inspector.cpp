@@ -59,22 +59,22 @@ QList<NodeProperty> Inspector::parseNodeProperties(const QString& path) {
     if (!f.open(QIODevice::ReadOnly)) return props;
     QString src = QTextStream(&f).readAll();
 
-    // Match: let [mut] name: Type = value;
-    // inside a node { } block
+    // Match both: let [mut] name: Type = value;
+    //         and: const name: Type = value;
     QRegularExpression re(
-        R"(let\s+(mut\s+)?(\w+)\s*:\s*(\w+)\s*=\s*([^;]+);)",
+        R"((let\s+(mut\s+)?|const\s+)(\w+)\s*:\s*(\w+)\s*=\s*([^;]+);)",
         QRegularExpression::MultilineOption);
 
     auto it = re.globalMatch(src);
     while (it.hasNext()) {
         auto m = it.next();
         NodeProperty p;
-        p.mut   = !m.captured(1).trimmed().isEmpty();
-        p.name  = m.captured(2);
-        p.type  = m.captured(3);
-        p.value = m.captured(4).trimmed();
+        bool isConst = m.captured(1).startsWith("const");
+        p.mut   = !isConst && !m.captured(2).trimmed().isEmpty();
+        p.name  = m.captured(3);
+        p.type  = m.captured(4);
+        p.value = m.captured(5).trimmed();
 
-        // Skip internal engine fields (anim, sounds etc loaded from engine)
         if (p.value.startsWith("this.add") ||
             p.value.startsWith("LoadSound") ||
             p.value.startsWith("LoadTexture"))
@@ -86,8 +86,7 @@ QList<NodeProperty> Inspector::parseNodeProperties(const QString& path) {
 }
 
 void Inspector::clearForm() {
-    while (m_form->rowCount() > 0)
-        m_form->removeRow(0);
+    while (m_form->rowCount() > 0) m_form->removeRow(0);
 }
 
 void Inspector::addSection(const QString& label) {
@@ -100,31 +99,23 @@ void Inspector::addSection(const QString& label) {
 void Inspector::addVec2Row(const QString& label, double x, double y) {
     auto* w  = new QWidget();
     auto* hl = new QHBoxLayout(w);
-    hl->setContentsMargins(0,0,0,0);
-    hl->setSpacing(3);
+    hl->setContentsMargins(0,0,0,0); hl->setSpacing(3);
 
     auto mkLabel = [](const QString& t, const QString& col) {
         auto* l = new QLabel(t);
         l->setStyleSheet("color:"+col+";font-size:10px;font-weight:bold;");
-        l->setFixedWidth(10);
-        return l;
+        l->setFixedWidth(10); return l;
     };
     auto mkSpin = [](double v) {
         auto* s = new QDoubleSpinBox();
-        s->setRange(-99999,99999);
-        s->setValue(v);
-        s->setDecimals(2);
-        s->setSingleStep(1.0);
+        s->setRange(-99999,99999); s->setValue(v); s->setDecimals(2); s->setSingleStep(1.0);
         s->setStyleSheet("background:#252525;color:#ddd;border:1px solid #3a3a3a;");
         return s;
     };
 
-    auto* sx = mkSpin(x);
-    auto* sy = mkSpin(y);
-    hl->addWidget(mkLabel("X","#e06c75"));
-    hl->addWidget(sx);
-    hl->addWidget(mkLabel("Y","#98c379"));
-    hl->addWidget(sy);
+    auto* sx = mkSpin(x); auto* sy = mkSpin(y);
+    hl->addWidget(mkLabel("X","#e06c75")); hl->addWidget(sx);
+    hl->addWidget(mkLabel("Y","#98c379")); hl->addWidget(sy);
     connect(sx, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             [this](double v){ patchScriptValue("x", QString::number(v,'f',3)); });
     connect(sy, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -138,40 +129,41 @@ void Inspector::addProperty(const QString& label, const QString& type,
 
     if (type == "F64" || type == "F32") {
         auto* s = new QDoubleSpinBox();
-        s->setRange(-99999,99999);
-        s->setValue(value.toDouble());
-        s->setDecimals(3);
-        s->setSingleStep(1.0);
-        s->setEnabled(editable);
+        s->setRange(-99999,99999); s->setValue(value.toDouble());
+        s->setDecimals(3); s->setSingleStep(1.0); s->setEnabled(editable);
         s->setStyleSheet("background:#252525;color:#ddd;border:1px solid #3a3a3a;");
         QString lbl = label;
         connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-                [this, lbl](double v){
-                    QString val = QString::number(v, 'f', 3);
+                [this,lbl](double v){
+                    QString val = QString::number(v,'f',3);
                     emit propertyChanged(m_currentNode, lbl, val);
                     patchScriptValue(lbl, val);
                 });
         w = s;
     } else if (type == "I32" || type == "I64" || type == "I8") {
         auto* s = new QSpinBox();
-        s->setRange(-99999,99999);
-        s->setValue(value.toInt());
-        s->setEnabled(editable);
+        s->setRange(-99999,99999); s->setValue(value.toInt()); s->setEnabled(editable);
         s->setStyleSheet("background:#252525;color:#ddd;border:1px solid #3a3a3a;");
+        if (editable) {
+            QString lbl = label;
+            connect(s, QOverload<int>::of(&QSpinBox::valueChanged),
+                    [this,lbl](int v){
+                        emit propertyChanged(m_currentNode, lbl, QString::number(v));
+                        patchScriptValue(lbl, QString::number(v));
+                    });
+        }
         w = s;
     } else if (type == "Bool") {
         auto* cb = new QCheckBox();
-        cb->setChecked(value == "true");
-        cb->setEnabled(editable);
-        {
+        cb->setChecked(value == "true"); cb->setEnabled(editable);
+        if (editable) {
             QString lbl2 = label;
-            connect(cb, &QCheckBox::toggled, [this, lbl2](bool v){
+            connect(cb, &QCheckBox::toggled, [this,lbl2](bool v){
                 writePropertyToFile(lbl2, v ? "true" : "false");
             });
         }
         w = cb;
     } else {
-        // String / unknown
         auto* e = new QLineEdit(value);
         e->setEnabled(editable);
         e->setStyleSheet("background:#252525;color:#ddd;border:1px solid #3a3a3a;");
@@ -184,13 +176,11 @@ void Inspector::addProperty(const QString& label, const QString& type,
 void Inspector::showNode(const QString& name, const QString& type) {
     clearForm();
     m_currentNode = name;
-
     if (name.isEmpty()) {
         m_title->setText("  Nothing selected");
         m_file->setVisible(false);
         return;
     }
-
     m_title->setText(QString("  <b>%1</b> <span style='color:#555;font-size:10px;'>%2</span>")
                      .arg(name, type));
     buildFromType(type);
@@ -201,10 +191,9 @@ void Inspector::showNodeFromFile(const QString& name, const QString& type,
     clearForm();
     m_currentNode   = name;
     m_currentScript = scriptPath;
-
+    m_currentType   = type;
     m_title->setText(QString("  <b>%1</b> <span style='color:#555;font-size:10px;'>%2</span>")
                      .arg(name, type));
-
     if (!scriptPath.isEmpty() && QFile::exists(scriptPath)) {
         m_file->setText("  📝 " + QFileInfo(scriptPath).fileName());
         m_file->setVisible(true);
@@ -218,44 +207,103 @@ void Inspector::showNodeFromFile(const QString& name, const QString& type,
 void Inspector::buildFromScript(const QString& path) {
     auto props = parseNodeProperties(path);
 
-    // Always show transform first
+    // Read base type and actual property values from Ready() block
+    QString baseType = m_currentType;
+    QMap<QString,QString> readyValues; // propName → value set in Ready()
+    {
+        QFile sf(path);
+        if (sf.open(QIODevice::ReadOnly)) {
+            QString src = QTextStream(&sf).readAll();
+
+            // Get base type
+            QRegularExpression re(R"(node\s+\w+\s*:\s*(\w+))");
+            auto m = re.match(src);
+            if (m.hasMatch()) baseType = m.captured(1);
+
+            // Parse Ready() body for assignments: propName = value;
+            QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
+            auto rm = reReady.match(src);
+            if (rm.hasMatch()) {
+                int start = rm.capturedEnd();
+                int depth = 1, pos = start;
+                while (pos < src.size() && depth > 0) {
+                    if (src[pos] == '{') depth++;
+                    else if (src[pos] == '}') depth--;
+                    if (depth > 0) pos++;
+                }
+                QString body = src.mid(start, pos - start);
+                QRegularExpression reAssign(R"((\w+)\s*=\s*([^;]+);)");
+                auto it = reAssign.globalMatch(body);
+                while (it.hasNext()) {
+                    auto am = it.next();
+                    readyValues[am.captured(1).trimmed()] = am.captured(2).trimmed();
+                }
+            }
+        }
+    }
+
+    // Helper: get value from Ready() or fall back to default
+    auto val = [&](const QString& name, const QString& def) -> QString {
+        return readyValues.value(name, def);
+    };
+
     addSection("Transform");
     addVec2Row("position", 0, 0);
     addProperty("rotation", "F64", "0.0");
     addVec2Row("scale", 1, 1);
 
+    // Show engine base type properties with actual values from Ready()
+    if (baseType == "Collider2D") {
+        addSection("Collider");
+        addProperty("width",      "F64",  val("width",      "32.0"));
+        addProperty("height",     "F64",  val("height",     "32.0"));
+        addProperty("radius",     "F64",  val("radius",     "16.0"));
+        addProperty("solid",      "Bool", val("solid",      "false"));
+        addProperty("staticBody", "Bool", val("staticBody", "false"));
+        addProperty("debugDraw",  "Bool", val("debugDraw",  "false"));
+        addProperty("layer",      "I32",  val("layer",      "1"));
+        addProperty("mask",       "I32",  val("mask",       "1"));
+    } else if (baseType == "CameraNode2D") {
+        addSection("Camera");
+        addProperty("zoom",       "F64",  val("zoom",        "1.0"));
+        addProperty("smoothing",  "Bool", val("smoothing",   "false"));
+        addProperty("smoothSpeed","F64",  val("smoothSpeed", "5.0"));
+    } else if (baseType == "Sprite2D" || baseType == "AnimatedSprite2D") {
+        addSection("Sprite");
+        addProperty("texture","Str",  val("texture",""));
+        addProperty("flipH",  "Bool", val("flipH",  "false"));
+        addProperty("flipV",  "Bool", val("flipV",  "false"));
+    }
+
     if (!props.isEmpty()) {
         addSection("Script Properties");
         for (auto& p : props) {
-            // Skip transform fields — already shown above
             if (p.name == "x" || p.name == "y" ||
                 p.name == "scaleX" || p.name == "scaleY" ||
                 p.name == "rotation") continue;
-            addProperty(p.name, p.type, p.value, p.mut);
+            // Use Ready() value if present, otherwise field default
+            QString v = readyValues.value(p.name, p.value);
+            addProperty(p.name, p.type, v, p.mut);
         }
     }
 
-    // Script attachment row
     addSection("Script");
     auto* row = new QHBoxLayout();
     auto* edit = new QLineEdit(QFileInfo(path).fileName());
     edit->setReadOnly(true);
     edit->setStyleSheet("background:#252525;color:#777;border:1px solid #3a3a3a;");
     auto* openBtn = new QPushButton("Open");
-    openBtn->setFixedWidth(45);
-    openBtn->setFixedHeight(22);
+    openBtn->setFixedWidth(45); openBtn->setFixedHeight(22);
     QString p = path;
-    connect(openBtn, &QPushButton::clicked, [p, this]{
+    connect(openBtn, &QPushButton::clicked, [p,this]{
         emit propertyChanged(m_currentNode, "__openScript__", p);
     });
-    row->addWidget(edit);
-    row->addWidget(openBtn);
+    row->addWidget(edit); row->addWidget(openBtn);
     auto* rw = new QWidget(); rw->setLayout(row);
     m_form->addRow("file:", rw);
 }
 
 void Inspector::buildFromType(const QString& type) {
-    // Node2D base
     if (type != "Node") {
         addSection("Transform");
         addVec2Row("position", 0, 0);
@@ -278,11 +326,16 @@ void Inspector::buildFromType(const QString& type) {
         addSection("Physics");
         addProperty("floorAngle",    "F64", "45.0");
         addProperty("slideOnCeiling","Bool","true");
-    } else if (type == "CollisionShape2D") {
-        addSection("Shape");
-        addProperty("width",  "F64","32.0");
-        addProperty("height", "F64","32.0");
-        addProperty("radius", "F64","16.0");
+    } else if (type == "Collider2D") {
+        addSection("Collider");
+        addProperty("width",      "F64", "32.0");
+        addProperty("height",     "F64", "32.0");
+        addProperty("radius",     "F64", "16.0");
+        addProperty("solid",      "Bool","false");
+        addProperty("staticBody", "Bool","false");
+        addProperty("debugDraw",  "Bool","false");
+        addProperty("layer",      "I32", "1");
+        addProperty("mask",       "I32", "1");
     } else if (type == "Sprite2D" || type == "AnimatedSprite2D") {
         addSection("Sprite");
         addProperty("texture","Str","");
@@ -295,12 +348,19 @@ void Inspector::buildFromType(const QString& type) {
             addProperty("speed",    "F64","5.0");
             addProperty("autoplay", "Bool","false");
         }
-    } else if (type == "Camera2D") {
+    } else if (type == "CameraNode2D") {
         addSection("Camera");
-        addProperty("zoom",        "F64","1.0");
-        addProperty("current",     "Bool","false");
-        addProperty("smoothing",   "Bool","false");
-        addProperty("smoothSpeed", "F64","5.0");
+        addProperty("zoom",       "F64", "1.0");
+        addProperty("smoothing",  "Bool","false");
+        addProperty("smoothSpeed","F64", "5.0");
+
+        // Camera view rectangle info — shows the world-space visible area
+        // at the current zoom level for a standard 800x600 window
+        addSection("View (800×600 at zoom)");
+        auto* info = new QLabel("Viewport rectangle shown\nin scene as a blue frame");
+        info->setStyleSheet("color:#555;font-size:10px;padding:2px 0;");
+        info->setWordWrap(true);
+        m_form->addRow(info);
     } else if (type == "Label") {
         addSection("Label");
         addProperty("text",    "Str","");
@@ -318,20 +378,17 @@ void Inspector::buildFromType(const QString& type) {
         addProperty("loop",    "Bool","false");
     }
 
-    // No script attached yet
     addSection("Script");
     auto* row = new QHBoxLayout();
     auto* edit = new QLineEdit("No script");
     edit->setReadOnly(true);
     edit->setStyleSheet("background:#252525;color:#555;border:1px solid #3a3a3a;");
     auto* attachBtn = new QPushButton("Attach");
-    attachBtn->setFixedWidth(50);
-    attachBtn->setFixedHeight(22);
+    attachBtn->setFixedWidth(50); attachBtn->setFixedHeight(22);
     connect(attachBtn, &QPushButton::clicked, [this]{
         emit propertyChanged(m_currentNode, "__attachScript__", "");
     });
-    row->addWidget(edit);
-    row->addWidget(attachBtn);
+    row->addWidget(edit); row->addWidget(attachBtn);
     auto* rw = new QWidget(); rw->setLayout(row);
     m_form->addRow("script:", rw);
 }
@@ -343,13 +400,10 @@ void Inspector::writePropertyToFile(const QString& propName, const QString& valu
     QString src = QTextStream(&f).readAll();
     f.close();
 
-    // Find Ready() block
-    QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)",
-        QRegularExpression::NoPatternOption);
+    QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
     auto rm = reReady.match(src);
     if (!rm.hasMatch()) return;
 
-    // Find matching closing brace
     int start = rm.capturedEnd();
     int depth = 1, pos = start;
     while (pos < src.size() && depth > 0) {
@@ -359,13 +413,10 @@ void Inspector::writePropertyToFile(const QString& propName, const QString& valu
     }
     QString body = src.mid(start, pos - start);
 
-    // Remove ALL existing assignments to propName
     QRegularExpression reAssign(
         QString(R"(\n?[ \t]*\b%1\s*=[^;]+;)")
             .arg(QRegularExpression::escape(propName)));
     body.remove(reAssign);
-
-    // Prepend single clean assignment
     body.prepend(QString("\n        %1 = %2;").arg(propName, value));
 
     src.replace(start, pos - start, body);
@@ -374,22 +425,20 @@ void Inspector::writePropertyToFile(const QString& propName, const QString& valu
         QTextStream(&f) << src;
         f.close();
         emit scriptFileChanged(m_currentScript);
+        // Notify KonEditor so it can autosave the scene and rebuild the viewport
+        emit propertyChanged(m_currentNode, propName, value);
     }
 }
 
 void Inspector::patchScriptValue(const QString& prop, const QString& value) {
-    // Delegate to writePropertyToFile which handles let mut matching
     writePropertyToFile(prop, value);
 }
 
 void Inspector::updatePosition(const QString&, float x, float y) {
     auto spins = m_content->findChildren<QDoubleSpinBox*>();
     if (spins.size() >= 2) {
-        spins[0]->blockSignals(true);
-        spins[1]->blockSignals(true);
-        spins[0]->setValue(x);
-        spins[1]->setValue(y);
-        spins[0]->blockSignals(false);
-        spins[1]->blockSignals(false);
+        spins[0]->blockSignals(true); spins[1]->blockSignals(true);
+        spins[0]->setValue(x);       spins[1]->setValue(y);
+        spins[0]->blockSignals(false); spins[1]->blockSignals(false);
     }
 }

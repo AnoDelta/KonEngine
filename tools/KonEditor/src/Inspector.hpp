@@ -51,4 +51,5 @@ private:
 
     QString m_currentNode;
     QString m_currentScript;
+    QString m_currentType;
 };
