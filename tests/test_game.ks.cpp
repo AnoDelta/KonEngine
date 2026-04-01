@@ -7,6 +7,7 @@
 #include <vector>
 #include <functional>
 #include <iostream>
+#include <sstream>
 #include <optional>
 namespace { struct _KSInit {
     _KSInit() { std::cout << std::boolalpha; }
@@ -44,7 +45,7 @@ public:
         col->y = -24.0f;
         anim->LoadFromFile("player.konani");
         anim->Play("idle");
-        printf("[TestGame] Player Ready\n");
+        std::cout << "[TestGame] Player Ready\n" << "\n";
     }
     
     void Update(float dt) override {
@@ -89,11 +90,11 @@ public:
     
     void OnCollisionEnter(Collider2D* other) override {
         hits += 1;
-        printf("[Collision] Player hit %s  total=%d\n", (other->name).c_str(), hits);
+        std::cout << "[Collision] Player hit %s  total=%d\n" << " " << other->name << " " << hits << "\n";
     }
     
     void OnCollisionExit(Collider2D* other) override {
-        printf("[Collision] Player left %s\n", (other->name).c_str());
+        std::cout << "[Collision] Player left %s\n" << " " << other->name << "\n";
     }
     
 };
@@ -111,7 +112,7 @@ public:
     void Ready() override {
         col->width = w;
         col->height = h;
-        printf("[TestGame] Wall Ready  col=%fx%f\n", col->width, col->height);
+        std::cout << "[TestGame] Wall Ready  col=%fx%f\n" << " " << col->width << " " << col->height << "\n";
     }
     
     void Draw() override {
@@ -155,7 +156,7 @@ int main() {
     scene.Scan();
     Camera2D cam = Camera2D(400.0f, 300.0f, 1.0f, 0.0f);
     int32_t boxCount = 0;
-    printf("[TestGame] All nodes Ready\n");
+    std::cout << "[TestGame] All nodes Ready\n" << "\n";
     while (!WindowShouldClose()) {
         const float dt = GetDeltaTime();
         if (IsKeyPressed((Key::Code)(Key::Escape))) {
