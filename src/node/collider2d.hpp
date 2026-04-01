@@ -27,13 +27,19 @@ public:
     uint32_t layer = 1;
     uint32_t mask  = 1;
 
+    // ── Solid collision ────────────────────────────────────────────────
+    // solid      = true  → blocks other solid colliders (depenetration applied)
+    // solid      = false → trigger only (signals still fire, nothing pushes back)
+    // staticBody = true  → never moved by depenetration (walls, floors, etc.)
+    // staticBody = false → can be pushed apart (dynamic bodies, players, etc.)
+    bool solid      = false;
+    bool staticBody = false;
+
     bool  debugDraw  = false;
     Color debugColor = { 0.0f, 1.0f, 0.0f, 0.9f };
     bool  touching   = false;
 
     Collider2D(const std::string& name = "Collider2D") : Node2D(name) {
-        // Default center pivot — matches Node2D default.
-        // Child colliders are positioned relative to parent pivot.
         originX = 0.5f;
         originY = 0.5f;
     }
@@ -42,24 +48,16 @@ public:
         typedSignals[sig].push_back(cb);
     }
     void Emit(const std::string& sig, Collider2D* other) {
-        // Fire typed signal listeners (Connect() callbacks)
         auto it = typedSignals.find(sig);
         if (it != typedSignals.end())
             for (auto& cb : it->second) cb(other);
 
-        // Also bubble up to the parent node's virtual lifecycle methods.
-        // This is how KonScript OnCollisionEnter/Exit overrides work —
-        // they live on the parent node, not on the collider itself.
         if (parent) {
             if (sig == "on_collision_enter") parent->OnCollisionEnter(other);
             else if (sig == "on_collision_exit") parent->OnCollisionExit(other);
         }
     }
 
-    // Compute world-space pivot position by walking the parent chain.
-    // Uses the same transform as DrawChildren/UpdateChildren:
-    //   world = parent.worldPivot + local * parent.scale
-    // scaleX sign flip (for facing left) is intentional — but we take abs for size.
     glm::vec2 computeWorldPivot() const {
         float wx = x, wy = y;
         Node* p = parent;
@@ -73,11 +71,8 @@ public:
         return { wx, wy };
     }
 
-    // World-space top-left of the collider rectangle, accounting for origin.
-    // We use abs(scale) for size so flipping doesn't move the box.
     glm::vec2 computeWorldTopLeft() const {
         auto pivot = computeWorldPivot();
-        // Effective world scale (take abs so flip doesn't shift position)
         float wsx = 1.0f, wsy = 1.0f;
         Node* p = parent;
         while (p) {
@@ -95,13 +90,11 @@ public:
     }
 
     glm::vec2 worldCenter() const {
-        auto pivot = computeWorldPivot();
-        return pivot; // center IS the pivot when originX/Y=0.5
+        return computeWorldPivot();
     }
 
     std::vector<glm::vec2> GetWorldPoints() const {
         auto tl = computeWorldTopLeft();
-        // Use actual world-scaled size
         float wsx = 1.0f, wsy = 1.0f;
         Node* p = parent;
         while (p) {
@@ -139,17 +132,9 @@ public:
 
     void Draw() override {
         if (!debugDraw) return;
-        Color _base = debugColor; _base.a = 1.f;
-        Color c = IsColliding() ?
-            Color{1.f, 1.f, 0.2f, 0.5f} :
-            // dummy — replaced below
-            _base; Color _dummy = IsColliding()
-            ? Color{_base.r+(1.f-_base.r)*.65f, _base.g+(1.f-_base.g)*.65f,
-                    _base.b+(1.f-_base.b)*.65f, 1.f}
-            : _base;
-        auto tl = computeWorldTopLeft();
+        Color c = debugColor; c.a = 1.f;
 
-        // Get world-scaled size
+        auto tl = computeWorldTopLeft();
         float wsx = 1.0f, wsy = 1.0f;
         Node* p = parent;
         while (p) {
@@ -169,10 +154,10 @@ public:
                 float x2 = tl.x+w, y2 = tl.y+h;
                 DrawRectangle(tl.x, tl.y, w, h,
                     {c.r, c.g, c.b, touching ? 0.25f : 0.1f});
-                DrawLine(tl.x, tl.y, x2,    tl.y, c);
-                DrawLine(x2,   tl.y, x2,    y2,   c);
-                DrawLine(x2,   y2,   tl.x,  y2,   c);
-                DrawLine(tl.x, y2,   tl.x,  tl.y, c);
+                DrawLine(tl.x, tl.y, x2,   tl.y, c);
+                DrawLine(x2,   tl.y, x2,   y2,   c);
+                DrawLine(x2,   y2,   tl.x, y2,   c);
+                DrawLine(tl.x, y2,   tl.x, tl.y, c);
                 break;
             }
             case ColliderShape::Circle: {
@@ -199,11 +184,7 @@ public:
         }
     }
 
-
-    // ── Contact query ─────────────────────────────────────────────────
-    // Updated every frame by CollisionWorld.
-    // IsColliding()  → true if touching at least one other collider.
-    // GetContacts()  → the actual pointers so you can inspect them.
+    // ── Contact query ──────────────────────────────────────────────────
     std::vector<Collider2D*> contacts;
     bool IsColliding() const { return !contacts.empty(); }
     const std::vector<Collider2D*>& GetContacts() const { return contacts; }
@@ -212,3 +193,6 @@ private:
     std::unordered_map<std::string,
         std::vector<std::function<void(Collider2D*)>>> typedSignals;
 };
+
+// Alias so the editor's CollisionShape2D node type resolves to Collider2D
+using CollisionShape2D = Collider2D;
