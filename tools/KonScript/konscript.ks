@@ -1827,8 +1827,36 @@ func ir_gen_expr(idx: I32) -> Str {
         // Callee name
         if node_kinds[callee] == NK_IDENT {
             let fname: Str = node_str[callee];
+            // Print: emit one printf per arg
+            if fname == "Print" {
+                let mut arg: I32 = node_b[idx];
+                while arg != 0 {
+                    let avt: Str = ir_gen_expr(node_a[arg]);
+                    let av: Str  = ir_get_v(avt);
+                    let alt: Str = ir_get_t(avt);
+                    let pt: I32  = ir_tmp_id();
+                    if alt == "i8*" {
+                        let fmt: I32 = ir_str_const("%s");
+                        ir_emiti(f"%t{pt} = getelementptr inbounds [3 x i8], [3 x i8]* @str.{fmt}, i32 0, i32 0");
+                        let pt2: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{pt2} = call i32 (i8*, ...) @printf(i8* %t{pt}, i8* {av})");
+                    } else {
+                        let fmt: I32 = ir_str_const("%d");
+                        ir_emiti(f"%t{pt} = getelementptr inbounds [3 x i8], [3 x i8]* @str.{fmt}, i32 0, i32 0");
+                        let pt2: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{pt2} = call i32 (i8*, ...) @printf(i8* %t{pt}, i32 {av})");
+                    }
+                    arg = node_b[arg];
+                }
+                // Print newline
+                let nlt: I32 = ir_str_const("\n");
+                let pt3: I32 = ir_tmp_id();
+                ir_emiti(f"%t{pt3} = getelementptr inbounds [2 x i8], [2 x i8]* @str.{nlt}, i32 0, i32 0");
+                let pt4: I32 = ir_tmp_id();
+                ir_emiti(f"%t{pt4} = call i32 (i8*, ...) @printf(i8* %t{pt3})");
+                return ir_val("0", "void");
+            }
             let fret: Str = ir_type(tc_fn_ret(fname));
-            let is_void: Bool = fret == "void" || fret == "i32" && tc_fn_ret(fname) == "?";
             if fret == "void" || tc_fn_ret(fname) == "?" {
                 ir_emiti(f"call void @{fname}({arglist})");
                 return ir_val("0", "void");
@@ -2228,7 +2256,6 @@ func irgen(prog_idx: I32) {
     ir_emit("declare void @irgen(i32)");
     ir_emit("declare void @ir_pre_alloca(i32)");
     ir_emit("declare i8* @ir_to_string()");
-    ir_emit("declare i32 @main()");
     // Pre-register return types for self-referential functions
     tc_def_fn("ir_escape_str", "Str");
     tc_def_fn("ir_get_v", "Str");
