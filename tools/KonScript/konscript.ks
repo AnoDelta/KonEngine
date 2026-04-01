@@ -252,7 +252,7 @@ func lex(src: Str) -> I32 {
                             else {
                                 if esc == "\"" { val = f"{val}\""; i += 2; col += 2; }
                                 else {
-                                                                        val = f"{val}{esc}";
+                                    val = f"{val}{esc}";
                                     i += 2; col += 2;
                                 }
                             }
@@ -518,22 +518,626 @@ func emit_module_header(filename: Str) {
     Print("");
 }
 
+// ========================================================================
+// PARSER
+// ========================================================================
+
+// ── Node kind constants ──────────────────────────────────────────────────
+const NK_NULL:      I32 = 0;  // null / invalid
+const NK_INT:       I32 = 1;  // str=value
+const NK_FLOAT:     I32 = 2;  // str=value
+const NK_BOOL:      I32 = 3;  // str="true"/"false"
+const NK_STR_LIT:   I32 = 4;  // str=value
+const NK_IDENT:     I32 = 5;  // str=name
+const NK_BINARY:    I32 = 6;  // str=op,  a=left,   b=right
+const NK_UNARY:     I32 = 7;  // str=op,  a=operand
+const NK_CALL:      I32 = 8;  // a=callee, b=args list head
+const NK_MEMBER:    I32 = 9;  // a=object, str=member
+const NK_INDEX:     I32 = 10; // a=object, b=index
+const NK_ASSIGN:    I32 = 11; // str=op,  a=target, b=value
+const NK_LIST:      I32 = 12; // a=item,  b=next (0=end)
+const NK_LET:       I32 = 13; // str=name, a=init, b=is_mut
+const NK_CONST_D:   I32 = 14; // str=name, a=init
+const NK_RETURN:    I32 = 15; // a=value (0=void return)
+const NK_IF:        I32 = 16; // a=cond, b=then_block, c=else_block
+const NK_WHILE:     I32 = 17; // a=cond, b=body
+const NK_FOR_IN:    I32 = 18; // str=var, a=iter, b=body
+const NK_LOOP:      I32 = 19; // a=body
+const NK_BREAK:     I32 = 20;
+const NK_CONTINUE:  I32 = 21;
+const NK_BLOCK:     I32 = 22; // a=first NK_LIST (0=empty), b=stmt count
+const NK_FUNC:      I32 = 23; // str=name, a=params list, b=body
+const NK_PARAM:     I32 = 24; // str="name:type", a=next param
+const NK_PROGRAM:   I32 = 25; // a=decls list head
+const NK_CAST:      I32 = 26; // a=value, str=type
+const NK_ARRAY_LIT: I32 = 27; // a=elements list head
+const NK_INCLUDE_D: I32 = 28; // str=path
+const NK_NULL_LIT:  I32 = 29;
+const NK_STRUCT_D:  I32 = 30; // str=name, a=fields list
+const NK_FIELD:     I32 = 31; // str="name:type"
+
+// ── AST storage — parallel arrays, index 0 is the null node ─────────────
+let mut node_kinds: [I32] = [0];
+let mut node_a:     [I32] = [0];
+let mut node_b:     [I32] = [0];
+let mut node_c:     [I32] = [0];  // third child (else, extra)
+let mut node_str:   [Str] = [""];
+let mut node_line:  [I32] = [0];
+
+// ── Parser state ─────────────────────────────────────────────────────────
+let mut pos: I32 = 0;
+
+func reset_ast() {
+    node_kinds.clear(); node_kinds.push(0);
+    node_a.clear();     node_a.push(0);
+    node_b.clear();     node_b.push(0);
+    node_c.clear();     node_c.push(0);
+    node_str.clear();   node_str.push("");
+    node_line.clear();  node_line.push(0);
+    pos = 0;
+}
+
+func alloc_node(kind: I32, a: I32, b: I32, c: I32, s: Str) -> I32 {
+    let idx: I32 = node_kinds.len();
+    node_kinds.push(kind);
+    node_a.push(a);
+    node_b.push(b);
+    node_c.push(c);
+    node_str.push(s);
+    node_line.push(tok_lines[pos]);
+    return idx;
+}
+
+// ── Token peek / consume helpers ─────────────────────────────────────────
+func pk() -> I32         { return tok_kinds[pos]; }
+func pk_val() -> Str     { return tok_values[pos]; }
+func pk_ln() -> I32      { return tok_lines[pos]; }
+func pk_col() -> I32     { return tok_cols[pos]; }
+func adv()               { pos = pos + 1; }
+func chk(k: I32) -> Bool { return tok_kinds[pos] == k; }
+
+func mat(k: I32) -> Bool {
+    if tok_kinds[pos] == k { pos = pos + 1; return true; }
+    return false;
+}
+
+func eat(k: I32, msg: Str) -> Str {
+    if tok_kinds[pos] != k {
+        parse_error(pk_ln(), pk_col(), f"expected {msg}, got '{pk_val()}'");
+        return "";
+    }
+    let v: Str = tok_values[pos];
+    pos = pos + 1;
+    return v;
+}
+
+// Build a NK_LIST chain from a list of node indices
+// list_append(head, tail, item) -> new_tail
+// Use as: head=0; tail=0; then for each item call list_append
+func list_node(item: I32, next: I32) -> I32 {
+    return alloc_node(NK_LIST, item, next, 0, "");
+}
+
+// ── Type annotation — returns type string e.g. "I32", "[Str]", "I32?" ────
+func parse_type() -> Str {
+    // Array type: [T]
+    if mat(TK_LBRACKET) {
+        let inner: Str = parse_type();
+        eat(TK_RBRACKET, "']'");
+        let mut t: Str = f"[{inner}]";
+        if mat(TK_QUESTION) { t = f"{t}?"; }
+        return t;
+    }
+    // Tuple type: (A, B, ...)
+    if chk(TK_LPAREN) {
+        adv();
+        let mut t: Str = "(";
+        let mut first: Bool = true;
+        while !chk(TK_RPAREN) && pk() != TK_EOF {
+            if !first { eat(TK_COMMA, "','"); t = f"{t},"; }
+            t = f"{t}{parse_type()}";
+            first = false;
+        }
+        eat(TK_RPAREN, "')'");
+        if mat(TK_QUESTION) { t = f"{t}?"; }
+        return f"{t})";
+    }
+    // Named type (possibly generic: Result<T>, HashMap<K,V>)
+    let name: Str = eat(TK_IDENT, "type name");
+    let mut t: Str = name;
+    if mat(TK_LT) {
+        t = f"{t}<";
+        let mut first: Bool = true;
+        while !chk(TK_GT) && pk() != TK_EOF {
+            if !first { eat(TK_COMMA, "','"); t = f"{t},"; }
+            t = f"{t}{parse_type()}";
+            first = false;
+        }
+        eat(TK_GT, "'>'");
+        t = f"{t}>";
+    }
+    if mat(TK_QUESTION) { t = f"{t}?"; }
+    return t;
+}
+
+// ── Expression parsing (recursive descent, precedence climbing) ───────────
+
+// Forward declarations (KonScript supports forward refs via typechecker prepass)
+
+func parse_primary() -> I32 {
+    let ln: I32 = pk_ln();
+    let cl: I32 = pk_col();
+
+    // Integer literal
+    if chk(TK_INT) {
+        let v: Str = pk_val(); adv();
+        return alloc_node(NK_INT, 0, 0, 0, v);
+    }
+    // Float literal
+    if chk(TK_FLOAT) {
+        let v: Str = pk_val(); adv();
+        return alloc_node(NK_FLOAT, 0, 0, 0, v);
+    }
+    // String literal
+    if chk(TK_STR) {
+        let v: Str = pk_val(); adv();
+        return alloc_node(NK_STR_LIT, 0, 0, 0, v);
+    }
+    // Bool literals
+    if chk(TK_TRUE)  { adv(); return alloc_node(NK_BOOL, 0, 0, 0, "true"); }
+    if chk(TK_FALSE) { adv(); return alloc_node(NK_BOOL, 0, 0, 0, "false"); }
+    // Null / None
+    if chk(TK_IDENT) && pk_val() == "null" { adv(); return alloc_node(NK_NULL_LIT, 0, 0, 0, "null"); }
+    if chk(TK_IDENT) && pk_val() == "None" { adv(); return alloc_node(NK_NULL_LIT, 0, 0, 0, "None"); }
+
+    // Identifier
+    if chk(TK_IDENT) {
+        let name: Str = pk_val(); adv();
+        return alloc_node(NK_IDENT, 0, 0, 0, name);
+    }
+
+    // Array literal [a, b, c]
+    if mat(TK_LBRACKET) {
+        let mut head: I32 = 0;
+        let mut tail: I32 = 0;
+        let mut cnt: I32 = 0;
+        while !chk(TK_RBRACKET) && pk() != TK_EOF {
+            if cnt > 0 { eat(TK_COMMA, "','"); }
+            let elem: I32 = parse_or();
+            let nd: I32 = list_node(elem, 0);
+            if head == 0 { head = nd; tail = nd; }
+            else { node_b[tail] = nd; tail = nd; }
+            cnt = cnt + 1;
+        }
+        eat(TK_RBRACKET, "']'");
+        return alloc_node(NK_ARRAY_LIT, head, cnt, 0, "");
+    }
+
+    // Parenthesised expression
+    if mat(TK_LPAREN) {
+        let inner: I32 = parse_or();
+        eat(TK_RPAREN, "')'");
+        return inner;
+    }
+
+    parse_error(ln, cl, f"unexpected token '{pk_val()}' in expression");
+    adv(); // skip bad token
+    return 0;
+}
+
+func parse_postfix() -> I32 {
+    let mut nd: I32 = parse_primary();
+    loop {
+        // Function call: foo(a, b)
+        if mat(TK_LPAREN) {
+            let mut head: I32 = 0;
+            let mut tail: I32 = 0;
+            let mut cnt: I32 = 0;
+            while !chk(TK_RPAREN) && pk() != TK_EOF {
+                if cnt > 0 { eat(TK_COMMA, "','"); }
+                let arg: I32 = parse_or();
+                let ln2: I32 = list_node(arg, 0);
+                if head == 0 { head = ln2; tail = ln2; }
+                else { node_b[tail] = ln2; tail = ln2; }
+                cnt = cnt + 1;
+            }
+            eat(TK_RPAREN, "')'");
+            nd = alloc_node(NK_CALL, nd, head, 0, "");
+            continue;
+        }
+        // Member access: a.b
+        if mat(TK_DOT) {
+            let member: Str = eat(TK_IDENT, "member name");
+            nd = alloc_node(NK_MEMBER, nd, 0, 0, member);
+            continue;
+        }
+        // Index: a[i]
+        if mat(TK_LBRACKET) {
+            let idx: I32 = parse_or();
+            eat(TK_RBRACKET, "']'");
+            nd = alloc_node(NK_INDEX, nd, idx, 0, "");
+            continue;
+        }
+        // Type cast: x as T
+        if mat(TK_AS) {
+            let t: Str = parse_type();
+            nd = alloc_node(NK_CAST, nd, 0, 0, t);
+            continue;
+        }
+        break;
+    }
+    return nd;
+}
+
+func parse_unary() -> I32 {
+    if chk(TK_MINUS) { adv(); let a: I32 = parse_unary(); return alloc_node(NK_UNARY, a, 0, 0, "-"); }
+    if chk(TK_BANG)  { adv(); let a: I32 = parse_unary(); return alloc_node(NK_UNARY, a, 0, 0, "!"); }
+    return parse_postfix();
+}
+
+func parse_mul() -> I32 {
+    let mut left: I32 = parse_unary();
+    while chk(TK_STAR) || chk(TK_SLASH) || chk(TK_PERCENT) {
+        let op: Str = pk_val(); adv();
+        let right: I32 = parse_unary();
+        left = alloc_node(NK_BINARY, left, right, 0, op);
+    }
+    return left;
+}
+
+func parse_add() -> I32 {
+    let mut left: I32 = parse_mul();
+    while chk(TK_PLUS) || chk(TK_MINUS) {
+        let op: Str = pk_val(); adv();
+        let right: I32 = parse_mul();
+        left = alloc_node(NK_BINARY, left, right, 0, op);
+    }
+    return left;
+}
+
+func parse_cmp() -> I32 {
+    let mut left: I32 = parse_add();
+    while chk(TK_LT) || chk(TK_LTEQ) || chk(TK_GT) || chk(TK_GTEQ) {
+        let op: Str = pk_val(); adv();
+        let right: I32 = parse_add();
+        left = alloc_node(NK_BINARY, left, right, 0, op);
+    }
+    return left;
+}
+
+func parse_eq() -> I32 {
+    let mut left: I32 = parse_cmp();
+    while chk(TK_EQEQ) || chk(TK_BANGEQ) {
+        let op: Str = pk_val(); adv();
+        let right: I32 = parse_cmp();
+        left = alloc_node(NK_BINARY, left, right, 0, op);
+    }
+    return left;
+}
+
+func parse_and() -> I32 {
+    let mut left: I32 = parse_eq();
+    while chk(TK_AMPERAMPER) {
+        adv();
+        let right: I32 = parse_eq();
+        left = alloc_node(NK_BINARY, left, right, 0, "&&");
+    }
+    return left;
+}
+
+func parse_or() -> I32 {
+    let mut left: I32 = parse_and();
+    while chk(TK_PIPEPIPE) {
+        adv();
+        let right: I32 = parse_and();
+        left = alloc_node(NK_BINARY, left, right, 0, "||");
+    }
+    return left;
+}
+
+func parse_expr() -> I32 {
+    let left: I32 = parse_or();
+    // Assignment operators
+    if chk(TK_EQ) || chk(TK_PLUSEQ) || chk(TK_MINUSEQ) || chk(TK_STAREQ) || chk(TK_SLASHEQ) {
+        let op: Str = pk_val(); adv();
+        let right: I32 = parse_or();
+        return alloc_node(NK_ASSIGN, left, right, 0, op);
+    }
+    return left;
+}
+
+// ── Statement parser ──────────────────────────────────────────────────────
+func parse_block() -> I32 {
+    eat(TK_LBRACE, "'{'");
+    let mut head: I32 = 0;
+    let mut tail: I32 = 0;
+    let mut cnt: I32 = 0;
+    while !chk(TK_RBRACE) && pk() != TK_EOF {
+        let s: I32 = parse_stmt();
+        if s != 0 {
+            let ln: I32 = list_node(s, 0);
+            if head == 0 { head = ln; tail = ln; }
+            else { node_b[tail] = ln; tail = ln; }
+            cnt = cnt + 1;
+        }
+    }
+    eat(TK_RBRACE, "'}'");
+    return alloc_node(NK_BLOCK, head, cnt, 0, "");
+}
+
+func parse_stmt() -> I32 {
+    let ln: I32 = pk_ln();
+    let cl: I32 = pk_col();
+
+    // let / let mut
+    if chk(TK_LET) {
+        adv();
+        let mut is_mut: I32 = 0;
+        if mat(TK_MUT) { is_mut = 1; }
+        let name: Str = eat(TK_IDENT, "variable name");
+        // Optional type annotation
+        if mat(TK_COLON) { parse_type(); } // consume and discard for now
+        let mut init: I32 = 0;
+        if mat(TK_EQ) { init = parse_expr(); }
+        mat(TK_SEMICOLON);
+        return alloc_node(NK_LET, init, is_mut, 0, name);
+    }
+
+    // const
+    if chk(TK_CONST) {
+        adv();
+        let name: Str = eat(TK_IDENT, "const name");
+        if mat(TK_COLON) { parse_type(); }
+        eat(TK_EQ, "'='");
+        let init: I32 = parse_expr();
+        mat(TK_SEMICOLON);
+        return alloc_node(NK_CONST_D, init, 0, 0, name);
+    }
+
+    // return
+    if chk(TK_RETURN) {
+        adv();
+        let mut val: I32 = 0;
+        if !chk(TK_SEMICOLON) && !chk(TK_RBRACE) {
+            val = parse_expr();
+        }
+        mat(TK_SEMICOLON);
+        return alloc_node(NK_RETURN, val, 0, 0, "");
+    }
+
+    // if / else
+    if chk(TK_IF) {
+        adv();
+        let cond: I32 = parse_expr();
+        let then_b: I32 = parse_block();
+        let mut else_b: I32 = 0;
+        if mat(TK_ELSE) {
+            if chk(TK_IF) { else_b = parse_stmt(); }
+            else { else_b = parse_block(); }
+        }
+        return alloc_node(NK_IF, cond, then_b, else_b, "");
+    }
+
+    // while
+    if chk(TK_WHILE) {
+        adv();
+        let cond: I32 = parse_expr();
+        let body: I32 = parse_block();
+        return alloc_node(NK_WHILE, cond, body, 0, "");
+    }
+
+    // loop
+    if chk(TK_LOOP) {
+        adv();
+        let body: I32 = parse_block();
+        return alloc_node(NK_LOOP, body, 0, 0, "");
+    }
+
+    // for x in iter
+    if chk(TK_FOR) {
+        adv();
+        let var_name: Str = eat(TK_IDENT, "loop variable");
+        if mat(TK_COLON) { parse_type(); }
+        eat(TK_IN, "'in'");
+        let iter: I32 = parse_expr();
+        let body: I32 = parse_block();
+        return alloc_node(NK_FOR_IN, iter, body, 0, var_name);
+    }
+
+    // break / continue
+    if chk(TK_BREAK)    { adv(); mat(TK_SEMICOLON); return alloc_node(NK_BREAK,    0,0,0,""); }
+    if chk(TK_CONTINUE) { adv(); mat(TK_SEMICOLON); return alloc_node(NK_CONTINUE, 0,0,0,""); }
+
+    // block
+    if chk(TK_LBRACE) { return parse_block(); }
+
+    // Expression statement (call, assignment, etc.)
+    let expr: I32 = parse_expr();
+    mat(TK_SEMICOLON);
+    return expr;
+}
+
+// ── Top-level declarations ────────────────────────────────────────────────
+func parse_func() -> I32 {
+    eat(TK_FUNC, "'func'");
+    let name: Str = eat(TK_IDENT, "function name");
+    eat(TK_LPAREN, "'('");
+
+    // Parameters
+    let mut phead: I32 = 0;
+    let mut ptail: I32 = 0;
+    let mut pcnt: I32 = 0;
+    while !chk(TK_RPAREN) && pk() != TK_EOF {
+        if pcnt > 0 { eat(TK_COMMA, "','"); }
+        let pname: Str = eat(TK_IDENT, "parameter name");
+        eat(TK_COLON, "':'");
+        let ptype: Str = parse_type();
+        let pnode: I32 = alloc_node(NK_PARAM, 0, 0, 0, f"{pname}:{ptype}");
+        let ln: I32 = list_node(pnode, 0);
+        if phead == 0 { phead = ln; ptail = ln; }
+        else { node_b[ptail] = ln; ptail = ln; }
+        pcnt = pcnt + 1;
+    }
+    eat(TK_RPAREN, "')'");
+
+    // Return type
+    if mat(TK_ARROW) { parse_type(); } // consume, discard for now
+
+    let body: I32 = parse_block();
+    return alloc_node(NK_FUNC, phead, body, pcnt, name);
+}
+
+func parse_struct() -> I32 {
+    eat(TK_STRUCT, "'struct'");
+    let name: Str = eat(TK_IDENT, "struct name");
+    eat(TK_LBRACE, "'{'");
+    let mut fhead: I32 = 0;
+    let mut ftail: I32 = 0;
+    let mut fcnt: I32 = 0;
+    while !chk(TK_RBRACE) && pk() != TK_EOF {
+        let fname: Str = eat(TK_IDENT, "field name");
+        eat(TK_COLON, "':'");
+        let ftype: Str = parse_type();
+        mat(TK_COMMA);
+        let fn2: I32 = alloc_node(NK_FIELD, 0, 0, 0, f"{fname}:{ftype}");
+        let ln2: I32 = list_node(fn2, 0);
+        if fhead == 0 { fhead = ln2; ftail = ln2; }
+        else { node_b[ftail] = ln2; ftail = ln2; }
+        fcnt = fcnt + 1;
+    }
+    eat(TK_RBRACE, "'}'");
+    return alloc_node(NK_STRUCT_D, fhead, fcnt, 0, name);
+}
+
+func parse_top_level() -> I32 {
+    // Skip pub
+    if chk(TK_PUB) { adv(); }
+    if chk(TK_FUNC)   { return parse_func(); }
+    if chk(TK_STRUCT) { return parse_struct(); }
+    if chk(TK_CONST)  { return parse_stmt(); }
+    if chk(TK_LET)    { return parse_stmt(); }
+    if chk(TK_INCLUDE) {
+        let path: Str = pk_val(); adv();
+        return alloc_node(NK_INCLUDE_D, 0, 0, 0, path);
+    }
+    // Unknown — skip
+    parse_error(pk_ln(), pk_col(), f"unexpected token '{pk_val()}' at top level");
+    adv();
+    return 0;
+}
+
+func parse(ntoks: I32) -> I32 {
+    reset_ast();
+    pos = 0;
+    let mut head: I32 = 0;
+    let mut tail: I32 = 0;
+    let mut cnt: I32 = 0;
+    while pk() != TK_EOF {
+        let decl: I32 = parse_top_level();
+        if decl != 0 {
+            let ln: I32 = list_node(decl, 0);
+            if head == 0 { head = ln; tail = ln; }
+            else { node_b[tail] = ln; tail = ln; }
+            cnt = cnt + 1;
+        }
+    }
+    return alloc_node(NK_PROGRAM, head, cnt, 0, "");
+}
+
+// ── AST dump for debugging ────────────────────────────────────────────────
+func node_kind_name(k: I32) -> Str {
+    if k == NK_NULL      { return "null"; }
+    if k == NK_INT       { return "int"; }
+    if k == NK_FLOAT     { return "float"; }
+    if k == NK_BOOL      { return "bool"; }
+    if k == NK_STR_LIT   { return "str"; }
+    if k == NK_IDENT     { return "ident"; }
+    if k == NK_BINARY    { return "binary"; }
+    if k == NK_UNARY     { return "unary"; }
+    if k == NK_CALL      { return "call"; }
+    if k == NK_MEMBER    { return "member"; }
+    if k == NK_INDEX     { return "index"; }
+    if k == NK_ASSIGN    { return "assign"; }
+    if k == NK_LIST      { return "list"; }
+    if k == NK_LET       { return "let"; }
+    if k == NK_CONST_D   { return "const"; }
+    if k == NK_RETURN    { return "return"; }
+    if k == NK_IF        { return "if"; }
+    if k == NK_WHILE     { return "while"; }
+    if k == NK_FOR_IN    { return "for_in"; }
+    if k == NK_LOOP      { return "loop"; }
+    if k == NK_BREAK     { return "break"; }
+    if k == NK_CONTINUE  { return "continue"; }
+    if k == NK_BLOCK     { return "block"; }
+    if k == NK_FUNC      { return "func"; }
+    if k == NK_PARAM     { return "param"; }
+    if k == NK_PROGRAM   { return "program"; }
+    if k == NK_CAST      { return "cast"; }
+    if k == NK_ARRAY_LIT { return "array"; }
+    if k == NK_INCLUDE_D { return "include"; }
+    if k == NK_NULL_LIT  { return "null_lit"; }
+    if k == NK_STRUCT_D  { return "struct"; }
+    if k == NK_FIELD     { return "field"; }
+    return "?";
+}
+
+func dump_node(idx: I32, indent: I32) {
+    if idx == 0 { return; }
+    let mut pad: Str = "";
+    let mut i: I32 = 0;
+    while i < indent { pad = f"{pad}  "; i = i + 1; }
+
+    let k: I32   = node_kinds[idx];
+    let s: Str   = node_str[idx];
+    let name: Str = node_kind_name(k);
+
+    if s.len() > 0 {
+        Print(pad, name, "  '", s, "'");
+    } else {
+        Print(pad, name);
+    }
+
+    // Recurse for common patterns
+    if k == NK_FUNC {
+        // params
+        let mut p: I32 = node_a[idx];
+        while p != 0 {
+            dump_node(node_a[p], indent + 1);
+            p = node_b[p];
+        }
+        dump_node(node_b[idx], indent + 1);
+    } else {
+        if k == NK_BLOCK {
+            let mut p: I32 = node_a[idx];
+            while p != 0 {
+                dump_node(node_a[p], indent + 1);
+                p = node_b[p];
+            }
+        } else {
+            if k == NK_PROGRAM {
+                let mut p: I32 = node_a[idx];
+                while p != 0 {
+                    dump_node(node_a[p], indent + 1);
+                    p = node_b[p];
+                }
+            } else {
+                if node_a[idx] != 0 { dump_node(node_a[idx], indent + 1); }
+                if node_b[idx] != 0 { dump_node(node_b[idx], indent + 1); }
+                if node_c[idx] != 0 { dump_node(node_c[idx], indent + 1); }
+            }
+        }
+    }
+}
+
 // -----------------------------------------------------------------------
 // main
 //
-// Stage 1: read a .ks file, lex it, dump the token stream.
-// The path is read from a file called ".ks_input" in the current directory.
-// Usage:
-//   echo "path/to/file.ks" > .ks_input
-//   ./konscript1
-//
-// TODO stage 2: proper argv support
+// Stage 1: read a .ks file, lex + parse it, dump the AST summary.
 // -----------------------------------------------------------------------
 func main() -> I32 {
-    Print("KonScript self-hosted compiler v0.1 — stage 1 (lexer)");
+    Print("KonScript self-hosted compiler v0.1 — stage 1 (lexer + parser)");
     Print("");
 
-    // Read source file path from .ks_input
     let path_result: Result<Str> = File.read(".ks_input");
     if !path_result.ok {
         Print("Usage: echo 'path/to/file.ks' > .ks_input && ./konscript1");
@@ -546,8 +1150,6 @@ func main() -> I32 {
         return 1;
     }
 
-    Print("Lexing: ", input_path);
-
     let src_result: Result<Str> = File.read(input_path);
     if !src_result.ok {
         Print("error: cannot read '", input_path, "': ", src_result.error);
@@ -555,11 +1157,27 @@ func main() -> I32 {
     }
 
     let src: Str = src_result.value;
-    let count: I32 = lex(src);
 
-    Print("Tokens: ", count);
+    // Stage 1: Lex
+    Print("Lexing:  ", input_path);
+    let ntoks: I32 = lex(src);
+    Print("Tokens:  ", ntoks);
+
+    // Stage 2: Parse
+    Print("Parsing...");
+    let prog: I32 = parse(ntoks);
+    let decl_count: I32 = node_b[prog];
+    Print("Nodes:   ", node_kinds.len());
+    Print("Decls:   ", decl_count);
     Print("");
-    dump_tokens();
+
+    // Dump top-level declarations
+    let mut p: I32 = node_a[prog];
+    while p != 0 {
+        dump_node(node_a[p], 0);
+        p = node_b[p];
+    }
 
     return 0;
 }
+

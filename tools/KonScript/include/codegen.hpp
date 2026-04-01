@@ -154,10 +154,11 @@ public:
 
         // Forward declarations pass -- also populates m_userNodeTypes
         for (auto& s : prog.stmts)
-            if (s->kind == Stmt::Kind::NodeDecl ||
-                s->kind == Stmt::Kind::StructDecl ||
-                s->kind == Stmt::Kind::ClassDecl ||
-                s->kind == Stmt::Kind::EnumDecl)
+            if (s->kind == Stmt::Kind::NodeDecl   ||
+                s->kind == Stmt::Kind::StructDecl  ||
+                s->kind == Stmt::Kind::ClassDecl   ||
+                s->kind == Stmt::Kind::EnumDecl    ||
+                s->kind == Stmt::Kind::FuncDecl)
                 forwardDeclare(s.get());
 
         line("");
@@ -293,6 +294,19 @@ private:
     // -----------------------------------------------------------------------
     void forwardDeclare(const Stmt* s) {
         switch (s->kind) {
+            case Stmt::Kind::FuncDecl: {
+                auto* f = static_cast<const FuncDecl*>(s);
+                if (f->name == "main") break;
+                std::string ret = f->returnType ? cppType(*f->returnType) : "void";
+                std::string sig = ret + " " + f->name + "(";
+                for (size_t i = 0; i < f->params.size(); i++) {
+                    if (i) sig += ", ";
+                    sig += cppType(f->params[i].type) + " " + f->params[i].name;
+                }
+                sig += ");";
+                line(sig);
+                break;
+            }
             case Stmt::Kind::StructDecl:
                 line("struct " +
                      static_cast<const StructDecl*>(s)->name + ";");
