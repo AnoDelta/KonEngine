@@ -27,19 +27,18 @@ public:
     uint32_t layer = 1;
     uint32_t mask  = 1;
 
-    // ── Solid collision ────────────────────────────────────────────────
-    // solid      = true  → blocks other solid colliders (depenetration applied)
-    // solid      = false → trigger only (signals still fire, nothing pushes back)
-    // staticBody = true  → never moved by depenetration (walls, floors, etc.)
-    // staticBody = false → can be pushed apart (dynamic bodies, players, etc.)
-    bool solid      = false;
-    bool staticBody = false;
-
     bool  debugDraw  = false;
     Color debugColor = { 0.0f, 1.0f, 0.0f, 0.9f };
     bool  touching   = false;
 
+    // solid      = true  → blocks other solid colliders (depenetration applied)
+    // staticBody = true  → never moved by depenetration (walls, floors)
+    bool  solid      = false;
+    bool  staticBody = false;
+
     Collider2D(const std::string& name = "Collider2D") : Node2D(name) {
+        // Default center pivot — matches Node2D default.
+        // Child colliders are positioned relative to parent pivot.
         originX = 0.5f;
         originY = 0.5f;
     }
@@ -48,16 +47,24 @@ public:
         typedSignals[sig].push_back(cb);
     }
     void Emit(const std::string& sig, Collider2D* other) {
+        // Fire typed signal listeners (Connect() callbacks)
         auto it = typedSignals.find(sig);
         if (it != typedSignals.end())
             for (auto& cb : it->second) cb(other);
 
+        // Also bubble up to the parent node's virtual lifecycle methods.
+        // This is how KonScript OnCollisionEnter/Exit overrides work —
+        // they live on the parent node, not on the collider itself.
         if (parent) {
             if (sig == "on_collision_enter") parent->OnCollisionEnter(other);
             else if (sig == "on_collision_exit") parent->OnCollisionExit(other);
         }
     }
 
+    // Compute world-space pivot position by walking the parent chain.
+    // Uses the same transform as DrawChildren/UpdateChildren:
+    //   world = parent.worldPivot + local * parent.scale
+    // scaleX sign flip (for facing left) is intentional — but we take abs for size.
     glm::vec2 computeWorldPivot() const {
         float wx = x, wy = y;
         Node* p = parent;
@@ -71,8 +78,11 @@ public:
         return { wx, wy };
     }
 
+    // World-space top-left of the collider rectangle, accounting for origin.
+    // We use abs(scale) for size so flipping doesn't move the box.
     glm::vec2 computeWorldTopLeft() const {
         auto pivot = computeWorldPivot();
+        // Effective world scale (take abs so flip doesn't shift position)
         float wsx = 1.0f, wsy = 1.0f;
         Node* p = parent;
         while (p) {
@@ -90,11 +100,13 @@ public:
     }
 
     glm::vec2 worldCenter() const {
-        return computeWorldPivot();
+        auto pivot = computeWorldPivot();
+        return pivot; // center IS the pivot when originX/Y=0.5
     }
 
     std::vector<glm::vec2> GetWorldPoints() const {
         auto tl = computeWorldTopLeft();
+        // Use actual world-scaled size
         float wsx = 1.0f, wsy = 1.0f;
         Node* p = parent;
         while (p) {
@@ -132,59 +144,54 @@ public:
 
     void Draw() override {
         if (!debugDraw) return;
-        Color c = debugColor; c.a = 1.f;
+        Color c = debugColor; c.a = 1.0f;
+        if (IsColliding()) { c.r = 1.0f; c.g = 1.0f; c.b = 0.2f; }
 
-        auto tl = computeWorldTopLeft();
-        float wsx = 1.0f, wsy = 1.0f;
-        Node* p = parent;
-        while (p) {
-            auto* p2d = dynamic_cast<Node2D*>(p);
-            if (!p2d) break;
-            wsx *= p2d->scaleX;
-            wsy *= p2d->scaleY;
-            p = p2d->parent;
-        }
-        wsx = std::fabs(wsx) * std::fabs(scaleX);
-        wsy = std::fabs(wsy) * std::fabs(scaleY);
-        float w = width  * wsx;
-        float h = height * wsy;
+        // x/y are already world-space here — Node2D::DrawChildren() transforms
+        // them before calling Draw(). Do NOT call computeWorldPivot() again.
+        float drawX = x - width  * originX;
+        float drawY = y - height * originY;
+        float w = width  * std::fabs(scaleX);
+        float h = height * std::fabs(scaleY);
 
         switch (shape) {
             case ColliderShape::Rectangle: {
-                float x2 = tl.x+w, y2 = tl.y+h;
-                DrawRectangle(tl.x, tl.y, w, h,
-                    {c.r, c.g, c.b, touching ? 0.25f : 0.1f});
-                DrawLine(tl.x, tl.y, x2,   tl.y, c);
-                DrawLine(x2,   tl.y, x2,   y2,   c);
-                DrawLine(x2,   y2,   tl.x, y2,   c);
-                DrawLine(tl.x, y2,   tl.x, tl.y, c);
+                float x2 = drawX+w, y2 = drawY+h;
+                DrawRectangle(drawX, drawY, w, h,
+                    {c.r, c.g, c.b, IsColliding() ? 0.25f : 0.1f});
+                DrawLine(drawX, drawY, x2,    drawY, c);
+                DrawLine(x2,   drawY, x2,    y2,    c);
+                DrawLine(x2,   y2,   drawX,  y2,    c);
+                DrawLine(drawX, y2,  drawX,  drawY, c);
                 break;
             }
             case ColliderShape::Circle: {
-                auto cen = worldCenter();
-                float r = radius * std::max(wsx, wsy);
-                DrawCircle(cen.x, cen.y, r, {c.r,c.g,c.b,0.15f});
+                float r = radius * std::max(std::fabs(scaleX), std::fabs(scaleY));
+                DrawCircle(x, y, r, {c.r, c.g, c.b, 0.15f});
                 const int S = 20;
                 for (int i = 0; i < S; i++) {
-                    float a0 = (float)i/S*6.28318f, a1=(float)(i+1)/S*6.28318f;
-                    DrawLine(cen.x+cosf(a0)*r, cen.y+sinf(a0)*r,
-                             cen.x+cosf(a1)*r, cen.y+sinf(a1)*r, c);
+                    float a0 = (float)i/S*6.28318f, a1 = (float)(i+1)/S*6.28318f;
+                    DrawLine(x+cosf(a0)*r, y+sinf(a0)*r,
+                             x+cosf(a1)*r, y+sinf(a1)*r, c);
                 }
                 break;
             }
             case ColliderShape::Custom: {
-                auto piv = computeWorldPivot();
                 for (size_t i = 0; i < points.size(); i++) {
                     auto a = points[i], b = points[(i+1)%points.size()];
-                    DrawLine(piv.x+a.x*wsx, piv.y+a.y*wsy,
-                             piv.x+b.x*wsx, piv.y+b.y*wsy, c);
+                    DrawLine(x+a.x*scaleX, y+a.y*scaleY,
+                             x+b.x*scaleX, y+b.y*scaleY, c);
                 }
                 break;
             }
         }
     }
 
-    // ── Contact query ──────────────────────────────────────────────────
+
+    // ── Contact query ─────────────────────────────────────────────────
+    // Updated every frame by CollisionWorld.
+    // IsColliding()  → true if touching at least one other collider.
+    // GetContacts()  → the actual pointers so you can inspect them.
     std::vector<Collider2D*> contacts;
     bool IsColliding() const { return !contacts.empty(); }
     const std::vector<Collider2D*>& GetContacts() const { return contacts; }
@@ -193,6 +200,3 @@ private:
     std::unordered_map<std::string,
         std::vector<std::function<void(Collider2D*)>>> typedSignals;
 };
-
-// Alias so the editor's CollisionShape2D node type resolves to Collider2D
-using CollisionShape2D = Collider2D;

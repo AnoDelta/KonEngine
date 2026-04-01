@@ -3,12 +3,15 @@
 #include <algorithm>
 #include <limits>
 
+// ── Registration ──────────────────────────────────────────────────────────
+
 void CollisionWorld::Add(Collider2D* collider) {
     colliders.push_back(collider);
 }
 
 void CollisionWorld::Remove(Collider2D* collider) {
-    colliders.erase(std::remove(colliders.begin(), colliders.end(), collider), colliders.end());
+    colliders.erase(std::remove(colliders.begin(), colliders.end(), collider),
+                    colliders.end());
     for (auto it = activePairs.begin(); it != activePairs.end(); ) {
         if (it->first == collider || it->second == collider) {
             it->first->Emit("on_collision_exit",  it->second);
@@ -27,32 +30,48 @@ void CollisionWorld::Clear() {
     activePairs.clear();
 }
 
+// ── Main update ───────────────────────────────────────────────────────────
+
 void CollisionWorld::Update() {
     std::set<std::pair<Collider2D*, Collider2D*>> currentPairs;
+
     for (size_t i = 0; i < colliders.size(); i++) {
         Collider2D* a = colliders[i];
         if (!a->active) continue;
+
         for (size_t j = i + 1; j < colliders.size(); j++) {
             Collider2D* b = colliders[j];
             if (!b->active) continue;
             if (!LayersOverlap(a, b)) continue;
-            if (Overlaps(a, b)) {
-                auto pair = MakePair(a, b);
-                currentPairs.insert(pair);
-                if (activePairs.find(pair) == activePairs.end()) {
-                    a->Emit("on_collision_enter", b);
-                    b->Emit("on_collision_enter", a);
-                }
+
+            MTV mtv = GetMTV(a, b);
+            if (!mtv.hit) continue;
+
+            auto pair = MakePair(a, b);
+            currentPairs.insert(pair);
+
+            // Fire enter signal if this is a new contact
+            if (activePairs.find(pair) == activePairs.end()) {
+                a->Emit("on_collision_enter", b);
+                b->Emit("on_collision_enter", a);
             }
+
+            // Depenetrate solid colliders
+            if (a->solid && b->solid)
+                Resolve(a, b, mtv);
         }
     }
+
+    // Fire exit signals for pairs that are no longer touching
     for (auto& pair : activePairs) {
         if (currentPairs.find(pair) == currentPairs.end()) {
-            pair.first->Emit("on_collision_exit", pair.second);
+            pair.first->Emit("on_collision_exit",  pair.second);
             pair.second->Emit("on_collision_exit", pair.first);
         }
     }
     activePairs = currentPairs;
+
+    // Rebuild contact lists
     for (auto* c : colliders) c->contacts.clear();
     for (auto& pair : activePairs) {
         pair.first->contacts.push_back(pair.second);
@@ -60,14 +79,72 @@ void CollisionWorld::Update() {
     }
 }
 
+// ── Depenetration ─────────────────────────────────────────────────────────
+//
+// MTV.normal points from b toward a — so pushing a by +normal and b by -normal
+// separates them.
+//
+// Distribution:
+//   both dynamic  → each moves half
+//   a static only → push b the full amount
+//   b static only → push a the full amount
+//   both static   → do nothing (shouldn't collide, but be safe)
+
+void CollisionWorld::Resolve(Collider2D* a, Collider2D* b, const MTV& mtv) {
+    if (a->staticBody && b->staticBody) return;
+
+    // Add a tiny slop to prevent jitter from floating-point accumulation
+    constexpr float slop = 0.01f;
+    float d = std::max(mtv.depth - slop, 0.0f);
+    if (d == 0.0f) return;
+
+    glm::vec2 push = mtv.normal * d;
+
+    if (!a->staticBody && !b->staticBody) {
+        // Both dynamic — share the push
+        a->x += push.x * 0.5f;
+        a->y += push.y * 0.5f;
+        b->x -= push.x * 0.5f;
+        b->y -= push.y * 0.5f;
+    } else if (a->staticBody) {
+        // a is a wall — push b away
+        b->x -= push.x;
+        b->y -= push.y;
+    } else {
+        // b is a wall — push a away
+        a->x += push.x;
+        a->y += push.y;
+    }
+}
+
+// ── Public query helpers ──────────────────────────────────────────────────
+
 bool CollisionWorld::Overlaps(Collider2D* a, Collider2D* b) {
+    return GetMTV(a, b).hit;
+}
+
+MTV CollisionWorld::GetMTV(Collider2D* a, Collider2D* b) {
     bool aCircle = a->shape == ColliderShape::Circle;
     bool bCircle = b->shape == ColliderShape::Circle;
-    if (aCircle && bCircle)  return SATCircleVsCircle(a, b);
-    if (aCircle && !bCircle) return SATCircleVsPolygon({a->x,a->y}, a->radius, b->GetWorldPoints());
-    if (!aCircle && bCircle) return SATCircleVsPolygon({b->x,b->y}, b->radius, a->GetWorldPoints());
-    return SATPolygonVsPolygon(a->GetWorldPoints(), b->GetWorldPoints());
+
+    if (aCircle && bCircle)
+        return SATCircleVsCircle(a, b);
+
+    if (aCircle && !bCircle)
+        return SATCircleVsPolygon(a->worldCenter(), a->radius, b->GetWorldPoints());
+
+    if (!aCircle && bCircle) {
+        // Flip result so normal still points a→b correctly
+        MTV m = SATCircleVsPolygon(b->worldCenter(), b->radius, a->GetWorldPoints());
+        m.normal = -m.normal;
+        return m;
+    }
+
+    return SATPolygonVsPolygon(a->GetWorldPoints(), b->GetWorldPoints(),
+                                a->worldCenter(),    b->worldCenter());
 }
+
+// ── SAT helpers ───────────────────────────────────────────────────────────
 
 void CollisionWorld::ProjectOntoAxis(const std::vector<glm::vec2>& pts,
                                       glm::vec2 axis, float& mn, float& mx) {
@@ -79,47 +156,128 @@ void CollisionWorld::ProjectOntoAxis(const std::vector<glm::vec2>& pts,
     }
 }
 
-bool CollisionWorld::SATPolygonVsPolygon(const std::vector<glm::vec2>& a,
-                                          const std::vector<glm::vec2>& b) {
-    auto test = [&](const std::vector<glm::vec2>& poly) {
+// Polygon vs Polygon — returns MTV where normal points from b toward a.
+MTV CollisionWorld::SATPolygonVsPolygon(const std::vector<glm::vec2>& a,
+                                         const std::vector<glm::vec2>& b,
+                                         glm::vec2 centerA, glm::vec2 centerB) {
+    MTV result;
+    result.hit   = true;
+    result.depth = std::numeric_limits<float>::max();
+
+    auto testAxes = [&](const std::vector<glm::vec2>& poly) -> bool {
         for (size_t i = 0; i < poly.size(); i++) {
-            glm::vec2 edge = poly[(i+1)%poly.size()] - poly[i];
+            glm::vec2 edge = poly[(i+1) % poly.size()] - poly[i];
             glm::vec2 axis = glm::normalize(glm::vec2(-edge.y, edge.x));
+
             float mnA, mxA, mnB, mxB;
             ProjectOntoAxis(a, axis, mnA, mxA);
             ProjectOntoAxis(b, axis, mnB, mxB);
+
+            // Separating axis found — no collision
             if (mxA < mnB || mxB < mnA) return false;
+
+            // Overlap on this axis
+            float overlap = std::min(mxA, mxB) - std::max(mnA, mnB);
+            if (overlap < result.depth) {
+                result.depth  = overlap;
+                result.normal = axis;
+            }
         }
         return true;
     };
-    return test(a) && test(b);
+
+    if (!testAxes(a)) { result.hit = false; return result; }
+    if (!testAxes(b)) { result.hit = false; return result; }
+
+    // Make sure normal points from b toward a
+    glm::vec2 dir = centerA - centerB;
+    if (glm::dot(result.normal, dir) < 0.0f)
+        result.normal = -result.normal;
+
+    return result;
 }
 
-bool CollisionWorld::SATCircleVsPolygon(glm::vec2 center, float radius,
-                                         const std::vector<glm::vec2>& poly) {
+// Circle vs Polygon
+MTV CollisionWorld::SATCircleVsPolygon(glm::vec2 center, float radius,
+                                        const std::vector<glm::vec2>& poly) {
+    MTV result;
+    result.hit   = true;
+    result.depth = std::numeric_limits<float>::max();
+
+    // Test polygon edge normals
     for (size_t i = 0; i < poly.size(); i++) {
-        glm::vec2 edge = poly[(i+1)%poly.size()] - poly[i];
+        glm::vec2 edge = poly[(i+1) % poly.size()] - poly[i];
         glm::vec2 axis = glm::normalize(glm::vec2(-edge.y, edge.x));
+
         float mn, mx;
         ProjectOntoAxis(poly, axis, mn, mx);
         float proj = glm::dot(center, axis);
-        if ((proj+radius) < mn || mx < (proj-radius)) return false;
+
+        if ((proj + radius) < mn || mx < (proj - radius)) {
+            result.hit = false;
+            return result;
+        }
+
+        float overlap = std::min(mx, proj + radius) - std::max(mn, proj - radius);
+        if (overlap < result.depth) {
+            result.depth  = overlap;
+            result.normal = axis;
+        }
     }
-    // Nearest vertex axis
+
+    // Test axis from nearest vertex to circle center
     float best = std::numeric_limits<float>::max();
     glm::vec2 nearest = poly[0];
-    for (auto& v : poly) { float d = glm::length(center-v); if (d < best) { best=d; nearest=v; } }
+    for (auto& v : poly) {
+        float d = glm::length(center - v);
+        if (d < best) { best = d; nearest = v; }
+    }
     glm::vec2 axis = glm::normalize(center - nearest);
     float mn, mx;
     ProjectOntoAxis(poly, axis, mn, mx);
     float proj = glm::dot(center, axis);
-    if ((proj+radius) < mn || mx < (proj-radius)) return false;
-    return true;
+
+    if ((proj + radius) < mn || mx < (proj - radius)) {
+        result.hit = false;
+        return result;
+    }
+
+    float overlap = std::min(mx, proj + radius) - std::max(mn, proj - radius);
+    if (overlap < result.depth) {
+        result.depth  = overlap;
+        result.normal = axis;
+    }
+
+    // Normal should point from polygon center toward circle
+    glm::vec2 polyCen = {0, 0};
+    for (auto& v : poly) polyCen += v;
+    polyCen /= (float)poly.size();
+
+    if (glm::dot(result.normal, center - polyCen) < 0.0f)
+        result.normal = -result.normal;
+
+    return result;
 }
 
-bool CollisionWorld::SATCircleVsCircle(Collider2D* a, Collider2D* b) {
-    auto ac = a->worldCenter(), bc = b->worldCenter();
-    float dx = ac.x - bc.x, dy = ac.y - bc.y;
-    float r  = a->radius + b->radius;
-    return (dx*dx + dy*dy) < (r*r);
+// Circle vs Circle
+MTV CollisionWorld::SATCircleVsCircle(Collider2D* a, Collider2D* b) {
+    MTV result;
+    glm::vec2 ac = a->worldCenter(), bc = b->worldCenter();
+    glm::vec2 delta = ac - bc;
+    float distSq = delta.x*delta.x + delta.y*delta.y;
+    float r      = a->radius + b->radius;
+
+    if (distSq >= r * r) {
+        result.hit = false;
+        return result;
+    }
+
+    float dist = std::sqrt(distSq);
+    result.hit    = true;
+    result.depth  = r - dist;
+    result.normal = (dist > 0.0001f)
+        ? glm::normalize(delta)
+        : glm::vec2{1.0f, 0.0f}; // degenerate case: same position
+
+    return result;
 }
