@@ -1997,8 +1997,12 @@ private:
                 auto it = m_locals.find(objId->name);
                 if (it != m_locals.end()) {
                     structName = it->second.ksTy;
-                    objPtr = it->second.addr;
                     objTy  = it->second.llvmTy;
+                    // Local holds a %struct.T* at its addr (%struct.T**)
+                    // Must load to get the actual struct pointer
+                    std::string loaded = tmp();
+                    emitI(loaded + " = load " + objTy + ", " + objTy + "* " + it->second.addr);
+                    objPtr = loaded;
                 }
             } else if (m->object->kind == Expr::Kind::Member) {
                 // Chained: self.field.method() or self.f1.f2.method()
