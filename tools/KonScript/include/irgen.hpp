@@ -122,6 +122,12 @@ public:
                 for (auto& f : sd->fields)
                     fields.push_back({f.name, llvmType(f.type)});
                 m_structFields[sd->name] = fields;
+            } else if (s->kind == Stmt::Kind::ClassDecl) {
+                auto* cd = static_cast<const ClassDecl*>(s.get());
+                std::vector<FieldInfo> fields;
+                for (auto& f : cd->fields)
+                    fields.push_back({f.name, llvmType(f.type)});
+                m_structFields[cd->name] = fields;
             } else if (s->kind == Stmt::Kind::NodeDecl) {
                 auto* nd = static_cast<const NodeDecl*>(s.get());
                 std::vector<FieldInfo> fields;
@@ -470,7 +476,9 @@ private:
         case Stmt::Kind::Let:
         case Stmt::Kind::Const:
             genGlobal(s); break;
-        // NodeDecl/ClassDecl → opaque struct + vtable (simplified: opaque ptr for now)
+        // ClassDecl → emit struct type with all fields
+        case Stmt::Kind::ClassDecl:
+            genClassType(static_cast<const ClassDecl*>(s)); break;
         case Stmt::Kind::NodeDecl:
             genNodeType(static_cast<const NodeDecl*>(s)); break;
         default: break;
@@ -488,6 +496,25 @@ private:
         }
         body += " }";
         emit("%struct." + s->name + " = type " + body);
+    }
+
+    // -----------------------------------------------------------------------
+    // Class type — emit struct layout from fields
+    // -----------------------------------------------------------------------
+    void genClassType(const ClassDecl* c) {
+        std::string body = "{ ";
+        for (size_t i = 0; i < c->fields.size(); i++) {
+            if (i) body += ", ";
+            body += llvmType(c->fields[i].type);
+        }
+        if (c->fields.empty()) body += "i8";
+        body += " }";
+        emit("%struct." + c->name + " = type " + body);
+        // Register field layout for GEP access
+        std::vector<FieldInfo> si;
+        for (auto& f : c->fields)
+            si.push_back({f.name, llvmType(f.type)});
+        m_structFields[c->name] = si;
     }
 
     // -----------------------------------------------------------------------
