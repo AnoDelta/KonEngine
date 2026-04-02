@@ -184,7 +184,9 @@ public:
 
 private:
     std::ostringstream m_out;
-    std::ostringstream m_globalStr;  // global string constants (inserted after header)
+    std::ostringstream m_globalStr;
+    std::ostringstream m_allocaBuf;  // allocas hoisted to entry block
+    bool m_inFunc = false;  // global string constants (inserted after header)
     std::ostringstream m_header;     // target datalayout / target triple (always first)
 
     Target m_target = Target::linux64();
@@ -227,7 +229,14 @@ private:
     // Emission helpers
     // -----------------------------------------------------------------------
     void emit(const std::string& line) { m_out << line << "\n"; }
-    void emitI(const std::string& line) { m_out << "  " << line << "\n"; }
+    void emitI(const std::string& line) {
+        // Hoist all alloca instructions to the entry block
+        if (m_inFunc && line.find(" = alloca ") != std::string::npos) {
+            m_allocaBuf << "        " << line << "\n";
+        } else {
+            m_out << "  " << line << "\n";
+        }
+    }
     void hdr(const std::string& line)  { m_header << line << "\n"; }
 
     // Format a double value as LLVM IR requires:
@@ -454,6 +463,7 @@ private:
         emit("declare i32 @_ks_str_toInt(i8*)");
         emit("declare float @_ks_str_toFloat(i8*)");
         emit("declare i8* @_ks_str_concat(i8*, i8*)");
+        emit("declare i8* @_ks_str_concat(i8*, i8*)");
         emit("declare i8* @_ks_str_charAt(i8*, i32)");
         emit("declare i1  @_ks_str_isAlpha(i8*)");
         emit("declare i1  @_ks_str_isDigit(i8*)");
@@ -571,9 +581,10 @@ private:
             params += ", " + llvmType(p.type) + " %" + p.name + ".arg";
         }
         emit("define " + ret + " @" + mangledName + "(" + params + ") {");
+        m_allocaBuf.str(""); m_allocaBuf.clear(); m_inFunc = true;
         emit("entry:");
         // Alloca a slot for self so genMemberAddr can load it correctly
-        emitI("%self.ptr = alloca " + selfTy);
+        m_allocaBuf << "        %self.ptr = alloca " << selfTy << "\n";
         emitI("store " + selfTy + " %self.arg, " + selfTy + "* %self.ptr");
         LocalVar selfInfo;
         selfInfo.addr   = "%self.ptr";
@@ -591,6 +602,18 @@ private:
             li.ksTy = p.type.base;            m_locals[p.name] = li;
         }
         if (f->body) genBlock(f->body.get());
+        {
+            std::string cur = m_out.str();
+            std::string marker = "entry:\n";
+            auto pos = cur.rfind(marker);
+            if (pos != std::string::npos) {
+                pos += marker.size();
+                cur.insert(pos, m_allocaBuf.str());
+                m_out.str(""); m_out.clear();
+                m_out << cur;
+            }
+        }
+        m_inFunc = false; m_allocaBuf.str(""); m_allocaBuf.clear();
         if (!blockIsTerminated()) {
             if (ret == "void") emitI("ret void");
             else emitI("ret " + ret + " 0");
@@ -628,6 +651,7 @@ private:
                  }
                  return s;
              }() + ") {");
+        m_allocaBuf.str(""); m_allocaBuf.clear(); m_inFunc = true;
         emit("entry:");
         m_funcRetType = ret;
         m_tmpCount = 0;
@@ -638,6 +662,19 @@ private:
         // Alloca params
         for (auto& p : f->params) allocaParam(p.name, p.type);
         genBlock(f->body.get());
+        // Flush hoisted allocas into entry block
+        {
+            std::string cur = m_out.str();
+            std::string marker = "entry:\n";
+            auto pos = cur.rfind(marker);
+            if (pos != std::string::npos) {
+                pos += marker.size();
+                cur.insert(pos, m_allocaBuf.str());
+                m_out.str(""); m_out.clear();
+                m_out << cur;
+            }
+        }
+        m_inFunc = false; m_allocaBuf.str(""); m_allocaBuf.clear();
         // Ensure terminator
         emitReturnDefault(ret);
         emit("}");
@@ -739,6 +776,20 @@ private:
 
         // Body
         genBlock(f->body.get());
+
+        // Flush hoisted allocas into entry block
+        {
+            std::string cur = m_out.str();
+            std::string marker = "entry:\n";
+            auto pos = cur.rfind(marker);
+            if (pos != std::string::npos) {
+                pos += marker.size();
+                cur.insert(pos, m_allocaBuf.str());
+                m_out.str(""); m_out.clear();
+                m_out << cur;
+            }
+        }
+        m_inFunc = false; m_allocaBuf.str(""); m_allocaBuf.clear();
 
         // Auto-add return if the function didn't end with one
         if (f->name == "main") {
