@@ -260,6 +260,7 @@ class Lexer {
     }
 }
 
+
 /* -----------------------------------------------------------------------
    Phase 2: Token stream reader
    ----------------------------------------------------------------------- */
@@ -310,17 +311,104 @@ class TokenStream {
     }
 }
 
+/* -----------------------------------------------------------------------
+   Phase 3: Expression parser — returns text AST dump
+   ----------------------------------------------------------------------- */
+
+class Parser {
+    let mut ts: TokenStream = TokenStream { tokens: [], pos: 0 };
+
+    func init(mut self, stream: TokenStream) {
+        self.ts = stream;
+    }
+
+    func parseExpr(mut self) -> Str {
+        return self.parseComparison();
+    }
+
+    func parseComparison(mut self) -> Str {
+        let mut left: Str = self.parseAddSub();
+        while self.ts.check(TokenKind::Eq)   || self.ts.check(TokenKind::NotEq) ||
+              self.ts.check(TokenKind::Lt)   || self.ts.check(TokenKind::Gt)    ||
+              self.ts.check(TokenKind::LtEq) || self.ts.check(TokenKind::GtEq) {
+            let op: Token = self.ts.advance();
+            let right: Str = self.parseAddSub();
+            left = "(" + left + " " + op.value + " " + right + ")";
+        }
+        return left;
+    }
+
+    func parseAddSub(mut self) -> Str {
+        let mut left: Str = self.parseMulDiv();
+        while self.ts.check(TokenKind::Plus) || self.ts.check(TokenKind::Minus) {
+            let op: Token = self.ts.advance();
+            let right: Str = self.parseMulDiv();
+            left = "(" + left + " " + op.value + " " + right + ")";
+        }
+        return left;
+    }
+
+    func parseMulDiv(mut self) -> Str {
+        let mut left: Str = self.parseUnary();
+        while self.ts.check(TokenKind::Star) || self.ts.check(TokenKind::Slash) {
+            let op: Token = self.ts.advance();
+            let right: Str = self.parseUnary();
+            left = "(" + left + " " + op.value + " " + right + ")";
+        }
+        return left;
+    }
+
+    func parseUnary(mut self) -> Str {
+        if self.ts.check(TokenKind::Minus) || self.ts.check(TokenKind::Bang) {
+            let op: Token = self.ts.advance();
+            let operand: Str = self.parseUnary();
+            return "(" + op.value + operand + ")";
+        }
+        return self.parseCall();
+    }
+
+    func parseCall(mut self) -> Str {
+        let mut expr: Str = self.parsePrimary();
+        if self.ts.consume(TokenKind::LParen) {
+            let mut args: Str = "";
+            let mut first: Bool = true;
+            while !self.ts.check(TokenKind::RParen) && !self.ts.atEnd() {
+                if !first { args = args + ", "; }
+                first = false;
+                args = args + self.parseExpr();
+                self.ts.consume(TokenKind::Comma);
+            }
+            self.ts.consume(TokenKind::RParen);
+            expr = expr + "(" + args + ")";
+        }
+        return expr;
+    }
+
+    func parsePrimary(mut self) -> Str {
+        let t: Token = self.ts.peek();
+        if t.kind == TokenKind::Int   { self.ts.advance(); return t.value; }
+        if t.kind == TokenKind::Float { self.ts.advance(); return t.value; }
+        if t.kind == TokenKind::Bool  { self.ts.advance(); return t.value; }
+        if t.kind == TokenKind::Ident { self.ts.advance(); return t.value; }
+        if t.kind == TokenKind::Str   { self.ts.advance(); return t.value; }
+        if self.ts.consume(TokenKind::LParen) {
+            let inner: Str = self.parseExpr();
+            self.ts.consume(TokenKind::RParen);
+            return "(" + inner + ")";
+        }
+        self.ts.advance();
+        return "?";
+    }
+}
+
 func main() {
-    let source: Str = "let x: I32 = 42;";
+    let source: Str = "1 + 2 * 3";
     let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
     lexer.init(source);
     let toks: [Token] = lexer.tokenize();
-
     let mut ts: TokenStream = TokenStream { tokens: [], pos: 0 };
     ts.init(toks);
-
-    while !ts.atEnd() {
-        let t: Token = ts.advance();
-        Print(t.value);
-    }
+    let mut parser: Parser = Parser { ts: ts };
+    let result: Str = parser.parseExpr();
+    Print(result);
 }
