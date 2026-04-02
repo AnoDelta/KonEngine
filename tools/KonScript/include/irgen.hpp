@@ -433,6 +433,7 @@ private:
         emit("declare void @_ks_array_push(i8*, i8*)");
         emit("declare i8* @_ks_array_pop(i8*)");
         emit("declare i32 @_ks_array_len(i8*)");
+        emit("declare i8* @_ks_array_get(i8*, i32)");
         emit("declare i1  @_ks_array_has(i8*, i8*)");
         emit("declare i8* @_ks_hashmap_new()");
         emit("declare void @_ks_hashmap_set(i8*, i8*, i8*)");
@@ -1183,8 +1184,72 @@ private:
             emit(endL + ":");
             m_currentBlock = endL;
         } else {
-            error("for-in over non-range iterables not yet supported in IRGen",
-                  f->line, f->col);
+            // For-in over array: use _ks_array_len + _ks_array_get
+            // for x in arr { body }  →
+            //   %arr = load the iterable
+            //   %len = call _ks_array_len(%arr)
+            //   i = 0; while i < len: x = _ks_array_get(%arr, i); body; i++
+            std::string condL = label(), bodyL = label(),
+                        stepL = label(), endL  = label();
+            m_loopStack.push_back({endL, stepL});
+
+            // Load the iterable into a register
+            auto [arrVal, arrTy] = genExpr(f->iterable.get());
+
+            // Allocate loop index
+            std::string idxAddr = tmp() + ".idx";
+            emitI(idxAddr + " = alloca i32");
+            emitI("store i32 0, i32* " + idxAddr);
+
+            // Get array length
+            std::string lenReg = tmp();
+            emitI(lenReg + " = call i32 @_ks_array_len(i8* " + arrVal + ")");
+
+            // Allocate loop variable
+            allocaLocal(f->var, f->type);
+
+            emitI("br label %" + condL);
+            emit(condL + ":");
+            m_currentBlock = condL;
+
+            // cond: i < len
+            std::string curIdx = tmp();
+            emitI(curIdx + " = load i32, i32* " + idxAddr);
+            std::string cond = tmp();
+            emitI(cond + " = icmp slt i32 " + curIdx + ", " + lenReg);
+            emitI("br i1 " + cond + ", label %" + bodyL + ", label %" + endL);
+
+            emit(bodyL + ":");
+            m_currentBlock = bodyL;
+
+            // Load element: _ks_array_get returns i8*, cast to elem type
+            std::string elemRaw = tmp();
+            emitI(elemRaw + " = call i8* @_ks_array_get(i8* " + arrVal + ", i32 " + curIdx + ")");
+            // Store into loop var (as i8* for now; full type casting deferred)
+            std::string elemTy = f->type.base.empty() ? "i8*" : llvmType(f->type);
+            if (elemTy == "i8*") {
+                emitI("store i8* " + elemRaw + ", i8** %" + f->var + ".addr");
+            } else {
+                std::string elem = tmp();
+                emitI(elem + " = ptrtoint i8* " + elemRaw + " to " + elemTy);
+                emitI("store " + elemTy + " " + elem + ", " + elemTy + "* %" + f->var + ".addr");
+            }
+
+            genBlock(f->body.get());
+            if (!blockIsTerminated()) emitI("br label %" + stepL);
+
+            emit(stepL + ":");
+            m_currentBlock = stepL;
+            std::string nextIdx = tmp();
+            std::string curIdx2 = tmp();
+            emitI(curIdx2 + " = load i32, i32* " + idxAddr);
+            emitI(nextIdx + " = add i32 " + curIdx2 + ", 1");
+            emitI("store i32 " + nextIdx + ", i32* " + idxAddr);
+            emitI("br label %" + condL);
+
+            m_loopStack.pop_back();
+            emit(endL + ":");
+            m_currentBlock = endL;
         }
     }
 
