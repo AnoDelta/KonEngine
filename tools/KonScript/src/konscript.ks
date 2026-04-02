@@ -39,10 +39,11 @@ class Lexer {
     let mut tokens: [Token] = [];
 
     func init(mut self, source: Str) {
-        self.src  = source;
-        self.pos  = 0;
-        self.line = 1;
-        self.col  = 1;
+        self.src    = source;
+        self.pos    = 0;
+        self.line   = 1;
+        self.col    = 1;
+        self.tokens = [];
     }
 
     func atEnd(self) -> Bool {
@@ -99,8 +100,7 @@ class Lexer {
                 s = s + self.advance();
             } else {
                 break;
-            }
-        }
+            } }
         return s;
     }
 

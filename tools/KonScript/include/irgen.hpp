@@ -430,6 +430,7 @@ private:
         emit("declare i32 @sprintf(i8*, i8*, ...)");
         emit("declare i32 @scanf(i8* nocapture, ...)");
         emit("declare i8* @malloc(i64)");
+        emit("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
         emit("declare void @free(i8*)");
         emit("declare double @sqrt(double)");
         emit("declare double @fabs(double)");
@@ -1947,12 +1948,27 @@ private:
             auto cit = collMethods.find(m->member);
             if (cit != collMethods.end()) {
                 auto [obj, oty] = genExpr(m->object.get());
-                // For push: box non-pointer args to i8*
+                // For push: box args to i8*
                 std::string argList = oty + " " + obj;
                 for (auto& arg : e->args) {
                     auto [v,t] = genExpr(arg.get());
-                    if (t != "i8*" && t.back() != '*') {
-                        // box int to i8* via inttoptr
+                    if (t.rfind("%struct.", 0) == 0 && t.back() == '*') {
+                        // Struct pointer: heap-copy so it survives function return
+                        // sizeof via GEP trick: getelementptr (null + 1) → size
+                        std::string baseT = t.substr(0, t.size()-1); // strip *
+                        std::string szPtr = tmp();
+                        std::string szVal = tmp();
+                        emitI(szPtr + " = getelementptr " + baseT + ", " + t + " null, i32 1");
+                        emitI(szVal + " = ptrtoint " + t + " " + szPtr + " to i64");
+                        std::string heap = tmp();
+                        emitI(heap + " = call i8* @malloc(i64 " + szVal + ")");
+                        std::string src8 = tmp();
+                        emitI(src8 + " = bitcast " + t + " " + v + " to i8*");
+                        emitI("call void @llvm.memcpy.p0i8.p0i8.i64(i8* " + heap +
+                              ", i8* " + src8 + ", i64 " + szVal + ", i1 false)");
+                        argList += ", i8* " + heap;
+                    } else if (t != "i8*" && t.back() != '*') {
+                        // box scalar to i8* via inttoptr
                         std::string bc = tmp();
                         emitI(bc + " = inttoptr " + t + " " + v + " to i8*");
                         argList += ", i8* " + bc;
