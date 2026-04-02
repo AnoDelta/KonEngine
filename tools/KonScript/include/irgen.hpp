@@ -301,6 +301,7 @@ private:
         if (t.base == "HashMap") return "i8*"; // std::unordered_map opaque
 
         const std::string& b = t.base;
+        if (b.empty()) return "i8*"; // unknown/inferred type → opaque pointer
         if (b=="I8"  || b=="Char") return "i8";
         if (b=="I16")              return "i16";
         if (b=="I32" || b=="Int")  return "i32";
