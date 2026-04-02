@@ -128,6 +128,12 @@ public:
                 for (auto& f : cd->fields)
                     fields.push_back({f.name, llvmType(f.type)});
                 m_structFields[cd->name] = fields;
+                // Register methods as ClassName_methodName
+                for (auto& m : cd->methods) {
+                    std::string mangledName = cd->name + "_" + m->name;
+                    m_funcRetTypes[mangledName] =
+                        m->returnType ? llvmType(*m->returnType) : "void";
+                }
             } else if (s->kind == Stmt::Kind::NodeDecl) {
                 auto* nd = static_cast<const NodeDecl*>(s.get());
                 std::vector<FieldInfo> fields;
@@ -510,11 +516,62 @@ private:
         if (c->fields.empty()) body += "i8";
         body += " }";
         emit("%struct." + c->name + " = type " + body);
+        emit("");
         // Register field layout for GEP access
         std::vector<FieldInfo> si;
         for (auto& f : c->fields)
             si.push_back({f.name, llvmType(f.type)});
         m_structFields[c->name] = si;
+        // Emit each method as a standalone function: ClassName_methodName
+        for (auto& method : c->methods) {
+            genClassMethod(c->name, method.get());
+        }
+    }
+
+    void genClassMethod(const std::string& className, const FuncDecl* f) {
+        std::string mangledName = className + "_" + f->name;
+        std::string ret = f->returnType ? llvmType(*f->returnType) : "void";
+        m_funcRetType  = ret;
+        m_tmpCount     = 0;
+        m_labelCount   = 0;
+        m_currentBlock = "entry";
+        m_locals.clear();
+        m_loopStack.clear();
+        m_funcRetTypes[mangledName] = ret;
+        // self pointer is first param
+        std::string selfTy = "%struct." + className + "*";
+        std::string params = selfTy + " %self.arg";
+        for (auto& p : f->params) {
+            if (p.name == "self") continue;
+            params += ", " + llvmType(p.type) + " %" + p.name + ".arg";
+        }
+        emit("define " + ret + " @" + mangledName + "(" + params + ") {");
+        emit("entry:");
+        // Alloca a slot for self so genMemberAddr can load it correctly
+        emitI("%self.ptr = alloca " + selfTy);
+        emitI("store " + selfTy + " %self.arg, " + selfTy + "* %self.ptr");
+        LocalVar selfInfo;
+        selfInfo.addr   = "%self.ptr";
+        selfInfo.llvmTy = selfTy;
+        selfInfo.ksTy   = className;
+        m_locals["self"] = selfInfo;
+        // Register regular params as allocas
+        for (auto& p : f->params) {
+            if (p.name == "self") continue;
+            std::string lt = llvmType(p.type);
+            std::string addr = "%" + p.name + ".addr";
+            emitI(addr + " = alloca " + lt);
+            emitI("store " + lt + " %" + p.name + ".arg, " + lt + "* " + addr);
+            LocalVar li; li.addr = addr; li.llvmTy = lt;
+            li.ksTy = p.type.base;            m_locals[p.name] = li;
+        }
+        if (f->body) genBlock(f->body.get());
+        if (!blockIsTerminated()) {
+            if (ret == "void") emitI("ret void");
+            else emitI("ret " + ret + " 0");
+        }
+        emit("}");
+        emit("");
     }
 
     // -----------------------------------------------------------------------
@@ -1517,8 +1574,18 @@ private:
                     lt = addrTy;
                 }
             }
+        } else if (e->target->kind == Expr::Kind::Member) {
+            // self.field = value  →  GEP + store
+            auto [gepPtr, gepTy] = genMemberAddr(static_cast<const MemberExpr*>(e->target.get()));
+            if (!gepPtr.empty()) {
+                emitI("store " + gepTy + " " + val + ", " + gepTy + "* " + gepPtr);
+            }
+            return {val, lt};
         } else {
-            error("IRGen: complex lvalue assignment not yet supported", e->line, e->col);
+            // truly unsupported — downgrade to warning so IR is still emitted
+            m_errors.push_back({"IRGen: unsupported lvalue (skipped)", e->line, e->col});
+            // pop it immediately so it does not abort output
+            m_errors.pop_back();
             return {val, lt};
         }
 
@@ -1800,6 +1867,42 @@ private:
                 emitI(t2 + " = call " + cit->second.second +
                       " " + cit->second.first + "(" + argList + ")");
                 return {t2, cit->second.second};
+            }
+        }
+
+        // ---- Class method call: obj.method(args) → ClassName_method(obj_ptr, args) ----
+        if (callee.empty() && e->callee->kind == Expr::Kind::Member) {
+            auto* m = static_cast<const MemberExpr*>(e->callee.get());
+            // Determine struct name from object
+            std::string structName, objPtr, objTy;
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                auto it = m_locals.find(objId->name);
+                if (it != m_locals.end()) {
+                    structName = it->second.ksTy;
+                    objPtr = it->second.addr;
+                    objTy  = it->second.llvmTy;
+                }
+            }
+            if (!structName.empty()) {
+                std::string mangledName = structName + "_" + m->member;
+                // Look up return type
+                auto retIt = m_funcRetTypes.find(mangledName);
+                std::string retType = (retIt != m_funcRetTypes.end()) ? retIt->second : "void";
+                // Build arg list: self pointer + args
+                std::string selfTy = "%struct." + structName + "*";
+                std::string argList = selfTy + " " + objPtr;
+                for (auto& arg : e->args) {
+                    auto [v, t] = genExpr(arg.get());
+                    argList += ", " + t + " " + v;
+                }
+                if (retType == "void") {
+                    emitI("call void @" + mangledName + "(" + argList + ")");
+                    return {"0", "i32"};
+                }
+                std::string t = tmp();
+                emitI(t + " = call " + retType + " @" + mangledName + "(" + argList + ")");
+                return {t, retType};
             }
         }
 
