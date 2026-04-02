@@ -61,6 +61,7 @@ public:
         m_ptrVars.clear();
         m_varTypes.clear();
         m_typeParams.clear();
+        m_intelAsm = prog.intelAsm;
         // NOTE: do NOT clear m_structNames / m_classNames / m_enumNames /
         // m_enumVariants / m_userNodeTypes here. They may be pre-populated by
         // addIncludeTypes() before generate() is called. They accumulate within
@@ -229,7 +230,8 @@ public:
                 s->kind == Stmt::Kind::ClassDecl   ||
                 s->kind == Stmt::Kind::EnumDecl    ||
                 s->kind == Stmt::Kind::FuncDecl    ||
-                s->kind == Stmt::Kind::ExternDecl)
+                s->kind == Stmt::Kind::ExternDecl ||
+                s->kind == Stmt::Kind::InterfaceDecl)
                 forwardDeclare(s.get());
 
         line("");
@@ -249,6 +251,8 @@ private:
     bool               m_rewriteKsIncludes = false;
     std::vector<Error> m_errors;
     std::unordered_set<std::string> m_enumNames;
+    std::unordered_set<std::string> m_interfaceNames;
+    std::unordered_set<std::string> m_currentClassIfaces;
     // Maps enum variant name → enum type name, for switch case qualification
     std::unordered_map<std::string, std::string> m_enumVariants;
     // User-declared struct names — value types, not pointers
@@ -258,6 +262,7 @@ private:
     // Maps local variable name → its base type name, for method dispatch
     std::unordered_map<std::string, std::string> m_varTypes;
     std::unordered_set<std::string> m_typeParams;
+    bool m_intelAsm = false;
     // Enums emitted early in forwardDeclare — skip in genTopLevel
     std::unordered_set<std::string> m_emittedEnums;
 
@@ -430,6 +435,12 @@ private:
                 for (auto& tp : f->typeParams) m_typeParams.erase(tp);
                 break;
             }
+            case Stmt::Kind::InterfaceDecl: {
+                auto* id = static_cast<const InterfaceDecl*>(s);
+                m_interfaceNames.insert(id->name);
+                line("struct " + id->name + ";");
+                break;
+            }
             case Stmt::Kind::ExternDecl:
                 genExtern(s);
                 break;
@@ -500,8 +511,9 @@ private:
                 genFuncDecl(static_cast<const FuncDecl*>(s), "");
                 break;
             case Stmt::Kind::Let:        genLet(s);       break;
-            case Stmt::Kind::ExternDecl: break; // emitted in forward pass
-            case Stmt::Kind::AsmStmt:    genAsmStmt(s);   break;
+            case Stmt::Kind::ExternDecl:    break;
+            case Stmt::Kind::AsmStmt:       genAsmStmt(s);      break;
+            case Stmt::Kind::InterfaceDecl: genInterface(s);     break;
             default: break;
         }
     }
@@ -634,6 +646,8 @@ private:
     // -----------------------------------------------------------------------
     void genClass(const Stmt* s) {
         auto* c = static_cast<const ClassDecl*>(s);
+        m_currentClassIfaces = std::unordered_set<std::string>(
+            c->implements.begin(), c->implements.end());
         if (!c->typeParams.empty()) {
             std::string tpl = "template<";
             for (size_t i = 0; i < c->typeParams.size(); i++) {
@@ -642,8 +656,16 @@ private:
             }
             line(tpl + ">");
         }
+        // Build inheritance list: base class + interfaces
+        // NOTE: do NOT include <T> in class name — that's for specializations only
         std::string decl = "class " + c->name;
-        if (!c->base.empty()) decl += " : public " + c->base;
+        std::string inh;
+        if (!c->base.empty()) inh += "public " + c->base;
+        for (auto& iface : c->implements) {
+            if (!inh.empty()) inh += ", ";
+            inh += "public " + iface;
+        }
+        if (!inh.empty()) decl += " : " + inh;
         line(decl + " {");
         line("public:");
         indent();
@@ -654,7 +676,8 @@ private:
             write(";\n");
         }
         if (!c->fields.empty()) line("");
-        for (auto& m : c->methods) genFuncDecl(m.get(), "");
+        for (auto& m : c->methods) genFuncDecl(m.get(), ""); // empty prefix: inline class body
+        m_currentClassIfaces.clear();
         dedent();
         line("};");
         line("");
@@ -832,6 +855,14 @@ private:
     // -----------------------------------------------------------------------
     // Function declaration
     // -----------------------------------------------------------------------
+    // Check if a method name is in any implemented interface
+    bool isOverride(const std::string& methodName) {
+        for (auto& iface : m_currentClassIfaces) {
+            (void)iface; // interface method names tracked separately
+        }
+        return !m_currentClassIfaces.empty(); // simple: all methods override if class implements
+    }
+
     void genFuncDecl(const FuncDecl* f, const std::string& prefix) {
         if (!f->typeParams.empty()) {
             std::string tpl = "template<";
@@ -856,14 +887,21 @@ private:
         std::string fname = f->name;
         if (fname == "main") ret = "int";
         write(ret + " " + (prefix.empty() ? "" : prefix + "::") + fname + "(");
+        bool firstParam = true;
         for (size_t i = 0; i < f->params.size(); i++) {
-            if (i > 0) write(", ");
+            if (f->params[i].name == "self") continue; // self = implicit this in C++
+            if (!firstParam) write(", "); firstParam = false;
             std::string pct = cppType(f->params[i].type);
-            // mut param = local mutable copy (like Rust), NOT a reference
             write(pct + " " + f->params[i].name);
         }
-        write(") {\n");
+        // Add override if implementing interface
+        bool hasSelf = false;
+        for (auto& p : f->params) if (p.name == "self") { hasSelf = true; break; }
+        std::string overrideMark = !m_currentClassIfaces.empty() ? " override" : "";
+        std::string constMark = hasSelf ? " const" : "";
+        write(")" + constMark + overrideMark + " {\n");
         indent();
+        if (hasSelf) line("auto& self = *this;");
         // Register pointer-typed params so member access inside the body uses ->
         std::unordered_set<std::string> addedParams;
         for (auto& p : f->params) {
@@ -1715,10 +1753,11 @@ private:
                 static const std::unordered_set<std::string> builtinNodes = {
                     "Node","Node2D","Sprite2D","Collider2D","AnimationPlayer"
                 };
-                if (objId->name == "this" ||
+                if (objId->name != "self" &&
+                   (objId->name == "this" ||
                     builtinNodes.count(objId->name) ||
                     m_userNodeTypes.count(objId->name) ||
-                    m_ptrVars.count(objId->name))
+                    m_ptrVars.count(objId->name)))
                     useArrow = true;
             }
             write(useArrow ? "->" : ".");
@@ -1752,6 +1791,47 @@ private:
         return m_classNames.count(t) || m_structNames.count(t);
     }
 
+    void genInterface(const Stmt* s) {
+        auto* id = static_cast<const InterfaceDecl*>(s);
+        m_interfaceNames.insert(id->name);
+        // Template prefix for generic interfaces
+        if (!id->typeParams.empty()) {
+            std::string tpl = "template<";
+            for (size_t i=0;i<id->typeParams.size();i++) {
+                if(i) tpl+=", "; tpl+="typename "+id->typeParams[i];
+            }
+            line(tpl + ">");
+        }
+        line("struct " + id->name + " {");
+        indent();
+        for (auto& m : id->methods) {
+            std::string ret = m.returnType ? cppType(*m.returnType) : "void";
+            std::string sig = "virtual " + ret + " " + m.name + "(";
+            bool first = true;
+            bool hasSelf = false;
+            for (auto& p : m.params) {
+                if (p.name == "self") { hasSelf = true; continue; }
+                if (!first) sig += ", "; first = false;
+                sig += cppType(p.type) + " " + p.name;
+            }
+            std::string constQ = hasSelf ? " const" : "";
+            if (m.defaultBody) {
+                sig += ")" + constQ;
+                line(sig + " {");
+                indent();
+                genBlock(m.defaultBody.get());
+                dedent();
+                line("}");
+            } else {
+                line(sig + ")" + constQ + " = 0;");
+            }
+        }
+        line("virtual ~" + id->name + "() = default;");
+        dedent();
+        line("};");
+        line("");
+    }
+
     void genExtern(const Stmt* s) {
         auto* e=static_cast<const ExternDecl*>(s);
         std::string lnk=e->linkage.empty()?"C":e->linkage;
@@ -1770,7 +1850,10 @@ private:
     void genAsmStmt(const Stmt* s) {
         auto* a=static_cast<const AsmStmt*>(s);
         std::string pad=std::string(m_indent*4,' ');
-        write(pad+"asm volatile(\""+a->tmpl+"\"");
+        std::string tmpl = a->tmpl;
+        if (m_intelAsm)
+            tmpl = ".intel_syntax noprefix\\n\\t" + tmpl + "\\n\\t.att_syntax prefix";
+        write(pad+"asm volatile(\""+tmpl+"\"");
         if(!a->outputs.empty()||!a->inputs.empty()||!a->clobbers.empty()){
             write("\n"+pad+"    : ");
             for(size_t i=0;i<a->outputs.size();i++){
@@ -1866,10 +1949,11 @@ private:
             static const std::unordered_set<std::string> builtinNodes = {
                 "Node","Node2D","Sprite2D","Collider2D","AnimationPlayer"
             };
-            if (id->name == "this" ||
+            if (id->name != "self" &&
+               (id->name == "this" ||
                 builtinNodes.count(id->name) ||
                 m_userNodeTypes.count(id->name) ||
-                m_ptrVars.count(id->name))
+                m_ptrVars.count(id->name)))
                 useArrow = true;
         }
         if (e->safe) {
@@ -1935,13 +2019,25 @@ private:
     }
 
     void genStructInit(const StructInitExpr* e) {
-        write(e->typeName + "{");
-        for (size_t i = 0; i < e->fields.size(); i++) {
-            if (i > 0) write(", ");
-            write("." + e->fields[i].name + " = ");
-            genExpr(e->fields[i].value.get());
+        // For classes implementing interfaces, they are non-aggregate
+        // (have virtual base). Use lambda-based field assignment.
+        if (m_classNames.count(e->typeName)) {
+            write("([&]{ " + e->typeName + " _ks_obj{}; ");
+            for (auto& f : e->fields) {
+                write("_ks_obj." + f.name + " = ");
+                genExpr(f.value.get());
+                write("; ");
+            }
+            write("return _ks_obj; }())");
+        } else {
+            write(e->typeName + "{");
+            for (size_t i = 0; i < e->fields.size(); i++) {
+                if (i > 0) write(", ");
+                write("." + e->fields[i].name + " = ");
+                genExpr(e->fields[i].value.get());
+            }
+            write("}");
         }
-        write("}");
     }
 };
 

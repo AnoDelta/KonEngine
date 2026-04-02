@@ -276,7 +276,9 @@ public:
                 m_checking.clear();
                 checkNodeDecl(n, &global);
             } else if (stmt->kind == Stmt::Kind::ClassDecl) {
-                continue; // ClassDecl bodies not checked yet
+                // Check implements compliance
+                checkStmt(stmt.get(), &global, Type::void_());
+                continue;
             } else if (stmt->kind == Stmt::Kind::Include) {
                 continue; // includes are resolved at codegen time
             } else {
@@ -294,6 +296,9 @@ private:
 
     // Known engine node types
     std::unordered_set<std::string> m_activeTypeParams;
+    std::unordered_set<std::string> m_classTypeNames; // class names for method dispatch
+    // interface name → set of required method names
+    std::unordered_map<std::string, std::unordered_set<std::string>> m_interfaces;
     std::unordered_set<std::string> m_checking;  // recursion guard
     std::unordered_set<std::string> m_nodeTypes = {
         "Node", "Node2D", "Sprite2D", "Collider2D",
@@ -413,6 +418,20 @@ private:
                 }
                 m_structs[s->name] = std::move(info);
 
+            } else if (stmt->kind == Stmt::Kind::ClassDecl) {
+                // Register class fields in m_structs for struct-init expressions
+                // but track class names separately so method calls still work
+                auto* c = static_cast<ClassDecl*>(stmt.get());
+                StructInfo info; info.name = c->name;
+                for (auto& f : c->fields)
+                    info.fields.push_back({f.name, resolve(f.type)});
+                m_structs[c->name] = std::move(info);
+                m_classTypeNames.insert(c->name);
+            } else if (stmt->kind == Stmt::Kind::InterfaceDecl) {
+                auto* id = static_cast<InterfaceDecl*>(stmt.get());
+                std::unordered_set<std::string> mnames;
+                for (auto& m : id->methods) mnames.insert(m.name);
+                m_interfaces[id->name] = std::move(mnames);
             } else if (stmt->kind == Stmt::Kind::ExternDecl) {
                 auto* e = static_cast<ExternDecl*>(stmt.get());
                 Symbol sym; sym.name=e->name; sym.isFunc=true;
@@ -766,7 +785,8 @@ private:
             }
 
             case Stmt::Kind::AsmStmt:
-            case Stmt::Kind::ExternDecl: break;
+            case Stmt::Kind::ExternDecl:
+            case Stmt::Kind::InterfaceDecl: break; // validated at collect time
             case Stmt::Kind::Return: {
                 auto* r = static_cast<const ReturnStmt*>(s);
                 if (r->value) {
@@ -872,7 +892,24 @@ private:
 
             case Stmt::Kind::StructDecl:
             case Stmt::Kind::EnumDecl:
-            case Stmt::Kind::ClassDecl:
+                break; // nothing to check here
+            case Stmt::Kind::ClassDecl: {
+                auto* c = static_cast<const ClassDecl*>(s);
+                // Check implements compliance
+                for (auto& iface : c->implements) {
+                    if (!m_interfaces.count(iface)) {
+                        error("unknown interface '" + iface + "'", s->line, s->col);
+                        continue;
+                    }
+                    std::unordered_set<std::string> provided;
+                    for (auto& m : c->methods) provided.insert(m->name);
+                    for (auto& req : m_interfaces.at(iface)) {
+                        if (!provided.count(req))
+                            error("class '" + c->name + "' missing '" + req + "' from interface '" + iface + "'" , c->line, c->col);
+                    }
+                }
+                break;
+            }
             case Stmt::Kind::Include:
             case Stmt::Kind::Break:
             case Stmt::Kind::Continue:
@@ -1247,7 +1284,8 @@ private:
                     if (it != m_structs.end()) {
                         for (auto& [fname, ftype] : it->second.fields)
                             if (fname == m->member) return ftype;
-                        if (!it->second.fields.empty())
+                        // For class types (have methods), suppress missing field errors
+                        if (!it->second.fields.empty() && !m_classTypeNames.count(obj.name))
                             error("struct '" + obj.name + "' has no field '" +
                                   m->member + "'", e->line, e->col);
                     }

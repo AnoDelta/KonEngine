@@ -20,6 +20,15 @@ public:
     Program parse() {
         Program prog;
         prog.filename = m_filename;
+        // #![intel_asm] — file-level attribute
+        if (check(TokenType::Hash) && peek(1).type == TokenType::Bang) {
+            advance(); advance(); // #!
+            expect(TokenType::LBracket, "expected '['");
+            std::string attr;
+            while (!check(TokenType::RBracket) && !atEnd()) attr += advance().value;
+            expect(TokenType::RBracket, "expected ']'");
+            if (attr == "intel_asm") prog.intelAsm = true;
+        }
         size_t prevPos = (size_t)-1;
         while (!atEnd()) {
             if (m_pos == prevPos) {
@@ -310,6 +319,7 @@ private:
             if (check(TokenType::Struct)) { auto sd=static_cast<StructDecl*>(parseStructDecl(isPub).release()); sd->attributes=attrs; return StmtPtr(sd); }
             error("expected func or struct after attributes"); return nullptr;
         }
+        if (check(TokenType::Interface)) return parseInterfaceDecl(false);
         if (check(TokenType::Ident)&&peek().value=="extern"){advance();return parseExternDecl();}
         if (check(TokenType::Ident)&&peek().value=="asm")   {advance();return parseAsmStmt();}
 
@@ -322,7 +332,8 @@ private:
         if (check(TokenType::Func))   return parseFuncDecl(true);
         if (check(TokenType::Node))   return parseNodeDecl(true);
         if (check(TokenType::Struct)) return parseStructDecl(true);
-        if (check(TokenType::Class))  return parseClassDecl(true);
+        if (check(TokenType::Class))     return parseClassDecl(true);
+        if (check(TokenType::Interface)) return parseInterfaceDecl(true);
         error("expected declaration after 'pub'");
         return nullptr;
     }
@@ -415,8 +426,14 @@ private:
         std::string name = expect(TokenType::Ident, "expected class name").value;
         auto typeParams = parseTypeParams();
         std::string base;
+        std::vector<std::string> ifaces;
         if (match(TokenType::Colon))
             base = expect(TokenType::Ident, "expected base class").value;
+        if (match(TokenType::Implements)) {
+            ifaces.push_back(expect(TokenType::Ident,"expected interface name").value);
+            while (match(TokenType::Comma))
+                ifaces.push_back(expect(TokenType::Ident,"expected interface name").value);
+        }
 
         expect(TokenType::LBrace, "expected '{'");
 
@@ -436,7 +453,7 @@ private:
         }
         expect(TokenType::RBrace, "expected '}'");
         return std::make_unique<ClassDecl>(name, std::move(typeParams), base,
-            std::move(fields), std::move(methods), l, c);
+            std::move(ifaces), std::move(fields), std::move(methods), l, c);
     }
 
     // Parses: let [mut] name: Type = expr;
@@ -468,6 +485,47 @@ private:
             fd.init = parseExpr();
         expect(TokenType::Semicolon, "expected ';' after const field");
         return fd;
+    }
+
+    StmtPtr parseInterfaceDecl(bool pub) {
+        int l=peek().line, c=peek().col;
+        advance(); // interface
+        std::string name = expect(TokenType::Ident,"expected interface name").value;
+        auto typeParams = parseTypeParams();
+        expect(TokenType::LBrace,"expected '{'");
+        std::vector<InterfaceMethod> methods;
+        while (!check(TokenType::RBrace) && !atEnd()) {
+            if (!check(TokenType::Func)) { advance(); continue; }
+            advance(); // func
+            std::string mname = expect(TokenType::Ident,"expected method name").value;
+            expect(TokenType::LParen,"expected '('");
+            std::vector<Param> params;
+            while (!check(TokenType::RParen) && !atEnd()) {
+                Param p;
+                p.mut = match(TokenType::Mut);
+                p.name = expect(TokenType::Ident,"expected param name").value;
+                if (match(TokenType::Colon)) p.type = parseType();
+                params.push_back(std::move(p));
+                if (!match(TokenType::Comma)) break;
+            }
+            expect(TokenType::RParen,"expected ')'");
+            std::optional<TypeAnnotation> ret;
+            if (match(TokenType::Arrow)) ret = parseType();
+            // Optional default body
+            std::unique_ptr<BlockStmt> body;
+            if (check(TokenType::LBrace)) {
+                body = parseBlock();
+            } else {
+                match(TokenType::Semicolon);
+            }
+            InterfaceMethod im;
+            im.name = mname; im.params = std::move(params);
+            im.returnType = ret; im.defaultBody = std::move(body);
+            methods.push_back(std::move(im));
+        }
+        expect(TokenType::RBrace,"expected '}'");
+        return std::make_unique<InterfaceDecl>(name,std::move(typeParams),
+                                               std::move(methods),l,c);
     }
 
     StmtPtr parseFuncDecl(bool pub) {
@@ -574,8 +632,11 @@ private:
             Param p;
             p.mut  = match(TokenType::Mut);
             p.name = expect(TokenType::Ident, "expected parameter name").value;
-            expect(TokenType::Colon, "expected ':' after parameter name");
-            p.type = parseType();
+            // self param has no type annotation
+            if (p.name != "self") {
+                expect(TokenType::Colon, "expected ':' after parameter name");
+                p.type = parseType();
+            }
             params.push_back(std::move(p));
             if (!match(TokenType::Comma)) break;
         }

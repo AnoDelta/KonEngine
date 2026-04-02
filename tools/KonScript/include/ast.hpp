@@ -365,6 +365,7 @@ struct Stmt {
         ClassDecl,
         ExternDecl,
         AsmStmt,
+        InterfaceDecl,
     } kind;
 };
 
@@ -616,21 +617,44 @@ struct EnumDecl : Stmt {
 struct ClassDecl : Stmt {
     std::string              name;
     std::string              base;
+    std::vector<std::string> implements;  // interface names
     std::vector<FieldDecl>   fields;
     std::vector<std::unique_ptr<FuncDecl>> methods;
     std::vector<std::string> typeParams;
     ClassDecl(const std::string& n, std::vector<std::string> tp,
               const std::string& b,
+              std::vector<std::string> ifaces,
               std::vector<FieldDecl> f,
               std::vector<std::unique_ptr<FuncDecl>> m,
               int l, int c)
         : name(n), typeParams(std::move(tp)), base(b),
+          implements(std::move(ifaces)),
           fields(std::move(f)), methods(std::move(m)) {
         kind = Kind::ClassDecl; line=l; col=c;
     }
 };
 
 struct ExternParam { std::string name; TypeAnnotation type; bool variadic=false; };
+
+// Interface method signature (no body)
+struct InterfaceMethod {
+    std::string                   name;
+    std::vector<Param>            params;      // includes self
+    std::optional<TypeAnnotation> returnType;
+    std::unique_ptr<BlockStmt>    defaultBody; // optional default impl
+};
+
+struct InterfaceDecl : Stmt {
+    std::string                    name;
+    std::vector<std::string>       typeParams;  // interface Ord<T>
+    std::vector<InterfaceMethod>   methods;
+    InterfaceDecl(const std::string& n, std::vector<std::string> tp,
+                  std::vector<InterfaceMethod> m, int l, int c)
+        : name(n), typeParams(std::move(tp)), methods(std::move(m)) {
+        kind = Kind::InterfaceDecl; line=l; col=c;
+    }
+};
+
 struct ExternDecl : Stmt {
     std::string name; std::vector<ExternParam> params;
     TypeAnnotation returnType; std::string linkage; bool variadic=false;
@@ -658,6 +682,7 @@ struct AsmStmt : Stmt {
 struct Program {
     std::string          filename;
     std::vector<StmtPtr> stmts;
+    bool intelAsm = false; // #![intel_asm]
 };
 
 } // namespace KonScript

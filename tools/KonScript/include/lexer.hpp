@@ -33,6 +33,7 @@ enum class TokenType {
     Break, Continue, Switch, Case, Default,
     Node, Struct, Enum, Class, Pub, As,
     Spawn, Wait, Extends,
+    Interface, Implements,
 
     // Type keywords
     TI8, TI16, TI32, TI64,
@@ -114,7 +115,9 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"as",       TokenType::As},
     {"spawn",    TokenType::Spawn},
     {"wait",     TokenType::Wait},
-    {"extends",  TokenType::Extends},
+    {"extends",    TokenType::Extends},
+    {"interface",  TokenType::Interface},
+    {"implements", TokenType::Implements},
     {"true",     TokenType::Bool},
     {"false",    TokenType::Bool},
     {"null",     TokenType::Null},
@@ -198,8 +201,14 @@ public:
                 continue;
             }
 
-            // Preprocessor #include
+            // Preprocessor #include / #![attr] file attributes
             if (c == '#') {
+                // #![...] — file-level attribute, pass through as Hash token
+                if (peek(1) == '!') {
+                    advance(); // consume #
+                    emit(TokenType::Hash, "#", startLine, startCol);
+                    continue; // ! will be lexed next iteration as Bang
+                }
                 advance();
                 skipWhitespace();
                 std::string directive;
