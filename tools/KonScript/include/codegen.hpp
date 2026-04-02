@@ -1458,7 +1458,7 @@ private:
             if (id->name == "ToString" && e->args.size() == 1) {
                 write("std::to_string(");
                 genExpr(e->args[0].get());
-                write(").c_str()");
+                write(")");
                 return;
             }
 

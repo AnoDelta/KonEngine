@@ -551,18 +551,275 @@ class StmtParser {
     }
 }
 
+/* -----------------------------------------------------------------------
+   Phase 5: Symbol table + type tracker
+   A flat scope chain: each scope is an index into a parallel pair of
+   arrays (names / types).  No heap allocation — all fixed arrays.
+   ----------------------------------------------------------------------- */
+
+struct Symbol {
+    let name:    Str;
+    let typeName: Str;
+    let isMut:   Bool;
+    let scope:   I32;
+}
+
+class SymbolTable {
+    let mut syms:       [Symbol] = [];
+    let mut scopeDepth: I32 = 0;
+
+    func pushScope(mut self) {
+        self.scopeDepth += 1;
+    }
+
+    func popScope(mut self) {
+        let mut i: I32 = self.syms.len() - 1;
+        while i >= 0 {
+            if self.syms[i].scope == self.scopeDepth {
+                /* remove by swapping with last and shrinking */
+                let last: I32 = self.syms.len() - 1;
+                if i != last {
+                    self.syms[i] = self.syms[last];
+                }
+                self.syms.pop();
+            }
+            i -= 1;
+        }
+        self.scopeDepth -= 1;
+    }
+
+    func define(mut self, name: Str, typeName: Str, isMut: Bool) {
+        let s: Symbol = Symbol {
+            name: name,
+            typeName: typeName,
+            isMut: isMut,
+            scope: self.scopeDepth,
+        };
+        self.syms.push(s);
+    }
+
+    func lookup(self, name: Str) -> Str {
+        let mut i: I32 = self.syms.len() - 1;
+        while i >= 0 {
+            if self.syms[i].name == name {
+                return self.syms[i].typeName;
+            }
+            i -= 1;
+        }
+        return "unknown";
+    }
+
+    func isMut(self, name: Str) -> Bool {
+        let mut i: I32 = self.syms.len() - 1;
+        while i >= 0 {
+            if self.syms[i].name == name {
+                return self.syms[i].isMut;
+            }
+            i -= 1;
+        }
+        return false;
+    }
+
+    func exists(self, name: Str) -> Bool {
+        let mut i: I32 = self.syms.len() - 1;
+        while i >= 0 {
+            if self.syms[i].name == name { return true; }
+            i -= 1;
+        }
+        return false;
+    }
+}
+
+/* -----------------------------------------------------------------------
+   Phase 5b: Type checker — walks the token stream, tracks types,
+   reports errors to a string buffer
+   ----------------------------------------------------------------------- */
+
+class TypeChecker {
+    let mut ts:     TokenStream  = TokenStream  { tokens: [], pos: 0 };
+    let mut ep:     Parser       = Parser       { ts: TokenStream { tokens: [], pos: 0 } };
+    let mut syms:   SymbolTable  = SymbolTable  { syms: [], scopeDepth: 0 };
+    let mut errors: [Str]        = [];
+
+    func init(mut self, stream: TokenStream) {
+        self.ts = stream;
+        self.ep.ts = stream;
+    }
+
+    func error(mut self, msg: Str) {
+        let tok: Token = self.ts.peek();
+        let loc: Str = ToString(tok.line) + ":" + ToString(tok.col);
+        self.errors.push(loc + ": error: " + msg);
+    }
+
+    func syncExpr(mut self) -> Str {
+        self.ep.ts = self.ts;
+        let r: Str = self.ep.parseExpr();
+        self.ts = self.ep.ts;
+        return r;
+    }
+
+    func skipUntil(mut self, kind: TokenKind) {
+        while !self.ts.check(kind) && !self.ts.atEnd() {
+            self.ts.advance();
+        }
+    }
+
+    func parseTypeStr(mut self) -> Str {
+        let mut t: Str = "";
+        while !self.ts.check(TokenKind::Assign) &&
+              !self.ts.check(TokenKind::Semicolon) &&
+              !self.ts.check(TokenKind::LBrace) &&
+              !self.ts.check(TokenKind::KwIn) &&
+              !self.ts.check(TokenKind::Comma) &&
+              !self.ts.check(TokenKind::RParen) &&
+              !self.ts.atEnd() {
+            t = t + self.ts.advance().value;
+        }
+        return t;
+    }
+
+    func checkBlock(mut self) {
+        self.ts.expect(TokenKind::LBrace);
+        self.syms.pushScope();
+        while !self.ts.check(TokenKind::RBrace) && !self.ts.atEnd() {
+            self.checkStmt();
+        }
+        self.ts.expect(TokenKind::RBrace);
+        self.syms.popScope();
+    }
+
+    func checkStmt(mut self) {
+        let t: Token = self.ts.peek();
+        if t.kind == TokenKind::KwLet    { self.checkLet(); return; }
+        if t.kind == TokenKind::KwReturn { self.checkReturn(); return; }
+        if t.kind == TokenKind::KwIf     { self.checkIf(); return; }
+        if t.kind == TokenKind::KwWhile  { self.checkWhile(); return; }
+        if t.kind == TokenKind::KwFor    { self.checkForIn(); return; }
+        if t.kind == TokenKind::KwFunc   { self.checkFuncDecl(); return; }
+        /* expression statement — just consume it */
+        self.syncExpr();
+        self.ts.consume(TokenKind::Semicolon);
+    }
+
+    func checkLet(mut self) {
+        self.ts.advance(); /* let */
+        let mut isMut: Bool = false;
+        if self.ts.check(TokenKind::KwMut) { self.ts.advance(); isMut = true; }
+        let name: Token = self.ts.expect(TokenKind::Ident);
+        let mut typeName: Str = "unknown";
+        if self.ts.consume(TokenKind::Colon) {
+            typeName = self.parseTypeStr();
+        }
+        if self.ts.consume(TokenKind::Assign) {
+            self.syncExpr();
+        }
+        self.ts.consume(TokenKind::Semicolon);
+        if self.syms.exists(name.value) {
+            self.error("redefinition of '" + name.value + "'");
+        }
+        self.syms.define(name.value, typeName, isMut);
+    }
+
+    func checkReturn(mut self) {
+        self.ts.advance();
+        if !self.ts.check(TokenKind::Semicolon) { self.syncExpr(); }
+        self.ts.consume(TokenKind::Semicolon);
+    }
+
+    func checkIf(mut self) {
+        self.ts.advance();
+        self.syncExpr();
+        self.checkBlock();
+        if self.ts.check(TokenKind::KwElse) {
+            self.ts.advance();
+            if self.ts.check(TokenKind::KwIf) { self.checkIf(); return; }
+            self.checkBlock();
+        }
+    }
+
+    func checkWhile(mut self) {
+        self.ts.advance();
+        self.syncExpr();
+        self.checkBlock();
+    }
+
+    func checkForIn(mut self) {
+        self.ts.advance();
+        let var: Token = self.ts.expect(TokenKind::Ident);
+        let mut typeName: Str = "unknown";
+        if self.ts.check(TokenKind::Colon) {
+            self.ts.advance();
+            typeName = self.parseTypeStr();
+        }
+        self.ts.consume(TokenKind::KwIn);
+        self.syncExpr();
+        self.syms.pushScope();
+        self.syms.define(var.value, typeName, false);
+        self.ts.expect(TokenKind::LBrace);
+        while !self.ts.check(TokenKind::RBrace) && !self.ts.atEnd() {
+            self.checkStmt();
+        }
+        self.ts.expect(TokenKind::RBrace);
+        self.syms.popScope();
+    }
+
+    func checkFuncDecl(mut self) {
+        self.ts.advance(); /* func */
+        let name: Token = self.ts.expect(TokenKind::Ident);
+        /* parse params into symbol table */
+        self.ts.consume(TokenKind::LParen);
+        self.syms.pushScope();
+        while !self.ts.check(TokenKind::RParen) && !self.ts.atEnd() {
+            let pname: Token = self.ts.expect(TokenKind::Ident);
+            self.ts.consume(TokenKind::Colon);
+            let ptype: Str = self.parseTypeStr();
+            self.syms.define(pname.value, ptype, false);
+            self.ts.consume(TokenKind::Comma);
+        }
+        self.ts.consume(TokenKind::RParen);
+        /* skip -> ReturnType */
+        if self.ts.check(TokenKind::Arrow) {
+            self.ts.advance();
+            self.parseTypeStr();
+        }
+        /* body — reuse the pushed scope (params visible in body) */
+        self.ts.expect(TokenKind::LBrace);
+        while !self.ts.check(TokenKind::RBrace) && !self.ts.atEnd() {
+            self.checkStmt();
+        }
+        self.ts.expect(TokenKind::RBrace);
+        self.syms.popScope();
+        /* register the function itself */
+        self.syms.define(name.value, "func", false);
+    }
+
+    func checkProgram(mut self) {
+        while !self.ts.atEnd() { self.checkStmt(); }
+    }
+}
+
 func main() {
-    let source: Str = "func add(a: I32, b: I32) -> I32 { return a + b; } func main() { let x: I32 = 1 + 2 * 3; let mut y: I32 = 0; if x > 5 { y = x + 1; } return 0; }";
+    let source: Str = "func add(a: I32, b: I32) -> I32 { let result: I32 = a + b; return result; } func main() { let x: I32 = add(1, 2); let mut y: I32 = 0; if x > 0 { y = x + 1; } return 0; }";
     let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
     lexer.init(source);
     let toks: [Token] = lexer.tokenize();
     let mut ts: TokenStream = TokenStream { tokens: [], pos: 0 };
     ts.init(toks);
-    let mut sp: StmtParser = StmtParser {
+    let mut tc: TypeChecker = TypeChecker {
         ts: ts,
         ep: Parser { ts: TokenStream { tokens: [], pos: 0 } },
-        indent: 0
+        syms: SymbolTable { syms: [], scopeDepth: 0 },
+        errors: [],
     };
-    sp.init(ts);
-    Print(sp.parseProgram());
+    tc.init(ts);
+    tc.checkProgram();
+    if tc.errors.len() == 0 {
+        Print("type check OK");
+        Print(f"symbols defined: {tc.syms.syms.len()}");
+    } else {
+        for e in tc.errors {
+            Print(e);
+        }
+    }
 }
