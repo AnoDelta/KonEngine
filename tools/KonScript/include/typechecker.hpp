@@ -35,6 +35,7 @@ struct Type {
         Nullable,   // T?
         Result,     // Result<T> — ok/value/error
         HashMap,    // HashMap<K, V>
+        FuncType,   // func(I32, Str) -> Bool — first-class function
         Unknown,    // error recovery
     } kind = Kind::Unknown;
 
@@ -75,6 +76,13 @@ struct Type {
         return t;
     }
     static Type unknown() { return make(Kind::Unknown); }
+    // FuncType: inner[0..n-2] = param types, inner[n-1] = return type
+    static Type makeFuncType(std::vector<Type> paramTypes, Type retType) {
+        Type t; t.kind = Kind::FuncType;
+        t.inner = std::move(paramTypes);
+        t.inner.push_back(std::move(retType));
+        return t;
+    }
     static Type void_()   { return make(Kind::Void); }
 
     bool isNumeric() const {
@@ -115,6 +123,16 @@ struct Type {
             case Kind::Unknown: return "?";
             case Kind::Result:
                 return "Result<" + (inner.empty() ? "?" : inner[0].toString()) + ">";
+            case Kind::FuncType: {
+                std::string s = "func(";
+                for (size_t i = 0; i + 1 < inner.size(); i++) {
+                    if (i > 0) s += ", ";
+                    s += inner[i].toString();
+                }
+                s += ") -> ";
+                s += inner.empty() ? "void" : inner.back().toString();
+                return s;
+            }
             case Kind::HashMap:
                 return "HashMap<" + (inner.size()<2 ? "?,?" :
                     inner[0].toString()+","+inner[1].toString()) + ">";
@@ -299,6 +317,11 @@ private:
             // Result<T> — inner type is the success value type
             Type inner = ta.typeParams.empty() ? Type::unknown() : resolve(ta.typeParams[0]);
             t = Type::makeResult(inner);
+        } else if (ta.isFuncType) {
+            std::vector<Type> paramTs;
+            for (auto& pt : ta.funcParamTypes) paramTs.push_back(resolve(pt));
+            Type retT = ta.funcReturnType ? resolve(*ta.funcReturnType) : Type::void_();
+            t = Type::makeFuncType(std::move(paramTs), retT);
         } else if (ta.base == "HashMap") {
             // HashMap<K, V>
             Type key = ta.typeParams.empty() ? Type::unknown() : resolve(ta.typeParams[0]);
@@ -856,7 +879,7 @@ private:
             Symbol sym;
             sym.name = p.name;
             sym.type = resolve(p.type);
-            sym.mut  = true;
+            sym.mut  = true; // params are always mutable inside the body
             funcScope.define(sym);
         }
         Type ret = f->returnType ? resolve(*f->returnType) : Type::void_();
@@ -1302,6 +1325,32 @@ private:
                 checkExpr(static_cast<const SpawnExpr*>(e)->call.get(), scope);
                 return Type::void_();
 
+            case Expr::Kind::FuncExpr: {
+                // Closure: infer param types and return type
+                auto* fe = static_cast<const FuncExpr*>(e);
+                Scope cls; cls.parent = scope;
+                std::vector<Type> paramTypes;
+                for (auto& p : fe->params) {
+                    Type pt = resolve(p.type);
+                    paramTypes.push_back(pt);
+                    Symbol ps; ps.name = p.name; ps.type = pt; ps.mut = true;
+                    cls.define(ps);
+                }
+                Type retT = fe->returnType ? resolve(*fe->returnType) : Type::void_();
+                checkBlock(fe->body.get(), &cls, retT);
+                return Type::makeFuncType(std::move(paramTypes), retT);
+            }
+
+            case Expr::Kind::Propagate: {
+                // expr? — must be Result<T>, returns T
+                auto* pe = static_cast<const PropagateExpr*>(e);
+                Type t = checkExpr(pe->value.get(), scope);
+                if (!t.isUnknown() && t.kind != Type::Kind::Result)
+                    error("'?' operator requires Result<T>, got '" + t.toString() + "'",
+                          e->line, e->col);
+                return t.isResult() ? t.resultInner() : Type::unknown();
+            }
+
             default:
                 return Type::unknown();
         }
@@ -1318,6 +1367,13 @@ private:
 
         // Numeric widening: I32 -> I64, F32 -> F64 etc.
         if (expected.isNumeric() && actual.isNumeric()) return true;
+
+        // Array covariance: [?] (empty literal []) is compatible with any [T]
+        if (expected.kind == Type::Kind::Array && actual.kind == Type::Kind::Array) {
+            if (actual.inner.empty() || actual.inner[0].isUnknown()) return true;
+            if (expected.inner.empty() || expected.inner[0].isUnknown()) return true;
+            return typesCompatible(expected.inner[0], actual.inner[0]);
+        }
 
         // Nullable: T? is compatible with T and null
         if (expected.kind == Type::Kind::Nullable) {
@@ -1357,6 +1413,10 @@ private:
         // Two Results are compatible regardless of inner type (covariant-ish)
         if (expected.kind == Type::Kind::Result &&
             actual.kind == Type::Kind::Result) return true;
+
+        // Function types: compatible if same arity (skip deep param check for now)
+        if (expected.kind == Type::Kind::FuncType &&
+            actual.kind == Type::Kind::FuncType) return true;
 
         return false;
     }

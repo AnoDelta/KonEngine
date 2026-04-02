@@ -172,6 +172,25 @@ private:
     TypeAnnotation parseType() {
         TypeAnnotation ta;
 
+        // Function type: func(I32, Str) -> Bool
+        if (check(TokenType::Func)) {
+            advance();
+            ta.isFuncType = true;
+            expect(TokenType::LParen, "expected '(' in function type");
+            while (!check(TokenType::RParen) && !atEnd()) {
+                if (check(TokenType::Mut)) advance(); // skip mut in type pos
+                // Allow "name: Type" or just "Type"
+                if (peek(1).type == TokenType::Colon) { advance(); advance(); }
+                ta.funcParamTypes.push_back(parseType());
+                if (!match(TokenType::Comma)) break;
+            }
+            expect(TokenType::RParen, "expected ')'");
+            if (match(TokenType::Arrow))
+                ta.funcReturnType = std::make_unique<TypeAnnotation>(parseType());
+            if (match(TokenType::Question)) ta.nullable = true;
+            return ta;
+        }
+
         if (check(TokenType::LParen)) {
             advance();
             ta.isTuple = true;
@@ -424,6 +443,7 @@ private:
         std::vector<Param> params;
         while (!check(TokenType::RParen) && !atEnd()) {
             Param p;
+            p.mut  = match(TokenType::Mut);
             p.name = expect(TokenType::Ident, "expected parameter name").value;
             expect(TokenType::Colon, "expected ':' after parameter name");
             p.type = parseType();
@@ -447,6 +467,42 @@ private:
     // -----------------------------------------------------------------------
     StmtPtr parseStmt() {
         int l = peek().line, c = peek().col;
+
+        // Labelled loops: 'outer: while / loop / for
+        if (check(TokenType::Apostrophe)) {
+            std::string lbl = advance().value; // e.g. "'outer"
+            if (!lbl.empty() && lbl[0] == '\'')
+                lbl = lbl.substr(1); // strip leading apostrophe
+            expect(TokenType::Colon, "expected ':' after loop label");
+            int ll = peek().line, lc = peek().col;
+            if (check(TokenType::While)) {
+                advance();
+                auto cond = parseExpr(); auto body = parseBlock();
+                return std::make_unique<WhileStmt>(std::move(cond), std::move(body), lbl, ll, lc);
+            } else if (check(TokenType::Loop)) {
+                advance();
+                auto body = parseBlock();
+                return std::make_unique<LoopStmt>(std::move(body), lbl, ll, lc);
+            } else if (check(TokenType::For)) {
+                advance();
+                std::string v2 = expect(TokenType::Ident, "expected variable").value;
+                TypeAnnotation t2;
+                if (check(TokenType::Colon)) { advance(); t2 = parseType(); }
+                if (match(TokenType::In)) {
+                    auto iter = parseExpr(); auto body = parseBlock();
+                    return std::make_unique<ForInStmt>(v2, t2, std::move(iter), std::move(body), lbl, ll, lc);
+                }
+                expect(TokenType::Assign, "expected '='");
+                auto i2 = parseExpr();
+                expect(TokenType::Semicolon, "expected ';'");
+                auto c2 = parseExpr();
+                expect(TokenType::Semicolon, "expected ';'");
+                auto s2 = parseExpr(); auto b2 = parseBlock();
+                return std::make_unique<ForCStmt>(v2, t2, std::move(i2), std::move(c2), std::move(s2), std::move(b2), lbl, ll, lc);
+            }
+            error("expected 'while', 'loop', or 'for' after loop label");
+            return nullptr;
+        }
 
         if (check(TokenType::Let))      return parseLet();
         if (check(TokenType::Const))    return parseConst();
@@ -522,12 +578,15 @@ private:
         return std::make_unique<ReturnStmt>(std::move(val), l, c);
     }
 
+    static std::string stripLabel(const std::string& lbl) {
+        return (!lbl.empty() && lbl[0] == '\'') ? lbl.substr(1) : lbl;
+    }
     StmtPtr parseBreak() {
         int l = peek().line, c = peek().col;
         advance(); // break
         std::string label;
         if (check(TokenType::Apostrophe))
-            label = advance().value;
+            label = stripLabel(advance().value);
         expect(TokenType::Semicolon, "expected ';'");
         return std::make_unique<BreakStmt>(label, l, c);
     }
@@ -537,7 +596,7 @@ private:
         advance(); // continue
         std::string label;
         if (check(TokenType::Apostrophe))
-            label = advance().value;
+            label = stripLabel(advance().value);
         expect(TokenType::Semicolon, "expected ';'");
         return std::make_unique<ContinueStmt>(label, l, c);
     }
@@ -567,14 +626,14 @@ private:
         advance(); // while
         auto cond = parseExpr();
         auto body = parseBlock();
-        return std::make_unique<WhileStmt>(std::move(cond), std::move(body), l, c);
+        return std::make_unique<WhileStmt>(std::move(cond), std::move(body), "", l, c);
     }
 
     StmtPtr parseLoop() {
         int l = peek().line, c = peek().col;
         advance(); // loop
         auto body = parseBlock();
-        return std::make_unique<LoopStmt>(std::move(body), l, c);
+        return std::make_unique<LoopStmt>(std::move(body), "", l, c);
     }
 
     StmtPtr parseFor() {
@@ -606,7 +665,7 @@ private:
             auto body = parseBlock();
             return std::make_unique<ForCStmt>(
                 var, type, std::move(init), std::move(cond),
-                std::move(step), std::move(body), l, c);
+                std::move(step), std::move(body), "", l, c);
         }
     }
 
@@ -820,6 +879,11 @@ private:
                 advance();
                 expr = std::make_unique<ForceUnwrapExpr>(std::move(expr), l, c);
 
+            // Error propagation: expr? — unwrap Result or early-return Err
+            } else if (check(TokenType::Question)) {
+                advance();
+                expr = std::make_unique<PropagateExpr>(std::move(expr), l, c);
+
             } else if (check(TokenType::DotDot) || check(TokenType::DotDotEq)) {
                 bool inc = check(TokenType::DotDotEq);
                 advance();
@@ -881,6 +945,28 @@ private:
             auto val = parseExpr();
             expect(TokenType::RParen, "expected ')'");
             return std::make_unique<SomeExpr>(std::move(val), l, c);
+        }
+
+        // Closure: func(x: I32) -> I32 { return x * 2; }
+        if (check(TokenType::Func)) {
+            advance();
+            expect(TokenType::LParen, "expected '(' in closure");
+            std::vector<Param> cparams;
+            while (!check(TokenType::RParen) && !atEnd()) {
+                Param p;
+                p.mut  = match(TokenType::Mut);
+                p.name = expect(TokenType::Ident, "expected parameter name").value;
+                expect(TokenType::Colon, "expected ':'");
+                p.type = parseType();
+                cparams.push_back(std::move(p));
+                if (!match(TokenType::Comma)) break;
+            }
+            expect(TokenType::RParen, "expected ')'");
+            std::optional<TypeAnnotation> cret;
+            if (match(TokenType::Arrow)) cret = parseType();
+            auto cbody = parseBlock();
+            return std::make_unique<FuncExpr>(
+                std::move(cparams), cret, std::move(cbody), l, c);
         }
 
         if (check(TokenType::Spawn)) {

@@ -30,6 +30,34 @@ struct TypeAnnotation {
     std::vector<TypeAnnotation> tupleTypes; // (T, T, ...)
     bool        isTuple  = false;
     std::vector<TypeAnnotation> typeParams; // Result<T>, HashMap<K,V>, etc.
+    // Function type: func(I32, Str) -> Bool
+    bool                        isFuncType = false;
+    std::vector<TypeAnnotation> funcParamTypes;
+    std::unique_ptr<TypeAnnotation> funcReturnType; // null = void
+
+    // unique_ptr member deletes copy by default — restore it explicitly
+    TypeAnnotation() = default;
+    TypeAnnotation(const TypeAnnotation& o)
+        : base(o.base), nullable(o.nullable), isArray(o.isArray),
+          arraySize(o.arraySize), tupleTypes(o.tupleTypes), isTuple(o.isTuple),
+          typeParams(o.typeParams), isFuncType(o.isFuncType),
+          funcParamTypes(o.funcParamTypes),
+          funcReturnType(o.funcReturnType
+              ? std::make_unique<TypeAnnotation>(*o.funcReturnType)
+              : nullptr) {}
+    TypeAnnotation& operator=(const TypeAnnotation& o) {
+        if (this == &o) return *this;
+        base = o.base; nullable = o.nullable; isArray = o.isArray;
+        arraySize = o.arraySize; tupleTypes = o.tupleTypes; isTuple = o.isTuple;
+        typeParams = o.typeParams; isFuncType = o.isFuncType;
+        funcParamTypes = o.funcParamTypes;
+        funcReturnType = o.funcReturnType
+            ? std::make_unique<TypeAnnotation>(*o.funcReturnType)
+            : nullptr;
+        return *this;
+    }
+    TypeAnnotation(TypeAnnotation&&) = default;
+    TypeAnnotation& operator=(TypeAnnotation&&) = default;
 };
 
 // -----------------------------------------------------------------------
@@ -91,6 +119,12 @@ struct Expr {
 
         // Spawn
         Spawn,      // spawn foo()
+
+        // Closure / anonymous function
+        FuncExpr,   // func(x: I32) -> I32 { x * 2 }
+
+        // Error propagation
+        Propagate,  // expr?  -- if !ok return Err; else value
     } kind;
 };
 
@@ -217,7 +251,7 @@ struct CastExpr : Expr {
     ExprPtr        value;
     TypeAnnotation target;
     CastExpr(ExprPtr v, TypeAnnotation t, int l, int c)
-        : value(std::move(v)), target(t) {
+        : value(std::move(v)), target(std::move(t)) {
         kind = Kind::Cast; line=l; col=c;
     }
 };
@@ -385,16 +419,19 @@ struct IfStmt : Stmt {
 struct WhileStmt : Stmt {
     ExprPtr                    cond;
     std::unique_ptr<BlockStmt> body;
-    WhileStmt(ExprPtr c, std::unique_ptr<BlockStmt> b, int l, int col_)
-        : cond(std::move(c)), body(std::move(b)) {
+    std::string                label;
+    WhileStmt(ExprPtr c, std::unique_ptr<BlockStmt> b,
+              const std::string& lbl, int l, int col_)
+        : cond(std::move(c)), body(std::move(b)), label(lbl) {
         kind = Kind::While; line=l; col=col_;
     }
 };
 
 struct LoopStmt : Stmt {
     std::unique_ptr<BlockStmt> body;
-    LoopStmt(std::unique_ptr<BlockStmt> b, int l, int c)
-        : body(std::move(b)) { kind = Kind::Loop; line=l; col=c; }
+    std::string                label;
+    LoopStmt(std::unique_ptr<BlockStmt> b, const std::string& lbl, int l, int c)
+        : body(std::move(b)), label(lbl) { kind = Kind::Loop; line=l; col=c; }
 };
 
 struct ForCStmt : Stmt {
@@ -404,11 +441,12 @@ struct ForCStmt : Stmt {
     ExprPtr        cond;
     ExprPtr        step;
     std::unique_ptr<BlockStmt> body;
+    std::string    label;
     ForCStmt(const std::string& v, TypeAnnotation t,
              ExprPtr i, ExprPtr c, ExprPtr s,
-             std::unique_ptr<BlockStmt> b, int l, int col_)
+             std::unique_ptr<BlockStmt> b, const std::string& lbl, int l, int col_)
         : var(v), type(t), init(std::move(i)),
-          cond(std::move(c)), step(std::move(s)), body(std::move(b)) {
+          cond(std::move(c)), step(std::move(s)), body(std::move(b)), label(lbl) {
         kind = Kind::ForC; line=l; col=col_;
     }
 };
@@ -463,11 +501,35 @@ struct IncludeStmt : Stmt {
 struct Param {
     std::string    name;
     TypeAnnotation type;
+    bool           mut = false;  // mut n: I32 — allow reassignment inside body
 };
 
 // -----------------------------------------------------------------------
 // Top-level declarations
 // -----------------------------------------------------------------------
+
+// Anonymous function / closure: func(x: I32) -> I32 { return x * 2; }
+struct FuncExpr : Expr {
+    std::vector<Param>            params;
+    std::optional<TypeAnnotation> returnType;
+    std::unique_ptr<BlockStmt>    body;
+    FuncExpr(std::vector<Param> p,
+             std::optional<TypeAnnotation> r,
+             std::unique_ptr<BlockStmt> b,
+             int l, int c)
+        : params(std::move(p)), returnType(std::move(r)), body(std::move(b)) {
+        kind = Kind::FuncExpr; line=l; col=c;
+    }
+};
+
+// Error propagation: expr? — unwrap Result or early-return with error
+struct PropagateExpr : Expr {
+    ExprPtr value;
+    PropagateExpr(ExprPtr v, int l, int c) : value(std::move(v)) {
+        kind = Kind::Propagate; line=l; col=c;
+    }
+};
+
 struct FuncDecl : Stmt {
     std::string                name;
     std::vector<Param>         params;

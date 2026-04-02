@@ -271,7 +271,10 @@ private:
             }
             return s;
         }() + " }";
-        if (t.nullable) return llvmType({t.base}) + "*"; // nullable → pointer
+        if (t.nullable) {
+            TypeAnnotation _inner; _inner.base = t.base;
+            return llvmType(_inner) + "*"; // nullable → pointer
+        }
 
         // Generic types — opaque pointers to runtime structs
         if (t.base == "Result")  return "i8*"; // _KsResult

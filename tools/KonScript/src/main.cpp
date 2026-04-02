@@ -574,6 +574,32 @@ int main(int argc, char** argv) {
             ? KonScript::Codegen::Target::Engine
             : KonScript::Codegen::Target::Standalone);
         cg.setRewriteKsIncludes(true); // cmake/--cpp mode: rewrite .ks → .ks.cpp
+        // Pre-register types from #include'd .ks files so cross-file structs,
+        // classes, and enums are value types instead of unknown pointers.
+        {
+            std::unordered_set<std::string> cgVis;
+            std::function<void(const KonScript::Program&, const std::string&)> cgPre;
+            cgPre = [&](const KonScript::Program& p, const std::string& base) {
+                for (auto& s : p.stmts) {
+                    if (s->kind != KonScript::Stmt::Kind::Include) continue;
+                    auto* inc = static_cast<const KonScript::IncludeStmt*>(s.get());
+                    if (inc->isSystem || inc->path == "engine") continue;
+                    std::string ip = inc->path;
+                    if (!fs::path(ip).is_absolute())
+                        ip = fs::path(base).parent_path().string() + "/" + ip;
+                    ip = fs::weakly_canonical(ip).string();
+                    if (!fs::exists(ip) || cgVis.count(ip)) continue;
+                    cgVis.insert(ip);
+                    KonScript::Lexer lx(readFile(ip), ip);
+                    auto toks = lx.tokenize();
+                    KonScript::Parser px(std::move(toks), ip);
+                    auto incProg = px.parse();
+                    cgPre(incProg, ip);
+                    cg.addIncludeTypes(incProg);
+                }
+            };
+            cgPre(prog, path);
+        }
         std::string cpp = cg.generate(prog);
         if (cg.hasErrors()) {
             for (auto& e : cg.errors()) std::cerr << "codegen: " << e.message << "\n";
