@@ -96,8 +96,32 @@ char* _ks_str_replace(const char* s, const char* from, const char* to) {
 char* _ks_str_substr(const char* s, int pos, int len) {
     char* r = malloc(len + 1); memcpy(r, s + pos, len); r[len] = '\0'; return r;
 }
-int   _ks_str_toInt(const char* s)   { return atoi(s); }
-float _ks_str_toFloat(const char* s) { return (float)atof(s); }
+/* Avoid atoi/strtol/strtod: all redirected to __isoc23_* on glibc 2.38+
+   which is not present in the bundled musl sysroot. Hand-roll instead. */
+int _ks_str_toInt(const char* s) {
+    if (!s) return 0;
+    int result = 0, sign = 1;
+    while (*s == ' ' || *s == '\t') s++;
+    if      (*s == '-') { sign = -1; s++; }
+    else if (*s == '+') { s++; }
+    while (*s >= '0' && *s <= '9')
+        result = result * 10 + (*s++ - '0');
+    return sign * result;
+}
+float _ks_str_toFloat(const char* s) {
+    if (!s) return 0.0f;
+    double result = 0.0, frac = 0.1;
+    int sign = 1;
+    while (*s == ' ' || *s == '\t') s++;
+    if      (*s == '-') { sign = -1; s++; }
+    else if (*s == '+') { s++; }
+    while (*s >= '0' && *s <= '9') result = result * 10.0 + (*s++ - '0');
+    if (*s == '.') {
+        s++;
+        while (*s >= '0' && *s <= '9') { result += (*s++ - '0') * frac; frac *= 0.1; }
+    }
+    return (float)(sign * result);
+}
 
 // ── Array ─────────────────────────────────────────────────────────────────────
 // Dynamic array of i8* (void pointers)
@@ -134,6 +158,10 @@ void* _ks_array_get(void* arr, int idx) {
     _KsArray* a = arr;
     if (idx < 0 || idx >= a->len) return NULL;
     return a->data[idx];
+}
+
+void _ks_array_clear(void* arr) {
+    if (arr) ((_KsArray*)arr)->len = 0;
 }
 
 // _ks_str_split uses the array runtime
@@ -208,3 +236,44 @@ void* _ks_hashmap_get(void* map, const char* key) {
 }
 int _ks_hashmap_has(void* map, const char* key) { return _ks_hashmap_get(map, key) != NULL; }
 int _ks_hashmap_len(void* map)  { return map ? ((_KsMap*)map)->len : 0; }
+
+// ── String methods (additional — declared in IRGen::emitRuntimeDecls) ─────────
+char* _ks_str_concat(const char* a, const char* b) {
+    if (!a) a = "";
+    if (!b) b = "";
+    size_t la = strlen(a), lb = strlen(b);
+    char* r = malloc(la + lb + 1);
+    memcpy(r, a, la);
+    memcpy(r + la, b, lb);
+    r[la + lb] = '\0';
+    return r;
+}
+
+// Returns a one-character heap string at position pos (or "" if OOB)
+char* _ks_str_charAt(const char* s, int pos) {
+    if (!s || pos < 0 || pos >= (int)strlen(s)) return strdup("");
+    char* r = malloc(2);
+    r[0] = s[pos];
+    r[1] = '\0';
+    return r;
+}
+
+// Single-character classification — argument is a one-char string from charAt
+int _ks_str_isAlpha(const char* s)  { return s && isalpha((unsigned char)s[0]); }
+int _ks_str_isDigit(const char* s)  { return s && isdigit((unsigned char)s[0]); }
+int _ks_str_isUpper(const char* s)  { return s && isupper((unsigned char)s[0]); }
+int _ks_str_isLower(const char* s)  { return s && islower((unsigned char)s[0]); }
+int _ks_str_isSpace(const char* s)  { return s && isspace((unsigned char)s[0]); }
+
+// Returns the Unicode code point (ASCII value) of the first character
+int _ks_str_toCharCode(const char* s) {
+    return (s && *s) ? (unsigned char)s[0] : 0;
+}
+
+// Returns a one-character string for the given code point
+char* _ks_str_fromCharCode(int code) {
+    char* r = malloc(2);
+    r[0] = (char)(unsigned char)code;
+    r[1] = '\0';
+    return r;
+}

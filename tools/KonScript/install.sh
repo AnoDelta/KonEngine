@@ -36,6 +36,10 @@ echo "  Binary: $INSTALL_BIN → konscript"
 
 sudo install -m 755 "$INSTALL_BIN" "$BIN_DIR/konscript"
 sudo install -m 755 ksc "$BIN_DIR/ksc"
+# Install the runtime C source so konscript can compile it from any directory
+if [ -f "_ks_runtime.c" ]; then
+    sudo install -m 644 _ks_runtime.c "$BIN_DIR/_ks_runtime.c"
+fi
 
 echo ""
 echo "==================================================="

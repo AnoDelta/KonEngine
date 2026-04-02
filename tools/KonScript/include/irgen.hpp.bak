@@ -110,38 +110,6 @@ public:
                 if (s->kind == Stmt::Kind::FuncDecl) {
                     auto* f = static_cast<const FuncDecl*>(s.get());
                     m_funcRetTypes[f->name] = f->returnType ? llvmType(*f->returnType) : "void";
-                } else if (s->kind == Stmt::Kind::StructDecl) {
-                    auto* sd = static_cast<const StructDecl*>(s.get());
-                    std::vector<FieldInfo> fields;
-                    for (auto& f : sd->fields)
-                        fields.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
-                    m_structFields[sd->name] = fields;
-                } else if (s->kind == Stmt::Kind::EnumDecl) {
-                    auto* ed = static_cast<const EnumDecl*>(s.get());
-                    m_enumTypes.insert(ed->name);
-                    int idx = 0;
-                    for (auto& v : ed->variants)
-                        m_enumVariants[ed->name][v.name] = idx++;
-                } else if (s->kind == Stmt::Kind::ClassDecl) {
-                    auto* cd = static_cast<const ClassDecl*>(s.get());
-                    std::vector<FieldInfo> fields;
-                    for (auto& f : cd->fields)
-                        fields.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
-                    m_structFields[cd->name] = fields;
-                    for (auto& m : cd->methods) {
-                        std::string mangledName = cd->name + "_" + m->name;
-                        m_funcRetTypes[mangledName] =
-                            m->returnType ? llvmType(*m->returnType) : "void";
-                    }
-                } else if (s->kind == Stmt::Kind::NodeDecl) {
-                    auto* nd = static_cast<const NodeDecl*>(s.get());
-                    std::vector<FieldInfo> fields;
-                    for (auto& f : nd->fields)
-                        fields.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
-                    m_structFields[nd->name] = fields;
-                    for (auto& m : nd->methods)
-                        m_funcRetTypes[nd->name + "_" + m->name] =
-                            m->returnType ? llvmType(*m->returnType) : "void";
                 }
             }
         for (auto& s : prog.stmts) {
@@ -192,13 +160,8 @@ public:
 
         // Generate all top-level definitions (may populate m_globalStr)
         for (auto* _inc : m_includes)
-            for (auto& s : _inc->stmts) {
-                // Skip main() from included files — only the entry file's main is emitted
-                if (s->kind == Stmt::Kind::FuncDecl &&
-                    static_cast<const FuncDecl*>(s.get())->name == "main")
-                    continue;
+            for (auto& s : _inc->stmts)
                 genTopLevel(s.get());
-            }
         for (auto& s : prog.stmts)
             genTopLevel(s.get());
 
@@ -515,7 +478,6 @@ private:
         emit("declare i32 @_ks_array_len(i8*)");
         emit("declare i8* @_ks_array_get(i8*, i32)");
         emit("declare i1  @_ks_array_has(i8*, i8*)");
-        emit("declare void @_ks_array_clear(i8*)");
         emit("declare i8* @_ks_hashmap_new()");
         emit("declare void @_ks_hashmap_set(i8*, i8*, i8*)");
         emit("declare i8* @_ks_hashmap_get(i8*, i8*)");
@@ -1585,15 +1547,6 @@ private:
             emitI(loaded + " = load " + sty + ", " + sty + "* " + alloca_);
             return {loaded, sty};
         }
-        case Expr::Kind::Range: {
-            // Range expression (a..b or a..=b) — evaluate start and end.
-            // In for-in context the ForIn handler already decomposes this;
-            // if a Range reaches genExpr it means it's used as a value.
-            auto* r = static_cast<const RangeExpr*>(e);
-            genExpr(r->from.get());        // evaluate for side effects
-            auto [ev, et] = genExpr(r->to.get());
-            return {ev, et};               // return end value
-        }
         default:
             error("IRGen: unsupported expression kind " + std::to_string((int)e->kind),
                   e->line, e->col);
@@ -1979,7 +1932,7 @@ private:
                             auto sfit = m_structFields.find(it->second.ksTy);
                             if (sfit != m_structFields.end()) {
                                 for (auto& fi : sfit->second)
-                                    if (fi.name == fm->member) return fi.isArray ? "Array" : fi.ksTy;
+                                    if (fi.name == fm->member) return fi.ksTy;
                             }
                         }
                     }
@@ -2058,10 +2011,7 @@ private:
                 {"get",      {"@_ks_hashmap_get",  "i8*"}},
             };
             auto cit = collMethods.find(m->member);
-            // Skip collection methods if the object is a user-defined struct/class
-            // — otherwise method names like "get" collide with _ks_hashmap_get
-            bool isUserType = !objKsTy.empty() && m_structFields.count(objKsTy);
-            if (cit != collMethods.end() && !isUserType) {
+            if (cit != collMethods.end()) {
                 auto [obj, oty] = genExpr(m->object.get());
                 // For push: box args to i8*
                 std::string argList = oty + " " + obj;

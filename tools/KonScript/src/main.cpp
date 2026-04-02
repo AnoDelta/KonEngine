@@ -1047,7 +1047,7 @@ int main(int argc, char** argv) {
                 std::string bundledClang = toolchainDir + "/llvm/bin/clang" + exe;
                 if (fs::exists(bundledClang)) cc = bundledClang;
             }
-            std::string rtCmd = "\"" + cc + "\" -O2 -D_POSIX_C_SOURCE=200809L -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -c \""
+            std::string rtCmd = "\"" + cc + "\" -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -c \""
                               + runtimeSrc + "\" -o \"" + runtimeObj + "\"";
             if (std::system(rtCmd.c_str()) == 0) {
                 hasRuntime = true;

@@ -1125,7 +1125,7 @@ private:
             } else if (check(TokenType::DotDot) || check(TokenType::DotDotEq)) {
                 bool inc = check(TokenType::DotDotEq);
                 advance();
-                auto to = parsePrimary();
+                auto to = parseUnary();
                 expr = std::make_unique<RangeExpr>(
                     std::move(expr), std::move(to), inc, l, c);
 
