@@ -2198,14 +2198,21 @@ private:
     // Array index
     // -----------------------------------------------------------------------
     ValType genIndex(const IndexExpr* e) {
-        auto [base, _] = genExpr(e->object.get());
-        auto [idx,  __] = genExpr(e->index.get());
+        auto [base, baseTy] = genExpr(e->object.get());
+        auto [idx,  idxTy]  = genExpr(e->index.get());
+        // KonScript arrays are i8* (opaque pointer to KsArray)
+        // Use _ks_array_get to retrieve elements
+        if (baseTy == "i8*") {
+            std::string val = tmp();
+            emitI(val + " = call i8* @_ks_array_get(i8* " + base + ", i32 " + idx + ")");
+            return {val, "i8*"};
+        }
+        // Raw pointer indexing (e.g. C-style arrays)
         std::string ptr = tmp();
-        // Treat as i32* array — full type from symbol table needed for correctness
-        emitI(ptr + " = getelementptr i32, i32* " + base + ", i32 " + idx);
+        emitI(ptr + " = getelementptr " + baseTy + ", " + baseTy + "* " + base + ", i32 " + idx);
         std::string val = tmp();
-        emitI(val + " = load i32, i32* " + ptr);
-        return {val, "i32"};
+        emitI(val + " = load " + baseTy + ", " + baseTy + "* " + ptr);
+        return {val, baseTy};
     }
     // -----------------------------------------------------------------------
     // F-string codegen — builds formatted string via snprintf into stack buffer
