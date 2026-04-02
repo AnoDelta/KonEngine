@@ -1,159 +1,280 @@
-// ---------------------------------------------------------------------------
-// konscript.ks — the KonScript compiler, written in KonScript
-//
-// Stage plan:
-//   Stage 0 — C++ compiler (src/main.cpp)       <- current
-//   Stage 1 — this file compiled by stage 0      <- in progress
-//   Stage 2 — this file compiled by stage 1       <- goal (self-hosting)
-//
-// Build:
-//   ./bootstrap.sh --stage1
-// Verify:
-//   ./bootstrap.sh --verify
-// ---------------------------------------------------------------------------
+// konscript.ks — KonScript compiler written in KonScript
+// Phase 1: Lexer
 
-// -----------------------------------------------------------------------
-// Token kind constants
-// -----------------------------------------------------------------------
-const TK_EOF:        I32 = 0;
-const TK_INT:        I32 = 1;
-const TK_FLOAT:      I32 = 2;
-const TK_STR:        I32 = 3;
-const TK_IDENT:      I32 = 4;
-const TK_FUNC:       I32 = 5;
-const TK_LET:        I32 = 6;
-const TK_MUT:        I32 = 7;
-const TK_RETURN:     I32 = 8;
-const TK_IF:         I32 = 9;
-const TK_ELSE:       I32 = 10;
-const TK_WHILE:      I32 = 11;
-const TK_FOR:        I32 = 12;
-const TK_IN:         I32 = 13;
-const TK_LOOP:       I32 = 14;
-const TK_STRUCT:     I32 = 15;
-const TK_ENUM:       I32 = 16;
-const TK_PUB:        I32 = 17;
-const TK_CONST:      I32 = 18;
-const TK_AS:         I32 = 19;
-const TK_BREAK:      I32 = 20;
-const TK_CONTINUE:   I32 = 21;
-const TK_TRUE:       I32 = 22;
-const TK_FALSE:      I32 = 23;
-const TK_NODE:       I32 = 24;
-const TK_CLASS:      I32 = 25;
-const TK_INCLUDE:    I32 = 26;
-
-// Symbols
-const TK_PLUS:       I32 = 40;
-const TK_MINUS:      I32 = 41;
-const TK_STAR:       I32 = 42;
-const TK_SLASH:      I32 = 43;
-const TK_PERCENT:    I32 = 44;
-const TK_EQ:         I32 = 45;
-const TK_EQEQ:       I32 = 46;
-const TK_BANG:       I32 = 47;
-const TK_BANGEQ:     I32 = 48;
-const TK_LT:         I32 = 49;
-const TK_LTEQ:       I32 = 50;
-const TK_GT:         I32 = 51;
-const TK_GTEQ:       I32 = 52;
-const TK_AMPERAMPER: I32 = 53;
-const TK_PIPEPIPE:   I32 = 54;
-const TK_LPAREN:     I32 = 55;
-const TK_RPAREN:     I32 = 56;
-const TK_LBRACE:     I32 = 57;
-const TK_RBRACE:     I32 = 58;
-const TK_LBRACKET:   I32 = 59;
-const TK_RBRACKET:   I32 = 60;
-const TK_COMMA:      I32 = 61;
-const TK_DOT:        I32 = 62;
-const TK_DOTDOT:     I32 = 63;
-const TK_COLON:      I32 = 64;
-const TK_SEMICOLON:  I32 = 65;
-const TK_ARROW:      I32 = 66;
-const TK_PLUSEQ:     I32 = 67;
-const TK_MINUSEQ:    I32 = 68;
-const TK_STAREQ:     I32 = 69;
-const TK_SLASHEQ:    I32 = 70;
-const TK_PLUSPLUS:   I32 = 71;
-const TK_MINUSMINUS: I32 = 72;
-const TK_DOTDOTEQ:   I32 = 73;
-
-// -----------------------------------------------------------------------
-// Lexer state (global)
-// -----------------------------------------------------------------------
-let lex_line: I32 = 1;
-let lex_col:  I32 = 1;
-let tok_count: I32 = 0;
-let tmp_count: I32 = 0;
-let str_count: I32 = 0;
-
-// -----------------------------------------------------------------------
-// Error helpers
-// -----------------------------------------------------------------------
-func lex_error(line: I32, col: I32, msg: Str) {
-    Print("lexer error ", line, ":", col, ": ", msg);
+enum TokenKind {
+    // Literals
+    Int, Float, Str, Bool, Null,
+    // Identifiers
+    Ident,
+    // Keywords
+    KwLet, KwMut, KwConst, KwFunc, KwReturn,
+    KwIf, KwElse, KwWhile, KwLoop, KwFor, KwIn,
+    KwBreak, KwContinue, KwStruct, KwEnum, KwClass,
+    KwInterface, KwImplements, KwPub, KwAs, KwSpawn,
+    KwWait, KwExtern, KwSelf,
+    // Symbols
+    LParen, RParen, LBrace, RBrace, LBracket, RBracket,
+    Semicolon, Colon, Comma, Dot, DotDot, Arrow,
+    Hash, Bang, Question, Apostrophe, Star, And,
+    // Operators
+    Plus, Minus, Slash, Percent,
+    Eq, NotEq, Lt, Gt, LtEq, GtEq,
+    Assign, PlusEq, MinusEq, StarEq,
+    And2, Or2, NullCoal, SafeDot,
+    // Special
+    Eof, Error,
 }
 
-func parse_error(line: I32, col: I32, msg: Str) {
-    Print("parse error ", line, ":", col, ": ", msg);
+struct Token {
+    let kind:  TokenKind;
+    let value: Str;
+    let line:  I32;
+    let col:   I32;
 }
 
-func irgen_error(msg: Str) {
-    Print("irgen error: ", msg);
+class Lexer {
+    let mut src:    Str = "";
+    let mut pos:    I32 = 0;
+    let mut line:   I32 = 1;
+    let mut col:    I32 = 1;
+    let mut tokens: [Token] = [];
+
+    func init(mut self, source: Str) {
+        self.src  = source;
+        self.pos  = 0;
+        self.line = 1;
+        self.col  = 1;
+    }
+
+    func atEnd(self) -> Bool {
+        return self.pos >= self.src.len();
+    }
+
+    func peek(self) -> Str {
+        if self.atEnd() { return ""; }
+        return self.src.charAt(self.pos);
+    }
+
+    func peek2(self) -> Str {
+        if self.pos + 1 >= self.src.len() { return ""; }
+        return self.src.charAt(self.pos + 1);
+    }
+
+    func advance(mut self) -> Str {
+        let ch: Str = self.peek();
+        self.pos += 1;
+        if ch == "\n" {
+            self.line += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
+        }
+        return ch;
+    }
+
+    func emit(mut self, kind: TokenKind, value: Str, l: I32, c: I32) {
+        let t: Token = Token { kind: kind, value: value, line: l, col: c };
+        self.tokens.push(t);
+    }
+
+    func skipWhitespace(mut self) {
+        while !self.atEnd() {
+            let ch: Str = self.peek();
+            if ch == " " || ch == "\t" || ch == "\r" || ch == "\n" {
+                self.advance();
+            } else if ch == "/" && self.peek2() == "/" {
+                while !self.atEnd() && self.peek() != "\n" {
+                    self.advance();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    func readIdent(mut self) -> Str {
+        let mut s: Str = "";
+        while !self.atEnd() {
+            let ch: Str = self.peek();
+            if ch.isAlpha() || ch.isDigit() || ch == "_" {
+                s = s + self.advance();
+            } else {
+                break;
+            }
+        }
+        return s;
+    }
+
+    func readNumber(mut self) -> Str {
+        let mut s: Str = "";
+        while !self.atEnd() && self.peek().isDigit() {
+            s = s + self.advance();
+        }
+        if !self.atEnd() && self.peek() == "." && self.peek2().isDigit() {
+            s = s + self.advance();
+            while !self.atEnd() && self.peek().isDigit() {
+                s = s + self.advance();
+            }
+        }
+        return s;
+    }
+
+    func readString(mut self) -> Str {
+        self.advance(); // opening "
+        let mut s: Str = "";
+        while !self.atEnd() && self.peek() != "\"" {
+            let ch: Str = self.advance();
+            if ch == "\\" {
+                let esc: Str = self.advance();
+                if esc == "n"  { s = s + "\n"; }
+                else if esc == "t"  { s = s + "\t"; }
+                else if esc == "\"" { s = s + "\""; }
+                else if esc == "\\" { s = s + "\\"; }
+                else { s = s + esc; }
+            } else {
+                s = s + ch;
+            }
+        }
+        if !self.atEnd() { self.advance(); } // closing "
+        return s;
+    }
+
+    func keyword(self, s: Str) -> TokenKind {
+        if s == "let"        { return TokenKind::KwLet; }
+        if s == "mut"        { return TokenKind::KwMut; }
+        if s == "const"      { return TokenKind::KwConst; }
+        if s == "func"       { return TokenKind::KwFunc; }
+        if s == "return"     { return TokenKind::KwReturn; }
+        if s == "if"         { return TokenKind::KwIf; }
+        if s == "else"       { return TokenKind::KwElse; }
+        if s == "while"      { return TokenKind::KwWhile; }
+        if s == "loop"       { return TokenKind::KwLoop; }
+        if s == "for"        { return TokenKind::KwFor; }
+        if s == "in"         { return TokenKind::KwIn; }
+        if s == "break"      { return TokenKind::KwBreak; }
+        if s == "continue"   { return TokenKind::KwContinue; }
+        if s == "struct"     { return TokenKind::KwStruct; }
+        if s == "enum"       { return TokenKind::KwEnum; }
+        if s == "class"      { return TokenKind::KwClass; }
+        if s == "interface"  { return TokenKind::KwInterface; }
+        if s == "implements" { return TokenKind::KwImplements; }
+        if s == "pub"        { return TokenKind::KwPub; }
+        if s == "as"         { return TokenKind::KwAs; }
+        if s == "spawn"      { return TokenKind::KwSpawn; }
+        if s == "wait"       { return TokenKind::KwWait; }
+        if s == "extern"     { return TokenKind::KwExtern; }
+        if s == "self"       { return TokenKind::KwSelf; }
+        if s == "true"       { return TokenKind::Bool; }
+        if s == "false"      { return TokenKind::Bool; }
+        if s == "null"       { return TokenKind::Null; }
+        return TokenKind::Ident;
+    }
+
+    func tokenize(mut self) -> [Token] {
+        while !self.atEnd() {
+            self.skipWhitespace();
+            if self.atEnd() { break; }
+
+            let l: I32 = self.line;
+            let c: I32 = self.col;
+            let ch: Str = self.peek();
+
+            if ch.isAlpha() || ch == "_" {
+                let word: Str = self.readIdent();
+                let kind: TokenKind = self.keyword(word);
+                self.emit(kind, word, l, c);
+            } else if ch.isDigit() {
+                let num: Str = self.readNumber();
+                if num.contains(".") {
+                    self.emit(TokenKind::Float, num, l, c);
+                } else {
+                    self.emit(TokenKind::Int, num, l, c);
+                }
+            } else if ch == "\"" {
+                let s: Str = self.readString();
+                self.emit(TokenKind::Str, s, l, c);
+            } else if ch == "(" { self.advance(); self.emit(TokenKind::LParen,    "(", l, c); }
+            else if ch == ")" { self.advance(); self.emit(TokenKind::RParen,    ")", l, c); }
+            else if ch == "{" { self.advance(); self.emit(TokenKind::LBrace,    "{", l, c); }
+            else if ch == "}" { self.advance(); self.emit(TokenKind::RBrace,    "}", l, c); }
+            else if ch == "[" { self.advance(); self.emit(TokenKind::LBracket,  "[", l, c); }
+            else if ch == "]" { self.advance(); self.emit(TokenKind::RBracket,  "]", l, c); }
+            else if ch == ";" { self.advance(); self.emit(TokenKind::Semicolon, ";", l, c); }
+            else if ch == "," { self.advance(); self.emit(TokenKind::Comma,     ",", l, c); }
+            else if ch == "#" { self.advance(); self.emit(TokenKind::Hash,      "#", l, c); }
+            else if ch == "?" { self.advance(); self.emit(TokenKind::Question,  "?", l, c); }
+            else if ch == "+" {
+                self.advance();
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::PlusEq, "+=", l, c); }
+                else { self.emit(TokenKind::Plus, "+", l, c); }
+            } else if ch == "-" {
+                self.advance();
+                if self.peek() == ">" { self.advance(); self.emit(TokenKind::Arrow, "->", l, c); }
+                else if self.peek() == "=" { self.advance(); self.emit(TokenKind::MinusEq, "-=", l, c); }
+                else { self.emit(TokenKind::Minus, "-", l, c); }
+            } else if ch == "*" {
+                self.advance();
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::StarEq, "*=", l, c); }
+                else { self.emit(TokenKind::Star, "*", l, c); }
+            } else if ch == "/" {
+                self.advance();
+                self.emit(TokenKind::Slash, "/", l, c);
+            } else if ch == "%" {
+                self.advance();
+                self.emit(TokenKind::Percent, "%", l, c);
+            } else if ch == "=" {
+                self.advance();
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::Eq, "==", l, c); }
+                else { self.emit(TokenKind::Assign, "=", l, c); }
+            } else if ch == "!" {
+                self.advance();
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::NotEq, "!=", l, c); }
+                else { self.emit(TokenKind::Bang, "!", l, c); }
+            } else if ch == "<" {
+                self.advance();
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::LtEq, "<=", l, c); }
+                else { self.emit(TokenKind::Lt, "<", l, c); }
+            } else if ch == ">" {
+                self.advance();
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::GtEq, ">=", l, c); }
+                else { self.emit(TokenKind::Gt, ">", l, c); }
+            } else if ch == "&" {
+                self.advance();
+                if self.peek() == "&" { self.advance(); self.emit(TokenKind::And2, "&&", l, c); }
+                else { self.emit(TokenKind::And, "&", l, c); }
+            } else if ch == "|" {
+                self.advance();
+                if self.peek() == "|" { self.advance(); self.emit(TokenKind::Or2, "||", l, c); }
+                else { self.advance(); } // skip unknown
+            } else if ch == ":" {
+                self.advance();
+                self.emit(TokenKind::Colon, ":", l, c);
+            } else if ch == "." {
+                self.advance();
+                if self.peek() == "." { self.advance(); self.emit(TokenKind::DotDot, "..", l, c); }
+                else { self.emit(TokenKind::Dot, ".", l, c); }
+            } else if ch == "'" {
+                self.advance();
+                let mut label: Str = "'";
+                while !self.atEnd() && (self.peek().isAlpha() || self.peek().isDigit() || self.peek() == "_") {
+                    label = label + self.advance();
+                }
+                self.emit(TokenKind::Apostrophe, label, l, c);
+            } else {
+                self.advance(); // skip unknown
+            }
+        }
+        self.emit(TokenKind::Eof, "", self.line, self.col);
+        return self.tokens;
+    }
 }
 
-// -----------------------------------------------------------------------
-// IR emit helpers — write LLVM IR to stdout
-// -----------------------------------------------------------------------
-func next_tmp() -> I32 {
-    let t: I32 = tmp_count;
-    tmp_count = tmp_count + 1;
-    return t;
-}
-
-func next_str() -> I32 {
-    let s: I32 = str_count;
-    str_count = str_count + 1;
-    return s;
-}
-
-func emit(line: Str) {
-    Print(line);
-}
-
-func emiti(line: Str) {
-    Print("  ", line);
-}
-
-func emit_module_header(filename: Str) {
-    Print("; Generated by KonScript (self-hosted) v0.1");
-    Print("; Source: ", filename);
-    Print("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
-    Print("target triple = \"x86_64-pc-linux-gnu\"");
-    Print("");
-    Print("; --- runtime ---");
-    Print("declare i32 @printf(i8* nocapture, ...)");
-    Print("declare i8* @malloc(i64)");
-    Print("declare void @free(i8*)");
-    Print("declare i32 @strlen(i8*)");
-    Print("");
-}
-
-// -----------------------------------------------------------------------
-// main — entry point
-//
-// Current state: skeleton only.
-// Prints its own version and exits cleanly.
-// Each subsequent commit implements more of the pipeline:
-//   1. Read argv + source file
-//   2. Tokenise (lex)
-//   3. Parse → AST (in-memory via arrays)
-//   4. Typecheck
-//   5. IRGen → emit LLVM IR
-// -----------------------------------------------------------------------
-func main() -> I32 {
-    Print("KonScript self-hosted compiler — stage 1 skeleton");
-    Print("Not yet fully implemented. Run ./bootstrap.sh to track progress.");
-    return 0;
+func main() {
+    let source: Str = "func main() { let x: I32 = 42; Print(x); }";
+    let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
+    lexer.init(source);
+    let tokens: [Token] = lexer.tokenize();
+    for tok in tokens {
+        Print(f"{tok.line}:{tok.col} {tok.value}");
+    }
 }

@@ -128,6 +128,14 @@ public:
 
         // String helpers
         line("inline int _ks_str_len(const std::string& s){return(int)s.size();}");
+        line("inline std::string _ks_str_charAt(const std::string& s,int i){if(i<0||i>=(int)s.size())return std::string();return std::string(1,s[i]);}");
+        line("inline bool _ks_str_isAlpha(const std::string& s){return !s.empty()&&std::isalpha((unsigned char)s[0]);}");
+        line("inline bool _ks_str_isDigit(const std::string& s){return !s.empty()&&std::isdigit((unsigned char)s[0]);}");
+        line("inline bool _ks_str_isUpper(const std::string& s){return !s.empty()&&std::isupper((unsigned char)s[0]);}");
+        line("inline bool _ks_str_isLower(const std::string& s){return !s.empty()&&std::islower((unsigned char)s[0]);}");
+        line("inline bool _ks_str_isSpace(const std::string& s){return !s.empty()&&std::isspace((unsigned char)s[0]);}");
+        line("inline int _ks_str_toCharCode(const std::string& s){return s.empty()?0:(unsigned char)s[0];}");
+        line("inline std::string _ks_str_fromCharCode(int c){return std::string(1,(char)c);}");
         line("inline std::vector<std::string> _ks_str_split(const std::string& s,const std::string& d){");
         line("    std::vector<std::string> r;size_t p=0,f;");
         line("    while((f=s.find(d,p))!=std::string::npos){r.push_back(s.substr(p,f-p));p=f+d.size();}");
@@ -253,6 +261,9 @@ private:
     std::unordered_set<std::string> m_enumNames;
     std::unordered_set<std::string> m_interfaceNames;
     std::unordered_set<std::string> m_currentClassIfaces;
+    // interface name → set of method names (for override detection)
+    std::unordered_map<std::string, std::unordered_set<std::string>> m_ifaceMethods;
+    std::unordered_set<std::string> m_overrideMethods; // methods in current class that need override
     // Maps enum variant name → enum type name, for switch case qualification
     std::unordered_map<std::string, std::string> m_enumVariants;
     // User-declared struct names — value types, not pointers
@@ -648,6 +659,12 @@ private:
         auto* c = static_cast<const ClassDecl*>(s);
         m_currentClassIfaces = std::unordered_set<std::string>(
             c->implements.begin(), c->implements.end());
+        // Build the set of method names that need "override"
+        m_overrideMethods.clear();
+        for (auto& iface : c->implements)
+            if (m_ifaceMethods.count(iface))
+                for (auto& mn : m_ifaceMethods.at(iface))
+                    m_overrideMethods.insert(mn);
         if (!c->typeParams.empty()) {
             std::string tpl = "template<";
             for (size_t i = 0; i < c->typeParams.size(); i++) {
@@ -678,6 +695,7 @@ private:
         if (!c->fields.empty()) line("");
         for (auto& m : c->methods) genFuncDecl(m.get(), ""); // empty prefix: inline class body
         m_currentClassIfaces.clear();
+        m_overrideMethods.clear();
         dedent();
         line("};");
         line("");
@@ -895,10 +913,11 @@ private:
             write(pct + " " + f->params[i].name);
         }
         // Add override if implementing interface
-        bool hasSelf = false;
-        for (auto& p : f->params) if (p.name == "self") { hasSelf = true; break; }
-        std::string overrideMark = !m_currentClassIfaces.empty() ? " override" : "";
-        std::string constMark = hasSelf ? " const" : "";
+        bool hasSelf = false, selfIsMut = false;
+        for (auto& p : f->params)
+            if (p.name == "self") { hasSelf = true; selfIsMut = p.mut; break; }
+        std::string overrideMark = m_overrideMethods.count(f->name) ? " override" : "";
+        std::string constMark = (hasSelf && !selfIsMut) ? " const" : "";
         write(")" + constMark + overrideMark + " {\n");
         indent();
         if (hasSelf) line("auto& self = *this;");
@@ -1111,7 +1130,9 @@ private:
         }
 
         write(std::string(m_indent * 4, ' '));
-        write("for (const " + cppType(f->type) + "& " + f->var + " : ");
+        // Use auto& when no type annotation given (type-inferred for loop)
+        std::string loopType = f->type.base.empty() ? "auto" : ("const " + cppType(f->type));
+        write("for (" + loopType + "& " + f->var + " : ");
         genExpr(f->iterable.get()); write(") {\n");
         indent(); genBlock(f->body.get()); dedent();
         line("}");
@@ -1714,7 +1735,15 @@ private:
                     {"lower",    "_ks_str_lower"},
                     {"substr",   "_ks_str_substr"},
                     {"toInt",    "_ks_str_toInt"},
-                    {"toFloat",  "_ks_str_toFloat"},
+                    {"toFloat",       "_ks_str_toFloat"},
+                    {"charAt",        "_ks_str_charAt"},
+                    {"isAlpha",       "_ks_str_isAlpha"},
+                    {"isDigit",       "_ks_str_isDigit"},
+                    {"isUpper",       "_ks_str_isUpper"},
+                    {"isLower",       "_ks_str_isLower"},
+                    {"isSpace",       "_ks_str_isSpace"},
+                    {"toCharCode",    "_ks_str_toCharCode"},
+                    {"fromCharCode",  "_ks_str_fromCharCode"},
                 };
                 auto it = strMethods.find(m->member);
                 if (it != strMethods.end()) {
@@ -1794,6 +1823,10 @@ private:
     void genInterface(const Stmt* s) {
         auto* id = static_cast<const InterfaceDecl*>(s);
         m_interfaceNames.insert(id->name);
+        // Record method names for override detection
+        std::unordered_set<std::string> mnames;
+        for (auto& m : id->methods) mnames.insert(m.name);
+        m_ifaceMethods[id->name] = std::move(mnames);
         // Template prefix for generic interfaces
         if (!id->typeParams.empty()) {
             std::string tpl = "template<";
@@ -1808,13 +1841,13 @@ private:
             std::string ret = m.returnType ? cppType(*m.returnType) : "void";
             std::string sig = "virtual " + ret + " " + m.name + "(";
             bool first = true;
-            bool hasSelf = false;
+            bool hasSelf = false, selfIsMut = false;
             for (auto& p : m.params) {
-                if (p.name == "self") { hasSelf = true; continue; }
+                if (p.name == "self") { hasSelf = true; selfIsMut = p.mut; continue; }
                 if (!first) sig += ", "; first = false;
                 sig += cppType(p.type) + " " + p.name;
             }
-            std::string constQ = hasSelf ? " const" : "";
+            std::string constQ = (hasSelf && !selfIsMut) ? " const" : "";
             if (m.defaultBody) {
                 sig += ")" + constQ;
                 line(sig + " {");

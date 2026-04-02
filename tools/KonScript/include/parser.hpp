@@ -407,7 +407,12 @@ private:
         std::vector<EnumVariant> variants;
         while (!check(TokenType::RBrace) && !atEnd()) {
             EnumVariant v;
-            v.name = expect(TokenType::Ident, "expected variant name").value;
+            // Allow keywords as variant names (e.g. Bool, Str, Int, Float)
+            if (check(TokenType::Ident) || peek().type >= TokenType::TI8) {
+                v.name = advance().value;
+            } else {
+                v.name = expect(TokenType::Ident, "expected variant name").value;
+            }
             if (check(TokenType::LParen)) {
                 advance();
                 v.payload = parseType();
@@ -864,8 +869,12 @@ private:
         }
 
         std::string var = expect(TokenType::Ident, "expected variable name").value;
-        expect(TokenType::Colon, "expected ':' after variable");
-        auto type = parseType();
+        // Type annotation is optional: "for x in arr" or "for x: T in arr"
+        TypeAnnotation type;
+        if (check(TokenType::Colon)) {
+            advance();
+            type = parseType();
+        }
 
         if (match(TokenType::In)) {
             auto iterable = parseExpr();
@@ -1062,7 +1071,19 @@ private:
                 check(TokenType::ColonColon)) {
                 bool safe = check(TokenType::SafeDot);
                 advance();
-                std::string member = expect(TokenType::Ident, "expected member name").value;
+                // Allow keywords as member names: TokenKind::Bool, SomeEnum::Str etc.
+                std::string member;
+                if (check(TokenType::Ident) || (
+                    peek().type != TokenType::LParen &&
+                    peek().type != TokenType::Semicolon &&
+                    peek().type != TokenType::RBrace &&
+                    peek().type != TokenType::RParen &&
+                    peek().type != TokenType::Comma &&
+                    peek().type != TokenType::Eof)) {
+                    member = advance().value;
+                } else {
+                    member = expect(TokenType::Ident, "expected member name").value;
+                }
                 expr = std::make_unique<MemberExpr>(
                     std::move(expr), member, safe, l, c);
 
