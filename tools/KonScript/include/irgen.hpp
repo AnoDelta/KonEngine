@@ -120,7 +120,7 @@ public:
                 auto* sd = static_cast<const StructDecl*>(s.get());
                 std::vector<FieldInfo> fields;
                 for (auto& f : sd->fields)
-                    fields.push_back({f.name, llvmType(f.type), f.type.base});
+                    fields.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
                 m_structFields[sd->name] = fields;
             } else if (s->kind == Stmt::Kind::EnumDecl) {
                 auto* ed = static_cast<const EnumDecl*>(s.get());
@@ -132,7 +132,7 @@ public:
                 auto* cd = static_cast<const ClassDecl*>(s.get());
                 std::vector<FieldInfo> fields;
                 for (auto& f : cd->fields)
-                    fields.push_back({f.name, llvmType(f.type), f.type.base});
+                    fields.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
                 m_structFields[cd->name] = fields;
                 // Register methods as ClassName_methodName
                 for (auto& m : cd->methods) {
@@ -144,7 +144,7 @@ public:
                 auto* nd = static_cast<const NodeDecl*>(s.get());
                 std::vector<FieldInfo> fields;
                 for (auto& f : nd->fields)
-                    fields.push_back({f.name, llvmType(f.type), f.type.base});
+                    fields.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
                 m_structFields[nd->name] = fields;
                 for (auto& m : nd->methods)
                     m_funcRetTypes[nd->name + "_" + m->name] =
@@ -210,7 +210,7 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string,int>> m_enumVariants;
 
     // Struct field layout: structName → list of {fieldName, llvmType}
-    struct FieldInfo { std::string name; std::string llvmTy; std::string ksTy; };
+    struct FieldInfo { std::string name; std::string llvmTy; std::string ksTy; bool isArray = false; };
     std::unordered_map<std::string, std::vector<FieldInfo>> m_structFields;
     // Current basic block label (for branch targets)
     std::string m_currentBlock;
@@ -523,7 +523,7 @@ private:
         emit("%struct." + s->name + " = type " + body);
         // Build field table with ksTy
         std::vector<FieldInfo> fi2;
-        for (auto& f : s->fields) fi2.push_back({f.name, llvmType(f.type), f.type.base});
+        for (auto& f : s->fields) fi2.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
         m_structFields[s->name] = fi2;
     }
 
@@ -543,7 +543,7 @@ private:
         // Register field layout for GEP access
         std::vector<FieldInfo> si;
         for (auto& f : c->fields)
-            si.push_back({f.name, llvmType(f.type), f.type.base});
+            si.push_back({f.name, llvmType(f.type), f.type.base, f.type.isArray});
         m_structFields[c->name] = si;
         // Emit each method as a standalone function: ClassName_methodName
         for (auto& method : c->methods) {
@@ -2067,13 +2067,40 @@ private:
                     }
                 }
             }
-        } else {
-            // Nested member — recurse: first get the sub-object value
+        } else if (e->object->kind == Expr::Kind::Member) {
+            // Nested member access: self.field.subfield
             auto [subPtr, subTy] = genMemberAddr(
                 static_cast<const MemberExpr*>(e->object.get()));
-            objPtr = subPtr;
-            if (subTy.rfind("%struct.", 0) == 0)
+            // subPtr is a GEP result (pointer to field type)
+            // Load it to get the actual struct pointer
+            if (!subPtr.empty() && subTy.rfind("%struct.", 0) == 0 && subTy.back() == '*') {
+                std::string loaded = tmp();
+                emitI(loaded + " = load " + subTy + ", " + subTy + "* " + subPtr);
+                objPtr = loaded;
                 structName = subTy.substr(8, subTy.size() - 9);
+            } else {
+                objPtr = subPtr;
+                if (!subTy.empty() && subTy.rfind("%struct.", 0) == 0)
+                    structName = subTy.substr(8, subTy.size() - 9);
+            }
+        } else if (e->object->kind == Expr::Kind::Index) {
+            // Array element field access: arr[i].field
+            // genIndex returns {slot, elemPtrTy*} where slot is a T** alloca
+            auto [idxVal, idxTy] = genExpr(e->object.get());
+            // idxTy is either i8* (unknown element type) or %struct.T** (typed)
+            if (idxTy.size() > 9 && idxTy.rfind("%struct.", 0) == 0 && idxTy.back() == '*') {
+                // Strip one level of * to get the struct ptr type
+                std::string ptrTy = idxTy.substr(0, idxTy.size() - 1); // T*
+                // Load from the slot to get the struct pointer
+                std::string loaded = tmp();
+                emitI(loaded + " = load " + ptrTy + ", " + idxTy + " " + idxVal);
+                objPtr = loaded;
+                if (ptrTy.rfind("%struct.", 0) == 0 && ptrTy.back() == '*')
+                    structName = ptrTy.substr(8, ptrTy.size() - 9);
+            } else if (idxTy == "i8*") {
+                // Unknown element type — cannot GEP, return empty
+                return {"", "i32"};
+            }
         }
 
         if (objPtr.empty() || structName.empty())
@@ -2203,9 +2230,50 @@ private:
         // KonScript arrays are i8* (opaque pointer to KsArray)
         // Use _ks_array_get to retrieve elements
         if (baseTy == "i8*") {
-            std::string val = tmp();
-            emitI(val + " = call i8* @_ks_array_get(i8* " + base + ", i32 " + idx + ")");
-            return {val, "i8*"};
+            std::string raw = tmp();
+            emitI(raw + " = call i8* @_ks_array_get(i8* " + base + ", i32 " + idx + ")");
+            // Try to determine element type from the object expression
+            std::string elemKsTy;
+            if (e->object->kind == Expr::Kind::Ident) {
+                auto* id = static_cast<const IdentExpr*>(e->object.get());
+                auto it = m_locals.find(id->name);
+                if (it != m_locals.end()) {
+                    std::string ks = it->second.ksTy;
+                    // strip [ ] from array type annotation
+                    if (!ks.empty() && ks.front() == '[' && ks.back() == ']')
+                        elemKsTy = ks.substr(1, ks.size()-2);
+                }
+            } else if (e->object->kind == Expr::Kind::Member) {
+                auto* m2 = static_cast<const MemberExpr*>(e->object.get());
+                if (m2->object->kind == Expr::Kind::Ident) {
+                    auto* id = static_cast<const IdentExpr*>(m2->object.get());
+                    auto it = m_locals.find(id->name);
+                    if (it != m_locals.end()) {
+                        auto sfit = m_structFields.find(it->second.ksTy);
+                        if (sfit != m_structFields.end())
+                            for (auto& fi : sfit->second)
+                                if (fi.name == m2->member && fi.isArray && !fi.ksTy.empty())
+                                    elemKsTy = fi.ksTy;
+                    }
+                }
+            }
+            // If we know the element type and it is a struct, bitcast i8* → T*
+            // and return with a LocalVar-compatible ksTy
+            if (!elemKsTy.empty() && m_structFields.count(elemKsTy)) {
+                std::string elemPtrTy = "%struct." + elemKsTy + "*";
+                std::string casted = tmp();
+                emitI(casted + " = bitcast i8* " + raw + " to " + elemPtrTy);
+                // Alloca a slot so genMemberAddr can load through it
+                std::string slot = casted + ".slot";
+                emitI(slot + " = alloca " + elemPtrTy);
+                emitI("store " + elemPtrTy + " " + casted + ", " + elemPtrTy + "* " + slot);
+                // Register as a pseudo-local so member access works
+                std::string pseudoName = "__arr_elem_" + raw.substr(1);
+                LocalVar lv; lv.addr = slot; lv.llvmTy = elemPtrTy; lv.ksTy = elemKsTy;
+                m_locals[pseudoName] = lv;
+                return {slot, elemPtrTy + "*"};
+            }
+            return {raw, "i8*"};
         }
         // Raw pointer indexing (e.g. C-style arrays)
         std::string ptr = tmp();
