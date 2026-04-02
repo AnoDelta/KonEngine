@@ -1,27 +1,26 @@
-// konscript.ks — KonScript compiler written in KonScript
-// Phase 1: Lexer
+/* konscript.ks — KonScript self-hosted compiler
+   Phase 1: Lexer
+   Compiles and runs under: konscript --check / ksc */
 
 enum TokenKind {
-    // Literals
-    Int, Float, Str, Bool, Null,
-    // Identifiers
-    Ident,
-    // Keywords
+    /* literals */
+    Int, Float, Str, Bool, Null, Ident,
+    /* keywords */
     KwLet, KwMut, KwConst, KwFunc, KwReturn,
     KwIf, KwElse, KwWhile, KwLoop, KwFor, KwIn,
     KwBreak, KwContinue, KwStruct, KwEnum, KwClass,
     KwInterface, KwImplements, KwPub, KwAs, KwSpawn,
     KwWait, KwExtern, KwSelf,
-    // Symbols
+    /* symbols */
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     Semicolon, Colon, Comma, Dot, DotDot, Arrow,
-    Hash, Bang, Question, Apostrophe, Star, And,
-    // Operators
+    Hash, Bang, Question, Star, And,
+    /* operators */
     Plus, Minus, Slash, Percent,
     Eq, NotEq, Lt, Gt, LtEq, GtEq,
     Assign, PlusEq, MinusEq, StarEq,
-    And2, Or2, NullCoal, SafeDot,
-    // Special
+    And2, Or2,
+    /* special */
     Eof, Error,
 }
 
@@ -120,7 +119,7 @@ class Lexer {
     }
 
     func readString(mut self) -> Str {
-        self.advance(); // opening "
+        self.advance();
         let mut s: Str = "";
         while !self.atEnd() && self.peek() != "\"" {
             let ch: Str = self.advance();
@@ -128,14 +127,13 @@ class Lexer {
                 let esc: Str = self.advance();
                 if esc == "n"  { s = s + "\n"; }
                 else if esc == "t"  { s = s + "\t"; }
-                else if esc == "\"" { s = s + "\""; }
                 else if esc == "\\" { s = s + "\\"; }
                 else { s = s + esc; }
             } else {
                 s = s + ch;
             }
         }
-        if !self.atEnd() { self.advance(); } // closing "
+        if !self.atEnd() { self.advance(); }
         return s;
     }
 
@@ -195,21 +193,21 @@ class Lexer {
                 self.emit(TokenKind::Str, s, l, c);
             } else if ch == "(" { self.advance(); self.emit(TokenKind::LParen,    "(", l, c); }
             else if ch == ")" { self.advance(); self.emit(TokenKind::RParen,    ")", l, c); }
-            else if ch == "{" { self.advance(); self.emit(TokenKind::LBrace,    "{", l, c); }
-            else if ch == "}" { self.advance(); self.emit(TokenKind::RBrace,    "}", l, c); }
             else if ch == "[" { self.advance(); self.emit(TokenKind::LBracket,  "[", l, c); }
             else if ch == "]" { self.advance(); self.emit(TokenKind::RBracket,  "]", l, c); }
             else if ch == ";" { self.advance(); self.emit(TokenKind::Semicolon, ";", l, c); }
             else if ch == "," { self.advance(); self.emit(TokenKind::Comma,     ",", l, c); }
             else if ch == "#" { self.advance(); self.emit(TokenKind::Hash,      "#", l, c); }
             else if ch == "?" { self.advance(); self.emit(TokenKind::Question,  "?", l, c); }
+            else if ch == "{" { self.advance(); self.emit(TokenKind::LBrace,    "LB", l, c); }
+            else if ch == "}" { self.advance(); self.emit(TokenKind::RBrace,    "RB", l, c); }
             else if ch == "+" {
                 self.advance();
-                if self.peek() == "=" { self.advance(); self.emit(TokenKind::PlusEq, "+=", l, c); }
-                else { self.emit(TokenKind::Plus, "+", l, c); }
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::PlusEq,  "+=", l, c); }
+                else { self.emit(TokenKind::Plus,  "+", l, c); }
             } else if ch == "-" {
                 self.advance();
-                if self.peek() == ">" { self.advance(); self.emit(TokenKind::Arrow, "->", l, c); }
+                if self.peek() == ">" { self.advance(); self.emit(TokenKind::Arrow,   "->", l, c); }
                 else if self.peek() == "=" { self.advance(); self.emit(TokenKind::MinusEq, "-=", l, c); }
                 else { self.emit(TokenKind::Minus, "-", l, c); }
             } else if ch == "*" {
@@ -224,7 +222,7 @@ class Lexer {
                 self.emit(TokenKind::Percent, "%", l, c);
             } else if ch == "=" {
                 self.advance();
-                if self.peek() == "=" { self.advance(); self.emit(TokenKind::Eq, "==", l, c); }
+                if self.peek() == "=" { self.advance(); self.emit(TokenKind::Eq,     "==", l, c); }
                 else { self.emit(TokenKind::Assign, "=", l, c); }
             } else if ch == "!" {
                 self.advance();
@@ -245,7 +243,7 @@ class Lexer {
             } else if ch == "|" {
                 self.advance();
                 if self.peek() == "|" { self.advance(); self.emit(TokenKind::Or2, "||", l, c); }
-                else { self.advance(); } // skip unknown
+                else { self.advance(); }
             } else if ch == ":" {
                 self.advance();
                 self.emit(TokenKind::Colon, ":", l, c);
@@ -253,28 +251,21 @@ class Lexer {
                 self.advance();
                 if self.peek() == "." { self.advance(); self.emit(TokenKind::DotDot, "..", l, c); }
                 else { self.emit(TokenKind::Dot, ".", l, c); }
-            } else if ch == "'" {
-                self.advance();
-                let mut label: Str = "'";
-                while !self.atEnd() && (self.peek().isAlpha() || self.peek().isDigit() || self.peek() == "_") {
-                    label = label + self.advance();
-                }
-                self.emit(TokenKind::Apostrophe, label, l, c);
             } else {
-                self.advance(); // skip unknown
+                self.advance();
             }
         }
-        self.emit(TokenKind::Eof, "", self.line, self.col);
+        self.emit(TokenKind::Eof, "EOF", self.line, self.col);
         return self.tokens;
     }
 }
 
 func main() {
-    let source: Str = "func main() { let x: I32 = 42; Print(x); }";
+    let source: Str = "let x: I32 = 42;";
     let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
     lexer.init(source);
     let tokens: [Token] = lexer.tokenize();
     for tok in tokens {
-        Print(f"{tok.line}:{tok.col} {tok.value}");
+        Print(tok.value);
     }
 }
