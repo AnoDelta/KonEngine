@@ -228,7 +228,8 @@ public:
                 s->kind == Stmt::Kind::StructDecl  ||
                 s->kind == Stmt::Kind::ClassDecl   ||
                 s->kind == Stmt::Kind::EnumDecl    ||
-                s->kind == Stmt::Kind::FuncDecl)
+                s->kind == Stmt::Kind::FuncDecl    ||
+                s->kind == Stmt::Kind::ExternDecl)
                 forwardDeclare(s.get());
 
         line("");
@@ -289,6 +290,10 @@ private:
     // Type conversion
     // -----------------------------------------------------------------------
     std::string cppType(const TypeAnnotation& ta) {
+        if (ta.isPtr) {
+            TypeAnnotation inner=ta; inner.isPtr=false; inner.isPtrMut=false;
+            return ta.isPtrMut ? (cppType(inner)+"*") : ("const "+cppType(inner)+"*");
+        }
         if (ta.isFuncType) {
             std::string ret = ta.funcReturnType ? cppType(*ta.funcReturnType) : "void";
             std::string sig = "std::function<" + ret + "(";
@@ -425,6 +430,9 @@ private:
                 for (auto& tp : f->typeParams) m_typeParams.erase(tp);
                 break;
             }
+            case Stmt::Kind::ExternDecl:
+                genExtern(s);
+                break;
             case Stmt::Kind::StructDecl: {
                 auto* sd = static_cast<const StructDecl*>(s);
                 m_structNames.insert(sd->name);
@@ -492,6 +500,8 @@ private:
                 genFuncDecl(static_cast<const FuncDecl*>(s), "");
                 break;
             case Stmt::Kind::Let:        genLet(s);       break;
+            case Stmt::Kind::ExternDecl: break; // emitted in forward pass
+            case Stmt::Kind::AsmStmt:    genAsmStmt(s);   break;
             default: break;
         }
     }
@@ -593,6 +603,11 @@ private:
     // -----------------------------------------------------------------------
     void genStruct(const Stmt* s) {
         auto* st = static_cast<const StructDecl*>(s);
+        std::string sattr;
+        for(auto& a:st->attributes){
+            if(a=="packed") sattr+=" __attribute__((packed))";
+            else if(a.rfind("align",0)==0) sattr+=" "+a;
+        }
         if (!st->typeParams.empty()) {
             std::string tpl = "template<";
             for (size_t i = 0; i < st->typeParams.size(); i++) {
@@ -601,7 +616,7 @@ private:
             }
             line(tpl + ">");
         }
-        line("struct " + st->name + " {");
+        line("struct " + st->name + sattr + " {");
         indent();
         for (auto& f : st->fields) {
             write(std::string(m_indent * 4, ' '));
@@ -830,6 +845,13 @@ private:
         if (f->isCoroutine) ret = "_KsTask";
         else ret = f->returnType ? cppType(*f->returnType) : "void";
         write(std::string(m_indent * 4, ' '));
+        for(auto& attr:f->attributes){
+            if(attr=="naked")         line("__attribute__((naked))");
+            else if(attr=="noreturn") line("[[noreturn]]");
+            else if(attr=="noinline") line("__attribute__((noinline))");
+            else if(attr=="inline")   write(std::string(m_indent*4,' ')+"inline ");
+            else                      line("/* #["+attr+"] */");
+        }
         // func main() -> int main()
         std::string fname = f->name;
         if (fname == "main") ret = "int";
@@ -889,6 +911,8 @@ private:
             case Stmt::Kind::ForIn:    genForIn(s);    break;
             case Stmt::Kind::Switch:   genSwitch(s);   break;
             case Stmt::Kind::Wait:     genWait(s);     break;
+            case Stmt::Kind::AsmStmt:  genAsmStmt(s);  break;
+            case Stmt::Kind::ExternDecl: break;
             case Stmt::Kind::FuncDecl:
                 genFuncDecl(static_cast<const FuncDecl*>(s), "");
                 break;
@@ -1200,6 +1224,15 @@ private:
                 genExpr(static_cast<const SpawnExpr*>(e)->call.get());
                 write(")");
                 break;
+            case Expr::Kind::Deref:
+                write("(*"); genExpr(static_cast<const DerefExpr*>(e)->ptr.get()); write(")");
+                break;
+            case Expr::Kind::AddrOf: {
+                auto* ao=static_cast<const AddrOfExpr*>(e);
+                write(ao->mut_ ? "&" : "(const void*)&");
+                genExpr(ao->value.get());
+                break;
+            }
             case Expr::Kind::FuncExpr:
                 genFuncExpr(static_cast<const FuncExpr*>(e));
                 break;
@@ -1719,6 +1752,51 @@ private:
         return m_classNames.count(t) || m_structNames.count(t);
     }
 
+    void genExtern(const Stmt* s) {
+        auto* e=static_cast<const ExternDecl*>(s);
+        std::string lnk=e->linkage.empty()?"C":e->linkage;
+        std::string ret=e->returnType.base.empty()?"void":cppType(e->returnType);
+        std::string sig="extern \""+lnk+"\" "+ret+" "+e->name+"(";
+        for(size_t i=0;i<e->params.size();i++){
+            if(i)sig+=", ";
+            sig+=cppType(e->params[i].type);
+            if(!e->params[i].name.empty())sig+=" "+e->params[i].name;
+        }
+        if(e->variadic){if(!e->params.empty())sig+=", ";sig+="...";}
+        sig+=");";
+        line(sig);
+    }
+
+    void genAsmStmt(const Stmt* s) {
+        auto* a=static_cast<const AsmStmt*>(s);
+        std::string pad=std::string(m_indent*4,' ');
+        write(pad+"asm volatile(\""+a->tmpl+"\"");
+        if(!a->outputs.empty()||!a->inputs.empty()||!a->clobbers.empty()){
+            write("\n"+pad+"    : ");
+            for(size_t i=0;i<a->outputs.size();i++){
+                if(i)write(", ");
+                write("\""+a->outputs[i]+"\" (");
+                genExpr(a->outExprs[i].get()); write(")");
+            }
+        }
+        if(!a->inputs.empty()||!a->clobbers.empty()){
+            write("\n"+pad+"    : ");
+            for(size_t i=0;i<a->inputs.size();i++){
+                if(i)write(", ");
+                write("\""+a->inputs[i]+"\" (");
+                genExpr(a->inExprs[i].get()); write(")");
+            }
+        }
+        if(!a->clobbers.empty()){
+            write("\n"+pad+"    : ");
+            for(size_t i=0;i<a->clobbers.size();i++){
+                if(i)write(", ");
+                write("\""+a->clobbers[i]+"\"");
+            }
+        }
+        write(");\n");
+    }
+
     void genFuncExpr(const FuncExpr* e) {
         write("[&](");
         for (size_t i = 0; i < e->params.size(); i++) {
@@ -1823,7 +1901,10 @@ private:
     }
 
     void genCast(const CastExpr* e) {
-        write("static_cast<" + cppType(e->target) + ">(");
+        if (e->target.isPtr)
+            write("reinterpret_cast<" + cppType(e->target) + ">(");
+        else
+            write("static_cast<" + cppType(e->target) + ">(");
         genExpr(e->value.get());
         write(")");
     }

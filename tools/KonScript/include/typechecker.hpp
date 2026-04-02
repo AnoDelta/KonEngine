@@ -36,6 +36,7 @@ struct Type {
         Result,     // Result<T> — ok/value/error
         HashMap,    // HashMap<K, V>
         FuncType,   // func(I32, Str) -> Bool — first-class function
+        Ptr,        // *T or *mut T — raw pointer
         Unknown,    // error recovery
     } kind = Kind::Unknown;
 
@@ -123,6 +124,8 @@ struct Type {
             case Kind::Unknown: return "?";
             case Kind::Result:
                 return "Result<" + (inner.empty() ? "?" : inner[0].toString()) + ">";
+            case Kind::Ptr:
+                return inner.empty()?"*void":"*"+inner[0].toString();
             case Kind::FuncType: {
                 std::string s = "func(";
                 for (size_t i = 0; i + 1 < inner.size(); i++) {
@@ -318,6 +321,10 @@ private:
             // Result<T> — inner type is the success value type
             Type inner = ta.typeParams.empty() ? Type::unknown() : resolve(ta.typeParams[0]);
             t = Type::makeResult(inner);
+        } else if (ta.isPtr) {
+            t = Type::make(Type::Kind::Ptr);
+            TypeAnnotation inner=ta; inner.isPtr=false; inner.isPtrMut=false;
+            t.inner.push_back(resolve(inner));
         } else if (ta.isFuncType) {
             std::vector<Type> paramTs;
             for (auto& pt : ta.funcParamTypes) paramTs.push_back(resolve(pt));
@@ -406,6 +413,13 @@ private:
                 }
                 m_structs[s->name] = std::move(info);
 
+            } else if (stmt->kind == Stmt::Kind::ExternDecl) {
+                auto* e = static_cast<ExternDecl*>(stmt.get());
+                Symbol sym; sym.name=e->name; sym.isFunc=true;
+                sym.returnType=e->returnType.base.empty()?Type::void_():resolve(e->returnType);
+                for(auto& p:e->params) sym.paramTypes.push_back(resolve(p.type));
+                sym.type=sym.returnType;
+                m_globalSymbols[e->name]=sym;
             } else if (stmt->kind == Stmt::Kind::FuncDecl) {
                 auto* f = static_cast<FuncDecl*>(stmt.get());
                 Symbol sym;
@@ -751,6 +765,8 @@ private:
                 break;
             }
 
+            case Stmt::Kind::AsmStmt:
+            case Stmt::Kind::ExternDecl: break;
             case Stmt::Kind::Return: {
                 auto* r = static_cast<const ReturnStmt*>(s);
                 if (r->value) {
@@ -1338,6 +1354,14 @@ private:
             case Expr::Kind::Spawn:
                 checkExpr(static_cast<const SpawnExpr*>(e)->call.get(), scope);
                 return Type::make(Type::Kind::Struct, "_KsTask");
+            case Expr::Kind::Deref: {
+                auto pt=checkExpr(static_cast<const DerefExpr*>(e)->ptr.get(),scope);
+                return (pt.kind==Type::Kind::Ptr&&!pt.inner.empty())?pt.inner[0]:Type::unknown();
+            }
+            case Expr::Kind::AddrOf: {
+                auto vt=checkExpr(static_cast<const AddrOfExpr*>(e)->value.get(),scope);
+                Type pt=Type::make(Type::Kind::Ptr); pt.inner.push_back(vt); return pt;
+            }
 
             case Expr::Kind::FuncExpr: {
                 // Closure: infer param types and return type
@@ -1428,9 +1452,14 @@ private:
         if (expected.kind == Type::Kind::Result &&
             actual.kind == Type::Kind::Result) return true;
 
-        // Function types: compatible if same arity (skip deep param check for now)
+        // Function types: compatible if same arity
         if (expected.kind == Type::Kind::FuncType &&
             actual.kind == Type::Kind::FuncType) return true;
+
+        // Pointer types: permissive — any ptr ↔ ptr, ptr ↔ integer
+        if (expected.kind == Type::Kind::Ptr) return true;
+        if (actual.kind == Type::Kind::Ptr && expected.isNumeric()) return true;
+        if (actual.kind == Type::Kind::Ptr && expected.kind == Type::Kind::Ptr) return true;
 
         return false;
     }

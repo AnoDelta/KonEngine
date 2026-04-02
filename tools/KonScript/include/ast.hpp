@@ -30,6 +30,9 @@ struct TypeAnnotation {
     std::vector<TypeAnnotation> tupleTypes; // (T, T, ...)
     bool        isTuple  = false;
     std::vector<TypeAnnotation> typeParams; // Result<T>, HashMap<K,V>, etc.
+    // Raw pointer: *T / *mut T
+    bool                        isPtr    = false;
+    bool                        isPtrMut = false;
     // Function type: func(I32, Str) -> Bool
     bool                        isFuncType = false;
     std::vector<TypeAnnotation> funcParamTypes;
@@ -40,7 +43,8 @@ struct TypeAnnotation {
     TypeAnnotation(const TypeAnnotation& o)
         : base(o.base), nullable(o.nullable), isArray(o.isArray),
           arraySize(o.arraySize), tupleTypes(o.tupleTypes), isTuple(o.isTuple),
-          typeParams(o.typeParams), isFuncType(o.isFuncType),
+          typeParams(o.typeParams), isPtr(o.isPtr), isPtrMut(o.isPtrMut),
+          isFuncType(o.isFuncType),
           funcParamTypes(o.funcParamTypes),
           funcReturnType(o.funcReturnType
               ? std::make_unique<TypeAnnotation>(*o.funcReturnType)
@@ -49,7 +53,8 @@ struct TypeAnnotation {
         if (this == &o) return *this;
         base = o.base; nullable = o.nullable; isArray = o.isArray;
         arraySize = o.arraySize; tupleTypes = o.tupleTypes; isTuple = o.isTuple;
-        typeParams = o.typeParams; isFuncType = o.isFuncType;
+        typeParams = o.typeParams; isPtr = o.isPtr; isPtrMut = o.isPtrMut;
+        isFuncType = o.isFuncType;
         funcParamTypes = o.funcParamTypes;
         funcReturnType = o.funcReturnType
             ? std::make_unique<TypeAnnotation>(*o.funcReturnType)
@@ -119,6 +124,10 @@ struct Expr {
 
         // Spawn
         Spawn,      // spawn foo()
+
+        // Pointer ops
+        Deref,      // *ptr
+        AddrOf,     // &expr
 
         // Closure / anonymous function
         FuncExpr,   // func(x: I32) -> I32 { x * 2 }
@@ -315,6 +324,15 @@ struct SpawnExpr : Expr {
     }
 };
 
+struct DerefExpr : Expr {
+    ExprPtr ptr;
+    DerefExpr(ExprPtr p,int l,int c):ptr(std::move(p)){kind=Kind::Deref;line=l;col=c;}
+};
+struct AddrOfExpr : Expr {
+    ExprPtr value; bool mut_=false;
+    AddrOfExpr(ExprPtr v,bool m,int l,int c):value(std::move(v)),mut_(m){kind=Kind::AddrOf;line=l;col=c;}
+};
+
 // -----------------------------------------------------------------------
 // Statements
 // -----------------------------------------------------------------------
@@ -345,6 +363,8 @@ struct Stmt {
         StructDecl,
         EnumDecl,
         ClassDecl,
+        ExternDecl,
+        AsmStmt,
     } kind;
 };
 
@@ -538,6 +558,7 @@ struct FuncDecl : Stmt {
     std::unique_ptr<BlockStmt> body;
     bool                       pub = false;
     bool                       isCoroutine = false;
+    std::vector<std::string>   attributes;
     FuncDecl(const std::string& n, std::vector<std::string> tp,
              std::vector<Param> p, std::optional<TypeAnnotation> r,
              std::unique_ptr<BlockStmt> b, bool pub_, int l, int c)
@@ -572,6 +593,7 @@ struct NodeDecl : Stmt {
 struct StructDecl : Stmt {
     std::string              name;
     std::vector<std::string> typeParams;
+    std::vector<std::string> attributes;
     std::vector<FieldDecl>   fields;
     StructDecl(const std::string& n, std::vector<std::string> tp,
                std::vector<FieldDecl> f, int l, int c)
@@ -606,6 +628,28 @@ struct ClassDecl : Stmt {
           fields(std::move(f)), methods(std::move(m)) {
         kind = Kind::ClassDecl; line=l; col=c;
     }
+};
+
+struct ExternParam { std::string name; TypeAnnotation type; bool variadic=false; };
+struct ExternDecl : Stmt {
+    std::string name; std::vector<ExternParam> params;
+    TypeAnnotation returnType; std::string linkage; bool variadic=false;
+    ExternDecl(const std::string& n,std::vector<ExternParam> p,TypeAnnotation r,
+               const std::string& lnk,bool va,int l,int c)
+        :name(n),params(std::move(p)),returnType(r),linkage(lnk),variadic(va){
+        kind=Kind::ExternDecl;line=l;col=c;}
+};
+struct AsmStmt : Stmt {
+    std::string tmpl;
+    std::vector<std::string> outputs,inputs,clobbers;
+    std::vector<ExprPtr> outExprs,inExprs;
+    AsmStmt(const std::string& t,
+            std::vector<std::string> outs,std::vector<ExprPtr> outE,
+            std::vector<std::string> ins, std::vector<ExprPtr> inE,
+            std::vector<std::string> clob,int l,int c)
+        :tmpl(t),outputs(std::move(outs)),outExprs(std::move(outE)),
+         inputs(std::move(ins)),inExprs(std::move(inE)),clobbers(std::move(clob)){
+        kind=Kind::AsmStmt;line=l;col=c;}
 };
 
 // -----------------------------------------------------------------------

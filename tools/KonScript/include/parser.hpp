@@ -173,6 +173,17 @@ private:
     TypeAnnotation parseType() {
         TypeAnnotation ta;
 
+        // Raw pointer: *T or *mut T
+        if (check(TokenType::Star)) {
+            advance(); ta.isPtr=true; ta.isPtrMut=match(TokenType::Mut);
+            auto inner=parseType();
+            ta.base=inner.base; ta.typeParams=inner.typeParams;
+            ta.isArray=inner.isArray; ta.isFuncType=inner.isFuncType;
+            ta.funcParamTypes=inner.funcParamTypes;
+            if(inner.funcReturnType) ta.funcReturnType=std::make_unique<TypeAnnotation>(*inner.funcReturnType);
+            return ta;
+        }
+
         // Function type: func(I32, Str) -> Bool
         if (check(TokenType::Func)) {
             advance();
@@ -293,6 +304,14 @@ private:
         if (check(TokenType::Func))    return parseFuncDecl(false);
         if (check(TokenType::Const))   return parseConst();
         if (check(TokenType::Let))     return parseLet();
+        if (check(TokenType::Hash)) {
+            auto attrs=parseAttributes(); bool isPub=match(TokenType::Pub);
+            if (check(TokenType::Func)) { auto fd=parseFuncDeclInner(isPub); fd->attributes=attrs; return std::make_unique<FuncDecl>(std::move(*fd)); }
+            if (check(TokenType::Struct)) { auto sd=static_cast<StructDecl*>(parseStructDecl(isPub).release()); sd->attributes=attrs; return StmtPtr(sd); }
+            error("expected func or struct after attributes"); return nullptr;
+        }
+        if (check(TokenType::Ident)&&peek().value=="extern"){advance();return parseExternDecl();}
+        if (check(TokenType::Ident)&&peek().value=="asm")   {advance();return parseAsmStmt();}
 
         error("unexpected token '" + peek().value + "' at top level");
         return nullptr;
@@ -456,6 +475,81 @@ private:
             std::move(*parseFuncDeclInner(pub)));
     }
 
+    std::vector<std::string> parseAttributes() {
+        std::vector<std::string> attrs;
+        while(check(TokenType::Hash)){
+            advance();
+            expect(TokenType::LBracket,"expected '['");
+            std::string attr;
+            while(!check(TokenType::RBracket)&&!atEnd()) attr+=advance().value;
+            expect(TokenType::RBracket,"expected ']'");
+            attrs.push_back(attr);
+        }
+        return attrs;
+    }
+
+    StmtPtr parseExternDecl() {
+        int l=peek().line,c=peek().col;
+        std::string linkage="C";
+        if(check(TokenType::Str)) linkage=advance().value;
+        if(!check(TokenType::Func)){error("expected 'func' after 'extern'");return nullptr;}
+        advance();
+        std::string name=expect(TokenType::Ident,"expected function name").value;
+        expect(TokenType::LParen,"expected '('");
+        std::vector<ExternParam> params; bool variadic=false;
+        while(!check(TokenType::RParen)&&!atEnd()){
+            if((check(TokenType::DotDot)&&peek(1).type==TokenType::Dot)||
+               (check(TokenType::Dot)&&peek(1).type==TokenType::DotDot)){
+                while(!check(TokenType::RParen)&&!atEnd())advance();
+                variadic=true; break;
+            }
+            ExternParam p;
+            if(peek(1).type==TokenType::Colon){p.name=advance().value;advance();}
+            p.type=parseType(); params.push_back(std::move(p));
+            if(!match(TokenType::Comma))break;
+        }
+        expect(TokenType::RParen,"expected ')'");
+        TypeAnnotation ret; if(match(TokenType::Arrow)) ret=parseType();
+        match(TokenType::Semicolon);
+        return std::make_unique<ExternDecl>(name,std::move(params),ret,linkage,variadic,l,c);
+    }
+
+    StmtPtr parseAsmStmt() {
+        int l=peek().line,c=peek().col;
+        expect(TokenType::LParen,"expected '('");
+        std::string tmpl=expect(TokenType::Str,"expected asm template string").value;
+        std::vector<std::string> outs,ins,clobs;
+        std::vector<ExprPtr> outExprs,inExprs;
+        if(match(TokenType::Colon)){
+            while(!check(TokenType::Colon)&&!check(TokenType::RParen)&&!atEnd()){
+                std::string con=expect(TokenType::Str,"expected constraint").value;
+                expect(TokenType::LParen,"expected '('");
+                outExprs.push_back(parseExpr());
+                expect(TokenType::RParen,"expected ')'");
+                outs.push_back(con); if(!match(TokenType::Comma))break;
+            }
+        }
+        if(match(TokenType::Colon)){
+            while(!check(TokenType::Colon)&&!check(TokenType::RParen)&&!atEnd()){
+                std::string con=expect(TokenType::Str,"expected constraint").value;
+                expect(TokenType::LParen,"expected '('");
+                inExprs.push_back(parseExpr());
+                expect(TokenType::RParen,"expected ')'");
+                ins.push_back(con); if(!match(TokenType::Comma))break;
+            }
+        }
+        if(match(TokenType::Colon)){
+            while(!check(TokenType::RParen)&&!atEnd()){
+                clobs.push_back(expect(TokenType::Str,"expected clobber").value);
+                if(!match(TokenType::Comma))break;
+            }
+        }
+        expect(TokenType::RParen,"expected ')'");
+        match(TokenType::Semicolon);
+        return std::make_unique<AsmStmt>(tmpl,std::move(outs),std::move(outExprs),
+            std::move(ins),std::move(inExprs),std::move(clobs),l,c);
+    }
+
     std::vector<std::string> parseTypeParams() {
         std::vector<std::string> tp;
         if (!check(TokenType::Lt)) return tp;
@@ -558,6 +652,14 @@ private:
             return nullptr;
         }
 
+        if (check(TokenType::Hash)) {
+            auto attrs=parseAttributes(); bool isPub=match(TokenType::Pub);
+            if (check(TokenType::Func)){auto fd=parseFuncDeclInner(isPub);fd->attributes=attrs;return std::make_unique<FuncDecl>(std::move(*fd));}
+            if (check(TokenType::Struct)){auto sd=static_cast<StructDecl*>(parseStructDecl(isPub).release());sd->attributes=attrs;return StmtPtr(sd);}
+            error("expected func or struct after attributes");return nullptr;
+        }
+        if(check(TokenType::Ident)&&peek().value=="extern"){advance();return parseExternDecl();}
+        if(check(TokenType::Ident)&&peek().value=="asm")   {advance();return parseAsmStmt();}
         if (check(TokenType::Let))      return parseLet();
         if (check(TokenType::Const))    return parseConst();
         if (check(TokenType::Return))   return parseReturn();
@@ -1001,6 +1103,16 @@ private:
             return std::make_unique<SomeExpr>(std::move(val), l, c);
         }
 
+        // Dereference: *ptr
+        if (check(TokenType::Star)) {
+            advance(); auto operand=parsePrimary();
+            return std::make_unique<DerefExpr>(std::move(operand),l,c);
+        }
+        // Address-of: &expr or &mut expr
+        if (check(TokenType::And)) {
+            advance(); bool m=match(TokenType::Mut); auto operand=parsePrimary();
+            return std::make_unique<AddrOfExpr>(std::move(operand),m,l,c);
+        }
         // Closure: func(x: I32) -> I32 { return x * 2; }
         if (check(TokenType::Func)) {
             advance();
