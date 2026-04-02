@@ -120,13 +120,13 @@ public:
                 auto* sd = static_cast<const StructDecl*>(s.get());
                 std::vector<FieldInfo> fields;
                 for (auto& f : sd->fields)
-                    fields.push_back({f.name, llvmType(f.type)});
+                    fields.push_back({f.name, llvmType(f.type), f.type.base});
                 m_structFields[sd->name] = fields;
             } else if (s->kind == Stmt::Kind::ClassDecl) {
                 auto* cd = static_cast<const ClassDecl*>(s.get());
                 std::vector<FieldInfo> fields;
                 for (auto& f : cd->fields)
-                    fields.push_back({f.name, llvmType(f.type)});
+                    fields.push_back({f.name, llvmType(f.type), f.type.base});
                 m_structFields[cd->name] = fields;
                 // Register methods as ClassName_methodName
                 for (auto& m : cd->methods) {
@@ -138,7 +138,7 @@ public:
                 auto* nd = static_cast<const NodeDecl*>(s.get());
                 std::vector<FieldInfo> fields;
                 for (auto& f : nd->fields)
-                    fields.push_back({f.name, llvmType(f.type)});
+                    fields.push_back({f.name, llvmType(f.type), f.type.base});
                 m_structFields[nd->name] = fields;
                 for (auto& m : nd->methods)
                     m_funcRetTypes[nd->name + "_" + m->name] =
@@ -202,7 +202,7 @@ private:
     std::unordered_map<std::string, std::string> m_funcRetTypes;
 
     // Struct field layout: structName → list of {fieldName, llvmType}
-    struct FieldInfo { std::string name; std::string llvmTy; };
+    struct FieldInfo { std::string name; std::string llvmTy; std::string ksTy; };
     std::unordered_map<std::string, std::vector<FieldInfo>> m_structFields;
     // Current basic block label (for branch targets)
     std::string m_currentBlock;
@@ -441,6 +441,14 @@ private:
         emit("declare i8* @_ks_str_substr(i8*, i32, i32)");
         emit("declare i32 @_ks_str_toInt(i8*)");
         emit("declare float @_ks_str_toFloat(i8*)");
+        emit("declare i8* @_ks_str_charAt(i8*, i32)");
+        emit("declare i1  @_ks_str_isAlpha(i8*)");
+        emit("declare i1  @_ks_str_isDigit(i8*)");
+        emit("declare i1  @_ks_str_isUpper(i8*)");
+        emit("declare i1  @_ks_str_isLower(i8*)");
+        emit("declare i1  @_ks_str_isSpace(i8*)");
+        emit("declare i32 @_ks_str_toCharCode(i8*)");
+        emit("declare i8* @_ks_str_fromCharCode(i32)");
         emit("declare i8* @_ks_array_new(i32)");
         emit("declare void @_ks_array_push(i8*, i8*)");
         emit("declare i8* @_ks_array_pop(i8*)");
@@ -502,6 +510,10 @@ private:
         }
         body += " }";
         emit("%struct." + s->name + " = type " + body);
+        // Build field table with ksTy
+        std::vector<FieldInfo> fi2;
+        for (auto& f : s->fields) fi2.push_back({f.name, llvmType(f.type), f.type.base});
+        m_structFields[s->name] = fi2;
     }
 
     // -----------------------------------------------------------------------
@@ -520,7 +532,7 @@ private:
         // Register field layout for GEP access
         std::vector<FieldInfo> si;
         for (auto& f : c->fields)
-            si.push_back({f.name, llvmType(f.type)});
+            si.push_back({f.name, llvmType(f.type), f.type.base});
         m_structFields[c->name] = si;
         // Emit each method as a standalone function: ClassName_methodName
         for (auto& method : c->methods) {
@@ -1778,6 +1790,21 @@ private:
                     auto it = m_locals.find(id->name);
                     if (it != m_locals.end()) return it->second.ksTy;
                 }
+                // Handle chained: self.field.method() — look up field type in struct
+                if (m->object->kind == Expr::Kind::Member) {
+                    auto* fm = static_cast<const MemberExpr*>(m->object.get());
+                    if (fm->object->kind == Expr::Kind::Ident) {
+                        auto* id = static_cast<const IdentExpr*>(fm->object.get());
+                        auto it = m_locals.find(id->name);
+                        if (it != m_locals.end()) {
+                            auto sfit = m_structFields.find(it->second.ksTy);
+                            if (sfit != m_structFields.end()) {
+                                for (auto& fi : sfit->second)
+                                    if (fi.name == fm->member) return fi.ksTy;
+                            }
+                        }
+                    }
+                }
                 return "";
             };
             std::string objKsTy = getObjKsTy();
@@ -1838,7 +1865,15 @@ private:
                 {"ends",     {"@_ks_str_ends",      "i1"}},
                 {"substr",   {"@_ks_str_substr",   "i8*"}},
                 {"toInt",    {"@_ks_str_toInt",    "i32"}},
-                {"toFloat",  {"@_ks_str_toFloat",  "float"}},
+                {"toFloat",    {"@_ks_str_toFloat",    "float"}},
+                {"charAt",     {"@_ks_str_charAt",     "i8*"}},
+                {"isAlpha",    {"@_ks_str_isAlpha",    "i1"}},
+                {"isDigit",    {"@_ks_str_isDigit",    "i1"}},
+                {"isUpper",    {"@_ks_str_isUpper",    "i1"}},
+                {"isLower",    {"@_ks_str_isLower",    "i1"}},
+                {"isSpace",    {"@_ks_str_isSpace",    "i1"}},
+                {"toCharCode", {"@_ks_str_toCharCode", "i32"}},
+                {"fromCharCode",{"@_ks_str_fromCharCode","i8*"}},
                 // HashMap methods
                 {"set",      {"@_ks_hashmap_set",  "void"}},
                 {"get",      {"@_ks_hashmap_get",  "i8*"}},
@@ -1873,7 +1908,7 @@ private:
         // ---- Class method call: obj.method(args) → ClassName_method(obj_ptr, args) ----
         if (callee.empty() && e->callee->kind == Expr::Kind::Member) {
             auto* m = static_cast<const MemberExpr*>(e->callee.get());
-            // Determine struct name from object
+            // Determine struct name and self pointer from object
             std::string structName, objPtr, objTy;
             if (m->object->kind == Expr::Kind::Ident) {
                 auto* objId = static_cast<const IdentExpr*>(m->object.get());
@@ -1882,6 +1917,38 @@ private:
                     structName = it->second.ksTy;
                     objPtr = it->second.addr;
                     objTy  = it->second.llvmTy;
+                }
+            } else if (m->object->kind == Expr::Kind::Member) {
+                // Chained: self.field.method() — get GEP address of field
+                auto* fm = static_cast<const MemberExpr*>(m->object.get());
+                auto [gepPtr, gepTy] = genMemberAddr(fm);
+                if (!gepPtr.empty()) {
+                    // gepPtr is a T** — load it to get the T* pointer
+                    // First determine the ksTy of the field
+                    std::string fieldKsTy;
+                    if (fm->object->kind == Expr::Kind::Ident) {
+                        auto* id = static_cast<const IdentExpr*>(fm->object.get());
+                        auto it = m_locals.find(id->name);
+                        if (it != m_locals.end()) {
+                            auto sfit = m_structFields.find(it->second.ksTy);
+                            if (sfit != m_structFields.end())
+                                for (auto& fi : sfit->second)
+                                    if (fi.name == fm->member) { fieldKsTy = fi.ksTy; break; }
+                        }
+                    }
+                    if (!fieldKsTy.empty()) {
+                        structName = fieldKsTy;
+                        // Load the field value to get the struct ptr
+                        std::string fieldTy = "%struct." + fieldKsTy + "*";
+                        std::string loaded = tmp();
+                        emitI(loaded + " = load " + fieldTy + ", " + fieldTy + "* " + gepPtr);
+                        // Now alloca a slot and store so we have an addr (addr = ptr-to-ptr)
+                        std::string slot = tmp() + ".slot";
+                        emitI(slot + " = alloca " + fieldTy);
+                        emitI("store " + fieldTy + " " + loaded + ", " + fieldTy + "* " + slot);
+                        objPtr = slot;
+                        objTy  = fieldTy;
+                    }
                 }
             }
             if (!structName.empty()) {
