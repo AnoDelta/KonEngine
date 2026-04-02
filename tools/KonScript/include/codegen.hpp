@@ -60,6 +60,7 @@ public:
         m_indent = 0;
         m_ptrVars.clear();
         m_varTypes.clear();
+        m_typeParams.clear();
         // NOTE: do NOT clear m_structNames / m_classNames / m_enumNames /
         // m_enumVariants / m_userNodeTypes here. They may be pre-populated by
         // addIncludeTypes() before generate() is called. They accumulate within
@@ -151,6 +152,44 @@ public:
         line("template<typename K,typename MV,typename Q> inline bool _ks_has(const std::unordered_map<K,MV>& m,const Q& k){return m.count(K(k))>0;}");
         line("#endif // _KS_STDLIB_HELPERS_DEFINED");
         line("");
+        line("#ifndef _KS_CORO_DEFINED");
+        line("#define _KS_CORO_DEFINED");
+        line("#if __cplusplus >= 202002L");
+        line("#include <coroutine>");
+        line("struct _KsTask { struct promise_type {");
+        line("    float _w=0.f;");
+        line("    _KsTask get_return_object(){return{std::coroutine_handle<promise_type>::from_promise(*this)};}");
+        line("    std::suspend_never  initial_suspend()noexcept{return{};}") ;
+        line("    std::suspend_always final_suspend()  noexcept{return{};}") ;
+        line("    void return_void(){} void unhandled_exception(){}");
+        line("    std::suspend_always yield_value(float s){_w=s;return{};}") ;
+        line("};");
+        line("std::coroutine_handle<promise_type> handle;");
+        line("bool  done()    const{return !handle||handle.done();}");
+        line("float waitTime()     {return handle.promise()._w;}");
+        line("};");
+        line("struct _KsScheduler{");
+        line("    struct E{_KsTask t;float r=0.f;};");
+        line("    std::vector<E> q;");
+        line("    void spawn(_KsTask t){q.push_back({std::move(t),0.f});}");
+        line("    void update(float dt){");
+        line("        for(auto&e:q){if(e.t.done())continue;");
+        line("            e.r-=dt;if(e.r>0.f)continue;");
+        line("            e.t.handle.resume();");
+        line("            if(!e.t.done())e.r=e.t.waitTime();}");
+        line("        q.erase(std::remove_if(q.begin(),q.end(),[](const E&e){return e.t.done();}),q.end());}");
+        line("};");
+        line("inline _KsScheduler _ks_sched;");
+        line("inline void _ks_spawn(_KsTask t){_ks_sched.spawn(std::move(t));}");
+        line("#else");
+        line("// C++17 stubs — coroutines require C++20 (-std=c++20)");
+        line("struct _KsTask {};");
+        line("struct _KsScheduler { void update(float){} void spawn(_KsTask){} };");
+        line("inline _KsScheduler _ks_sched;");
+        line("inline void _ks_spawn(_KsTask){}");
+        line("#endif // C++20");
+        line("#endif // _KS_CORO_DEFINED");
+        line("");
         // Emit #pragma once for module files (included by others),
         // but NOT for entry files that have a main() — they're .cpp not headers.
         // Detect whether this file has a main() function.
@@ -217,6 +256,7 @@ private:
     std::unordered_set<std::string> m_classNames;
     // Maps local variable name → its base type name, for method dispatch
     std::unordered_map<std::string, std::string> m_varTypes;
+    std::unordered_set<std::string> m_typeParams;
     // Enums emitted early in forwardDeclare — skip in genTopLevel
     std::unordered_set<std::string> m_emittedEnums;
 
@@ -277,6 +317,15 @@ private:
                        std::to_string(ta.arraySize) + ">";
             return "std::vector<" + elem + ">";
         }
+        if (!ta.typeParams.empty() && ta.base != "Result" && ta.base != "HashMap") {
+            std::string s = ta.base + "<";
+            for (size_t i = 0; i < ta.typeParams.size(); i++) {
+                if (i) s += ", "; s += cppType(ta.typeParams[i]);
+            }
+            s += ">";
+            if (ta.nullable) return "std::optional<" + s + ">";
+            return s;
+        }
         // Result<T> → _KsResult<T>
         if (ta.base == "Result") {
             std::string inner = ta.typeParams.empty() ? "std::string" : cppType(ta.typeParams[0]);
@@ -325,6 +374,7 @@ private:
         // User-declared node types -- also become pointers
         if (m_userNodeTypes.count(name)) return name + "*";
 
+        if (m_typeParams.count(name)) return name;
         // Enum types are value types (enum class in C++) — NOT pointers.
         if (m_enumNames.count(name)) return name;
 
@@ -354,27 +404,51 @@ private:
             case Stmt::Kind::FuncDecl: {
                 auto* f = static_cast<const FuncDecl*>(s);
                 if (f->name == "main") break;
-                std::string ret = f->returnType ? cppType(*f->returnType) : "void";
+                if (!f->typeParams.empty()) {
+                    std::string tpl = "template<";
+                    for (size_t i = 0; i < f->typeParams.size(); i++) {
+                        if (i) tpl += ", "; tpl += "typename " + f->typeParams[i];
+                        m_typeParams.insert(f->typeParams[i]);
+                    }
+                    line(tpl + ">");
+                }
+                std::string ret;
+                if (f->isCoroutine) ret = "_KsTask";
+                else ret = f->returnType ? cppType(*f->returnType) : "void";
                 std::string sig = ret + " " + f->name + "(";
                 for (size_t i = 0; i < f->params.size(); i++) {
                     if (i) sig += ", ";
-                    std::string pct = cppType(f->params[i].type);
-                    sig += pct + " " + f->params[i].name;
+                    sig += cppType(f->params[i].type) + " " + f->params[i].name;
                 }
                 sig += ");";
                 line(sig);
+                for (auto& tp : f->typeParams) m_typeParams.erase(tp);
                 break;
             }
             case Stmt::Kind::StructDecl: {
                 auto* sd = static_cast<const StructDecl*>(s);
-                line("struct " + sd->name + ";");
                 m_structNames.insert(sd->name);
+                if (!sd->typeParams.empty()) {
+                    std::string tpl = "template<";
+                    for (size_t i = 0; i < sd->typeParams.size(); i++) {
+                        if (i) tpl += ", "; tpl += "typename " + sd->typeParams[i];
+                    }
+                    line(tpl + ">");
+                }
+                line("struct " + sd->name + ";");
                 break;
             }
             case Stmt::Kind::ClassDecl: {
                 auto* cd = static_cast<const ClassDecl*>(s);
-                line("class " + cd->name + ";");
                 m_classNames.insert(cd->name);
+                if (!cd->typeParams.empty()) {
+                    std::string tpl = "template<";
+                    for (size_t i = 0; i < cd->typeParams.size(); i++) {
+                        if (i) tpl += ", "; tpl += "typename " + cd->typeParams[i];
+                    }
+                    line(tpl + ">");
+                }
+                line("class " + cd->name + ";");
                 break;
             }
             case Stmt::Kind::NodeDecl: {
@@ -519,6 +593,14 @@ private:
     // -----------------------------------------------------------------------
     void genStruct(const Stmt* s) {
         auto* st = static_cast<const StructDecl*>(s);
+        if (!st->typeParams.empty()) {
+            std::string tpl = "template<";
+            for (size_t i = 0; i < st->typeParams.size(); i++) {
+                if (i) tpl += ", "; tpl += "typename " + st->typeParams[i];
+                m_typeParams.insert(st->typeParams[i]);
+            }
+            line(tpl + ">");
+        }
         line("struct " + st->name + " {");
         indent();
         for (auto& f : st->fields) {
@@ -537,6 +619,14 @@ private:
     // -----------------------------------------------------------------------
     void genClass(const Stmt* s) {
         auto* c = static_cast<const ClassDecl*>(s);
+        if (!c->typeParams.empty()) {
+            std::string tpl = "template<";
+            for (size_t i = 0; i < c->typeParams.size(); i++) {
+                if (i) tpl += ", "; tpl += "typename " + c->typeParams[i];
+                m_typeParams.insert(c->typeParams[i]);
+            }
+            line(tpl + ">");
+        }
         std::string decl = "class " + c->name;
         if (!c->base.empty()) decl += " : public " + c->base;
         line(decl + " {");
@@ -728,7 +818,17 @@ private:
     // Function declaration
     // -----------------------------------------------------------------------
     void genFuncDecl(const FuncDecl* f, const std::string& prefix) {
-        std::string ret = f->returnType ? cppType(*f->returnType) : "void";
+        if (!f->typeParams.empty()) {
+            std::string tpl = "template<";
+            for (size_t i = 0; i < f->typeParams.size(); i++) {
+                if (i) tpl += ", "; tpl += "typename " + f->typeParams[i];
+                m_typeParams.insert(f->typeParams[i]);
+            }
+            line(tpl + ">");
+        }
+        std::string ret;
+        if (f->isCoroutine) ret = "_KsTask";
+        else ret = f->returnType ? cppType(*f->returnType) : "void";
         write(std::string(m_indent * 4, ' '));
         // func main() -> int main()
         std::string fname = f->name;
@@ -759,6 +859,7 @@ private:
         }
         genBlock(f->body.get());
         for (auto& p : addedParams) m_ptrVars.erase(p);
+        for (auto& tp : f->typeParams) m_typeParams.erase(tp);
         dedent();
         line("}");
         line("");
@@ -993,11 +1094,16 @@ private:
 
     void genWait(const Stmt* s) {
         auto* w = static_cast<const WaitStmt*>(s);
-        write(std::string(m_indent * 4, ' '));
-        write("/* wait ");
+        std::string pad = std::string(m_indent * 4, ' ');
+        line("#if __cplusplus >= 202002L");
+        write(pad + "co_yield (float)(");
         genExpr(w->duration.get());
-        write(" */\n");
+        write(");\n");
+        line("#else");
+        line(pad + "/* wait: requires -std=c++20 */");
+        line("#endif");
     }
+
 
     // -----------------------------------------------------------------------
     // Expressions
@@ -1090,8 +1196,9 @@ private:
                 write("/* range */");
                 break;
             case Expr::Kind::Spawn:
-                write("/* spawn */ ");
+                write("_ks_spawn(");
                 genExpr(static_cast<const SpawnExpr*>(e)->call.get());
+                write(")");
                 break;
             case Expr::Kind::FuncExpr:
                 genFuncExpr(static_cast<const FuncExpr*>(e));

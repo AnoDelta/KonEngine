@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 // -----------------------------------------------------------------------
 // KonScript Parser
 // Recursive descent parser. Turns a token stream into an AST.
@@ -245,13 +246,32 @@ private:
         static const std::unordered_set<std::string> genericTypes = {
             "Result", "HashMap", "Option", "Array", "Vec"
         };
-        if (genericTypes.count(ta.base) && check(TokenType::Lt)) {
-            advance(); // consume '<'
-            while (!check(TokenType::Gt) && !atEnd()) {
-                ta.typeParams.push_back(parseType());
-                if (!match(TokenType::Comma)) break;
+        // Generic instantiation: works for both builtins and user types
+        if (check(TokenType::Lt)) {
+            size_t tmp = m_pos + 1; int depth = 1; bool ok = false;
+            auto isTypeStart = [](TokenType t) {
+                switch(t) { case TokenType::Ident: case TokenType::TI8: case TokenType::TI16:
+                  case TokenType::TI32: case TokenType::TI64: case TokenType::TU8:
+                  case TokenType::TU16: case TokenType::TU32: case TokenType::TU64:
+                  case TokenType::TF32: case TokenType::TF64: case TokenType::TBool:
+                  case TokenType::TStr: case TokenType::TString: case TokenType::LBracket:
+                    return true; default: return false; } };
+            while (tmp < m_tokens.size() && depth > 0) {
+                auto tt = m_tokens[tmp].type;
+                if (tt == TokenType::Lt) depth++;
+                else if (tt == TokenType::Gt) { depth--; if (!depth) { ok=true; break; } }
+                else if (tt == TokenType::Semicolon || tt == TokenType::LBrace ||
+                         tt == TokenType::Assign || tt == TokenType::LParen) break;
+                tmp++;
             }
-            expect(TokenType::Gt, "expected '>' after type parameters");
+            if (ok && tmp > m_pos+1 && isTypeStart(m_tokens[m_pos+1].type)) {
+                advance();
+                while (!check(TokenType::Gt) && !atEnd()) {
+                    ta.typeParams.push_back(parseType());
+                    if (!match(TokenType::Comma)) break;
+                }
+                expect(TokenType::Gt, "expected '>'");
+            }
         }
 
         if (check(TokenType::Question)) { advance(); ta.nullable = true; }
@@ -336,6 +356,7 @@ private:
         int l = peek().line, c = peek().col;
         advance(); // struct
         std::string name = expect(TokenType::Ident, "expected struct name").value;
+        auto typeParams = parseTypeParams();
         expect(TokenType::LBrace, "expected '{'");
 
         std::vector<FieldDecl> fields;
@@ -344,7 +365,7 @@ private:
             fields.push_back(parseFieldDecl(isPub));
         }
         expect(TokenType::RBrace, "expected '}'");
-        return std::make_unique<StructDecl>(name, std::move(fields), l, c);
+        return std::make_unique<StructDecl>(name, std::move(typeParams), std::move(fields), l, c);
     }
 
     StmtPtr parseEnumDecl() {
@@ -373,6 +394,7 @@ private:
         int l = peek().line, c = peek().col;
         advance(); // class
         std::string name = expect(TokenType::Ident, "expected class name").value;
+        auto typeParams = parseTypeParams();
         std::string base;
         if (match(TokenType::Colon))
             base = expect(TokenType::Ident, "expected base class").value;
@@ -394,7 +416,7 @@ private:
                 error("expected field or method in class body");
         }
         expect(TokenType::RBrace, "expected '}'");
-        return std::make_unique<ClassDecl>(name, base,
+        return std::make_unique<ClassDecl>(name, std::move(typeParams), base,
             std::move(fields), std::move(methods), l, c);
     }
 
@@ -434,10 +456,23 @@ private:
             std::move(*parseFuncDeclInner(pub)));
     }
 
+    std::vector<std::string> parseTypeParams() {
+        std::vector<std::string> tp;
+        if (!check(TokenType::Lt)) return tp;
+        advance();
+        while (!check(TokenType::Gt) && !atEnd()) {
+            tp.push_back(expect(TokenType::Ident, "expected type param name").value);
+            if (!match(TokenType::Comma)) break;
+        }
+        expect(TokenType::Gt, "expected '>'");
+        return tp;
+    }
+
     std::unique_ptr<FuncDecl> parseFuncDeclInner(bool pub) {
         int l = peek().line, c = peek().col;
         advance(); // func
         std::string name = expect(TokenType::Ident, "expected function name").value;
+        auto typeParams = parseTypeParams();
 
         expect(TokenType::LParen, "expected '('");
         std::vector<Param> params;
@@ -458,8 +493,27 @@ private:
 
         auto body = parseBlock();
 
-        return std::make_unique<FuncDecl>(
-            name, std::move(params), ret, std::move(body), pub, l, c);
+        bool isCoro = false;
+        if (body) {
+            std::function<bool(const BlockStmt*)> hw;
+            hw = [&](const BlockStmt* blk) -> bool {
+                if (!blk) return false;
+                for (auto& s : blk->stmts) {
+                    if (s->kind == Stmt::Kind::Wait) return true;
+                    if (s->kind == Stmt::Kind::If) { auto* i = static_cast<const IfStmt*>(s.get()); if (hw(i->then_.get())||hw(i->else_.get())) return true; }
+                    if (s->kind == Stmt::Kind::While) { if (hw(static_cast<const WhileStmt*>(s.get())->body.get())) return true; }
+                    if (s->kind == Stmt::Kind::Loop)  { if (hw(static_cast<const LoopStmt*>(s.get())->body.get()))  return true; }
+                    if (s->kind == Stmt::Kind::ForIn) { if (hw(static_cast<const ForInStmt*>(s.get())->body.get())) return true; }
+                    if (s->kind == Stmt::Kind::Block) { if (hw(static_cast<const BlockStmt*>(s.get()))) return true; }
+                }
+                return false;
+            };
+            isCoro = hw(body.get());
+        }
+        auto fd = std::make_unique<FuncDecl>(
+            name, std::move(typeParams), std::move(params), ret, std::move(body), pub, l, c);
+        fd->isCoroutine = isCoro;
+        return fd;
     }
 
     // -----------------------------------------------------------------------

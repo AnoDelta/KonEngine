@@ -532,15 +532,17 @@ struct PropagateExpr : Expr {
 
 struct FuncDecl : Stmt {
     std::string                name;
+    std::vector<std::string>   typeParams;   // generic type params ["T","U"]
     std::vector<Param>         params;
     std::optional<TypeAnnotation> returnType;
     std::unique_ptr<BlockStmt> body;
     bool                       pub = false;
-    FuncDecl(const std::string& n, std::vector<Param> p,
-             std::optional<TypeAnnotation> r,
+    bool                       isCoroutine = false;
+    FuncDecl(const std::string& n, std::vector<std::string> tp,
+             std::vector<Param> p, std::optional<TypeAnnotation> r,
              std::unique_ptr<BlockStmt> b, bool pub_, int l, int c)
-        : name(n), params(std::move(p)), returnType(r),
-          body(std::move(b)), pub(pub_) {
+        : name(n), typeParams(std::move(tp)), params(std::move(p)),
+          returnType(r), body(std::move(b)), pub(pub_) {
         kind = Kind::FuncDecl; line=l; col=c;
     }
 };
@@ -568,10 +570,13 @@ struct NodeDecl : Stmt {
 };
 
 struct StructDecl : Stmt {
-    std::string            name;
-    std::vector<FieldDecl> fields;
-    StructDecl(const std::string& n, std::vector<FieldDecl> f, int l, int c)
-        : name(n), fields(std::move(f)) { kind = Kind::StructDecl; line=l; col=c; }
+    std::string              name;
+    std::vector<std::string> typeParams;
+    std::vector<FieldDecl>   fields;
+    StructDecl(const std::string& n, std::vector<std::string> tp,
+               std::vector<FieldDecl> f, int l, int c)
+        : name(n), typeParams(std::move(tp)), fields(std::move(f)) {
+        kind = Kind::StructDecl; line=l; col=c; }
 };
 
 struct EnumVariant {
@@ -591,11 +596,14 @@ struct ClassDecl : Stmt {
     std::string              base;
     std::vector<FieldDecl>   fields;
     std::vector<std::unique_ptr<FuncDecl>> methods;
-    ClassDecl(const std::string& n, const std::string& b,
+    std::vector<std::string> typeParams;
+    ClassDecl(const std::string& n, std::vector<std::string> tp,
+              const std::string& b,
               std::vector<FieldDecl> f,
               std::vector<std::unique_ptr<FuncDecl>> m,
               int l, int c)
-        : name(n), base(b), fields(std::move(f)), methods(std::move(m)) {
+        : name(n), typeParams(std::move(tp)), base(b),
+          fields(std::move(f)), methods(std::move(m)) {
         kind = Kind::ClassDecl; line=l; col=c;
     }
 };

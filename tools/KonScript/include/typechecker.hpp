@@ -290,6 +290,7 @@ private:
     std::unordered_map<std::string, Symbol>     m_globalSymbols;
 
     // Known engine node types
+    std::unordered_set<std::string> m_activeTypeParams;
     std::unordered_set<std::string> m_checking;  // recursion guard
     std::unordered_set<std::string> m_nodeTypes = {
         "Node", "Node2D", "Sprite2D", "Collider2D",
@@ -335,6 +336,7 @@ private:
     }
 
     Type resolveBase(const std::string& name) {
+        if (m_activeTypeParams.count(name)) return Type::unknown();
         if (name == "I8")     return Type::make(Type::Kind::I8);
         if (name == "I16")    return Type::make(Type::Kind::I16);
         if (name == "I32")    return Type::make(Type::Kind::I32);
@@ -410,10 +412,16 @@ private:
                 sym.name    = f->name;
                 sym.isFunc  = true;
                 sym.pub     = f->pub;
-                sym.returnType = f->returnType
-                    ? resolve(*f->returnType) : Type::void_();
+                if (f->isCoroutine)
+                    sym.returnType = Type::make(Type::Kind::Struct, "_KsTask");
+                else if (!f->typeParams.empty())
+                    sym.returnType = Type::unknown();
+                else
+                    sym.returnType = f->returnType
+                        ? resolve(*f->returnType) : Type::void_();
                 for (auto& p : f->params)
-                    sym.paramTypes.push_back(resolve(p.type));
+                    sym.paramTypes.push_back(
+                        !f->typeParams.empty() ? Type::unknown() : resolve(p.type));
                 sym.type = sym.returnType;
                 m_globalSymbols[f->name] = sym;
 
@@ -875,6 +883,11 @@ private:
         m_checking.insert(f->name);
 
         Scope funcScope; funcScope.parent = scope;
+        for (auto& tp : f->typeParams) {
+            Symbol s; s.name = tp; s.type = Type::unknown(); s.mut = false;
+            funcScope.define(s);
+            m_activeTypeParams.insert(tp);
+        }
         for (auto& p : f->params) {
             Symbol sym;
             sym.name = p.name;
@@ -884,6 +897,7 @@ private:
         }
         Type ret = f->returnType ? resolve(*f->returnType) : Type::void_();
         checkBlock(f->body.get(), &funcScope, ret);
+        for (auto& tp : f->typeParams) m_activeTypeParams.erase(tp);
         m_checking.erase(f->name);
     }
 
@@ -1323,7 +1337,7 @@ private:
 
             case Expr::Kind::Spawn:
                 checkExpr(static_cast<const SpawnExpr*>(e)->call.get(), scope);
-                return Type::void_();
+                return Type::make(Type::Kind::Struct, "_KsTask");
 
             case Expr::Kind::FuncExpr: {
                 // Closure: infer param types and return type

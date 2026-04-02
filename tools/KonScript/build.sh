@@ -40,7 +40,7 @@ else
 fi
 
 # shellcheck disable=SC2086
-g++ -std=c++17 -O2 -I include $DEFINES src/main.cpp -o konscript
+g++ -std=c++20 -O2 -I include $DEFINES src/main.cpp -o konscript
 
 echo ""
 echo "==================================================="
