@@ -441,6 +441,7 @@ private:
         emit("declare i8* @_ks_str_substr(i8*, i32, i32)");
         emit("declare i32 @_ks_str_toInt(i8*)");
         emit("declare float @_ks_str_toFloat(i8*)");
+        emit("declare i8* @_ks_str_concat(i8*, i8*)");
         emit("declare i8* @_ks_str_charAt(i8*, i32)");
         emit("declare i1  @_ks_str_isAlpha(i8*)");
         emit("declare i1  @_ks_str_isDigit(i8*)");
@@ -1539,7 +1540,10 @@ private:
         bool isBool  = false;
         std::string op = e->op;
 
-        if (op == "+")  { emitI(t + " = " + (isFloat?"fadd":"add") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        if (op == "+" && lt2 == "i8*") {
+            // String concatenation: i8* + i8* → _ks_str_concat
+            emitI(t + " = call i8* @_ks_str_concat(i8* " + lv2 + ", i8* " + rv2 + ")");
+        } else if (op == "+")  { emitI(t + " = " + (isFloat?"fadd":"add") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "-") { emitI(t + " = " + (isFloat?"fsub":"sub") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "*") { emitI(t + " = " + (isFloat?"fmul":"mul") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "/") { emitI(t + " = " + (isFloat?"fdiv":"sdiv") + " " + lt2 + " " + lv2 + ", " + rv2); }

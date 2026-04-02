@@ -257,3 +257,15 @@ int8_t* _ks_result_value(int8_t* r) { return ((KsResult*)r)->value; }
 int8_t* _ks_result_error(int8_t* r) {
     return ((KsResult*)r)->ok ? ks_strdup("") : ((KsResult*)r)->value;
 }
+
+/* String concatenation */
+int8_t* _ks_str_concat(int8_t* a, int8_t* b) {
+    if (!a) a = (int8_t*)"";
+    if (!b) b = (int8_t*)"";
+    size_t la = strlen((char*)a), lb = strlen((char*)b);
+    int8_t* out = (int8_t*)malloc(la + lb + 1);
+    memcpy(out, a, la);
+    memcpy(out + la, b, lb);
+    out[la + lb] = 0;
+    return out;
+}
