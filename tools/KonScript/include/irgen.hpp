@@ -418,6 +418,7 @@ private:
         emit("; --- runtime ---");
         emit("declare i32 @printf(i8* nocapture, ...)");
         emit("declare i32 @snprintf(i8* noalias nocapture, i64, i8* nocapture, ...)");
+        emit("declare i32 @sprintf(i8*, i8*, ...)");
         emit("declare i32 @scanf(i8* nocapture, ...)");
         emit("declare i8* @malloc(i64)");
         emit("declare void @free(i8*)");
