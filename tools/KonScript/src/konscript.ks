@@ -401,14 +401,168 @@ class Parser {
     }
 }
 
+/* -----------------------------------------------------------------------
+   Phase 4: Statement parser — text AST dump
+   ----------------------------------------------------------------------- */
+
+class StmtParser {
+    let mut ts:     TokenStream = TokenStream { tokens: [], pos: 0 };
+    let mut ep:     Parser      = Parser { ts: TokenStream { tokens: [], pos: 0 } };
+    let mut indent: I32 = 0;
+
+    func init(mut self, stream: TokenStream) {
+        self.ts = stream;
+        self.ep.ts = stream;
+    }
+
+    func pad(self) -> Str {
+        let mut s: Str = "";
+        let mut i: I32 = 0;
+        while i < self.indent {
+            s = s + "  ";
+            i += 1;
+        }
+        return s;
+    }
+
+    func parseExpr(mut self) -> Str {
+        self.ep.ts = self.ts;
+        let result: Str = self.ep.parseExpr();
+        self.ts = self.ep.ts;
+        return result;
+    }
+
+    func parseBlock(mut self) -> Str {
+        self.ts.expect(TokenKind::LBrace);
+        let mut out: Str = "";
+        self.indent += 1;
+        while !self.ts.check(TokenKind::RBrace) && !self.ts.atEnd() {
+            out = out + self.parseStmt();
+        }
+        self.ts.expect(TokenKind::RBrace);
+        self.indent -= 1;
+        return out;
+    }
+
+    func skipType(mut self) {
+        while !self.ts.check(TokenKind::Assign) &&
+              !self.ts.check(TokenKind::Semicolon) &&
+              !self.ts.check(TokenKind::LBrace) &&
+              !self.ts.check(TokenKind::KwIn) &&
+              !self.ts.atEnd() {
+            self.ts.advance();
+        }
+    }
+
+    func skipParens(mut self) {
+        self.ts.consume(TokenKind::LParen);
+        let mut depth: I32 = 1;
+        while depth > 0 && !self.ts.atEnd() {
+            if self.ts.check(TokenKind::LParen) { depth += 1; }
+            if self.ts.check(TokenKind::RParen) { depth -= 1; }
+            self.ts.advance();
+        }
+    }
+
+    func parseStmt(mut self) -> Str {
+        let t: Token = self.ts.peek();
+        if t.kind == TokenKind::KwLet    { return self.parseLet(); }
+        if t.kind == TokenKind::KwReturn { return self.parseReturn(); }
+        if t.kind == TokenKind::KwIf     { return self.parseIf(); }
+        if t.kind == TokenKind::KwWhile  { return self.parseWhile(); }
+        if t.kind == TokenKind::KwFor    { return self.parseForIn(); }
+        if t.kind == TokenKind::KwFunc   { return self.parseFuncDecl(); }
+        let expr: Str = self.parseExpr();
+        self.ts.consume(TokenKind::Semicolon);
+        return self.pad() + expr + ";\n";
+    }
+
+    func parseLet(mut self) -> Str {
+        self.ts.advance();
+        let mut isMut: Bool = false;
+        if self.ts.check(TokenKind::KwMut) { self.ts.advance(); isMut = true; }
+        let name: Token = self.ts.expect(TokenKind::Ident);
+        if self.ts.consume(TokenKind::Colon) { self.skipType(); }
+        let mut val: Str = "";
+        if self.ts.consume(TokenKind::Assign) { val = self.parseExpr(); }
+        self.ts.consume(TokenKind::Semicolon);
+        let mut kw: Str = "let ";
+        if isMut { kw = "let mut "; }
+        return self.pad() + kw + name.value + " = " + val + ";\n";
+    }
+
+    func parseReturn(mut self) -> Str {
+        self.ts.advance();
+        if self.ts.check(TokenKind::Semicolon) { self.ts.advance(); return self.pad() + "return;\n"; }
+        let val: Str = self.parseExpr();
+        self.ts.consume(TokenKind::Semicolon);
+        return self.pad() + "return " + val + ";\n";
+    }
+
+    func parseIf(mut self) -> Str {
+        self.ts.advance();
+        let cond: Str = self.parseExpr();
+        let body: Str = self.parseBlock();
+        let mut out: Str = self.pad() + "if " + cond + " {\n" + body;
+        if self.ts.check(TokenKind::KwElse) {
+            self.ts.advance();
+            if self.ts.check(TokenKind::KwIf) {
+                return out + self.pad() + "} else " + self.parseIf();
+            }
+            let eb: Str = self.parseBlock();
+            out = out + self.pad() + "} else {\n" + eb;
+        }
+        return out + self.pad() + "}\n";
+    }
+
+    func parseWhile(mut self) -> Str {
+        self.ts.advance();
+        let cond: Str = self.parseExpr();
+        let body: Str = self.parseBlock();
+        return self.pad() + "while " + cond + " {\n" + body + self.pad() + "}\n";
+    }
+
+    func parseForIn(mut self) -> Str {
+        self.ts.advance();
+        let var: Token = self.ts.expect(TokenKind::Ident);
+        if self.ts.check(TokenKind::Colon) { self.ts.advance(); self.skipType(); }
+        self.ts.consume(TokenKind::KwIn);
+        let iter: Str = self.parseExpr();
+        let body: Str = self.parseBlock();
+        return self.pad() + "for " + var.value + " in " + iter + " {\n" + body + self.pad() + "}\n";
+    }
+
+    func parseFuncDecl(mut self) -> Str {
+        self.ts.advance();
+        let name: Token = self.ts.expect(TokenKind::Ident);
+        self.skipParens();
+        if self.ts.check(TokenKind::Arrow) {
+            self.ts.advance();
+            self.skipType();
+        }
+        let body: Str = self.parseBlock();
+        return self.pad() + "func " + name.value + " {\n" + body + self.pad() + "}\n";
+    }
+
+    func parseProgram(mut self) -> Str {
+        let mut out: Str = "";
+        while !self.ts.atEnd() { out = out + self.parseStmt(); }
+        return out;
+    }
+}
+
 func main() {
-    let source: Str = "1 + 2 * 3";
+    let source: Str = "func add(a: I32, b: I32) -> I32 { return a + b; } func main() { let x: I32 = 1 + 2 * 3; let mut y: I32 = 0; if x > 5 { y = x + 1; } return 0; }";
     let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
     lexer.init(source);
     let toks: [Token] = lexer.tokenize();
     let mut ts: TokenStream = TokenStream { tokens: [], pos: 0 };
     ts.init(toks);
-    let mut parser: Parser = Parser { ts: ts };
-    let result: Str = parser.parseExpr();
-    Print(result);
+    let mut sp: StmtParser = StmtParser {
+        ts: ts,
+        ep: Parser { ts: TokenStream { tokens: [], pos: 0 } },
+        indent: 0
+    };
+    sp.init(ts);
+    Print(sp.parseProgram());
 }

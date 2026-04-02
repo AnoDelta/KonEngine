@@ -173,8 +173,8 @@ public:
             // String literal — also auto-upgrade if it contains {expr}
             if (c == '"') {
                 auto tok = readString(startLine, startCol);
-                if (looksLikeFStr(tok.value))
-                    tok.type = TokenType::FStr;
+                // Auto-upgrade disabled: f-strings require explicit f prefix
+                // if (looksLikeFStr(tok.value)) tok.type = TokenType::FStr;
                 m_tokens.push_back(tok);
                 continue;
             }
