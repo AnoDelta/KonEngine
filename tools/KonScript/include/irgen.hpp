@@ -1654,10 +1654,26 @@ private:
                 }
             }
         } else if (e->target->kind == Expr::Kind::Member) {
-            // self.field = value  →  GEP + store
+            // self.field op= value  →  GEP + optional load+op + store
             auto [gepPtr, gepTy] = genMemberAddr(static_cast<const MemberExpr*>(e->target.get()));
             if (!gepPtr.empty()) {
-                emitI("store " + gepTy + " " + val + ", " + gepTy + "* " + gepPtr);
+                std::string storeVal = val;
+                std::string op = e->op;
+                if (op != "=") {
+                    // Compound: load current, apply op, store result
+                    std::string oldV = tmp();
+                    emitI(oldV + " = load " + gepTy + ", " + gepTy + "* " + gepPtr);
+                    bool isFloat = (gepTy == "float" || gepTy == "double");
+                    std::string res = tmp();
+                    if      (op == "+=") emitI(res + " = " + (isFloat?"fadd":"add") + " " + gepTy + " " + oldV + ", " + val);
+                    else if (op == "-=") emitI(res + " = " + (isFloat?"fsub":"sub") + " " + gepTy + " " + oldV + ", " + val);
+                    else if (op == "*=") emitI(res + " = " + (isFloat?"fmul":"mul") + " " + gepTy + " " + oldV + ", " + val);
+                    else if (op == "/=") emitI(res + " = " + (isFloat?"fdiv":"sdiv") + " " + gepTy + " " + oldV + ", " + val);
+                    else if (op == "+="  && gepTy == "i8*") emitI(res + " = call i8* @_ks_str_concat(i8* " + oldV + ", i8* " + val + ")");
+                    else res = val; // fallback
+                    storeVal = res;
+                }
+                emitI("store " + gepTy + " " + storeVal + ", " + gepTy + "* " + gepPtr);
             }
             return {val, lt};
         } else {
