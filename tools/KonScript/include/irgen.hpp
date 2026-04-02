@@ -463,7 +463,6 @@ private:
         emit("declare i32 @_ks_str_toInt(i8*)");
         emit("declare float @_ks_str_toFloat(i8*)");
         emit("declare i8* @_ks_str_concat(i8*, i8*)");
-        emit("declare i8* @_ks_str_concat(i8*, i8*)");
         emit("declare i8* @_ks_str_charAt(i8*, i32)");
         emit("declare i1  @_ks_str_isAlpha(i8*)");
         emit("declare i1  @_ks_str_isDigit(i8*)");
