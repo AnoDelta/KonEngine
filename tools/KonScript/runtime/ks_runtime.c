@@ -269,3 +269,56 @@ int8_t* _ks_str_concat(int8_t* a, int8_t* b) {
     out[la + lb] = 0;
     return out;
 }
+
+/* -------------------------------------------------------------------------
+   String char methods
+   ------------------------------------------------------------------------- */
+/* charAt(s, i) → single-char string */
+int8_t* _ks_str_charAt(int8_t* s, int32_t i) {
+    int8_t* out = (int8_t*)malloc(2);
+    int32_t len = (int32_t)strlen((char*)s);
+    out[0] = (i >= 0 && i < len) ? s[i] : 0;
+    out[1] = 0;
+    return out;
+}
+
+/* toCharCode(s) → ASCII value of first char */
+int32_t _ks_str_toCharCode(int8_t* s) {
+    if (!s || !s[0]) return 0;
+    return (int32_t)(uint8_t)s[0];
+}
+
+/* fromCharCode(code) → single-char string */
+int8_t* _ks_str_fromCharCode(int32_t code) {
+    int8_t* out = (int8_t*)malloc(2);
+    out[0] = (int8_t)(code & 0xFF);
+    out[1] = 0;
+    return out;
+}
+
+/* isAlpha/isDigit/isUpper/isLower/isSpace operate on single-char strings */
+int8_t _ks_str_isAlpha(int8_t* s) {
+    if (!s || !s[0]) return 0;
+    char c = (char)s[0];
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+int8_t _ks_str_isDigit(int8_t* s) {
+    if (!s || !s[0]) return 0;
+    char c = (char)s[0];
+    return c >= '0' && c <= '9';
+}
+int8_t _ks_str_isUpper(int8_t* s) {
+    if (!s || !s[0]) return 0;
+    char c = (char)s[0];
+    return c >= 'A' && c <= 'Z';
+}
+int8_t _ks_str_isLower(int8_t* s) {
+    if (!s || !s[0]) return 0;
+    char c = (char)s[0];
+    return c >= 'a' && c <= 'z';
+}
+int8_t _ks_str_isSpace(int8_t* s) {
+    if (!s || !s[0]) return 0;
+    char c = (char)s[0];
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
