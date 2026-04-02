@@ -122,6 +122,12 @@ public:
                 for (auto& f : sd->fields)
                     fields.push_back({f.name, llvmType(f.type), f.type.base});
                 m_structFields[sd->name] = fields;
+            } else if (s->kind == Stmt::Kind::EnumDecl) {
+                auto* ed = static_cast<const EnumDecl*>(s.get());
+                m_enumTypes.insert(ed->name);
+                int idx = 0;
+                for (auto& v : ed->variants)
+                    m_enumVariants[ed->name][v.name] = idx++;
             } else if (s->kind == Stmt::Kind::ClassDecl) {
                 auto* cd = static_cast<const ClassDecl*>(s.get());
                 std::vector<FieldInfo> fields;
@@ -200,6 +206,8 @@ private:
     std::unordered_map<std::string, std::string> m_globalTypes;
     // Function return type table: name → llvm return type
     std::unordered_map<std::string, std::string> m_funcRetTypes;
+    std::unordered_set<std::string> m_enumTypes;
+    std::unordered_map<std::string, std::unordered_map<std::string,int>> m_enumVariants;
 
     // Struct field layout: structName → list of {fieldName, llvmType}
     struct FieldInfo { std::string name; std::string llvmTy; std::string ksTy; };
@@ -306,6 +314,8 @@ private:
         if (b=="Bool")             return "i1";
         if (b=="Str" || b=="String") return "i8*";
         if (b=="Void" || b=="()")  return "void";
+        // Enum types → i32 (enum variants are integer ordinals)
+        if (m_enumTypes.count(b)) return "i32";
         // User-defined struct/class — pointer to opaque type
         return "%struct." + b + "*";
     }
@@ -2095,6 +2105,18 @@ private:
 
     // Member read — GEP then load
     ValType genMember(const MemberExpr* e) {
+        // ── Enum variant access: TokenKind::KwLet → integer ordinal ────────
+        if (e->object->kind == Expr::Kind::Ident) {
+            auto* id = static_cast<const IdentExpr*>(e->object.get());
+            auto eit = m_enumVariants.find(id->name);
+            if (eit != m_enumVariants.end()) {
+                auto vit = eit->second.find(e->member);
+                if (vit != eit->second.end())
+                    return {std::to_string(vit->second), "i32"};
+                // Unknown variant — return 0
+                return {"0", "i32"};
+            }
+        }
         // ── Result<T> field access — delegate to runtime functions ────────
         // result.ok → @_ks_result_ok(i8*)   → i1
         // result.value → @_ks_result_value(i8*) → i8*
