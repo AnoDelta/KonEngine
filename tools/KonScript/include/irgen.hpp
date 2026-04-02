@@ -1933,36 +1933,21 @@ private:
                     objTy  = it->second.llvmTy;
                 }
             } else if (m->object->kind == Expr::Kind::Member) {
-                // Chained: self.field.method() — get GEP address of field
+                // Chained: self.field.method() or self.f1.f2.method()
+                // genMemberAddr handles arbitrary depth, returns {gepPtr, fieldLlvmTy}
                 auto* fm = static_cast<const MemberExpr*>(m->object.get());
                 auto [gepPtr, gepTy] = genMemberAddr(fm);
-                if (!gepPtr.empty()) {
-                    // gepPtr is a T** — load it to get the T* pointer
-                    // First determine the ksTy of the field
-                    std::string fieldKsTy;
-                    if (fm->object->kind == Expr::Kind::Ident) {
-                        auto* id = static_cast<const IdentExpr*>(fm->object.get());
-                        auto it = m_locals.find(id->name);
-                        if (it != m_locals.end()) {
-                            auto sfit = m_structFields.find(it->second.ksTy);
-                            if (sfit != m_structFields.end())
-                                for (auto& fi : sfit->second)
-                                    if (fi.name == fm->member) { fieldKsTy = fi.ksTy; break; }
-                        }
-                    }
-                    if (!fieldKsTy.empty()) {
-                        structName = fieldKsTy;
-                        // Load the field value to get the struct ptr
-                        std::string fieldTy = "%struct." + fieldKsTy + "*";
-                        std::string loaded = tmp();
-                        emitI(loaded + " = load " + fieldTy + ", " + fieldTy + "* " + gepPtr);
-                        // Now alloca a slot and store so we have an addr (addr = ptr-to-ptr)
-                        std::string slot = tmp() + ".slot";
-                        emitI(slot + " = alloca " + fieldTy);
-                        emitI("store " + fieldTy + " " + loaded + ", " + fieldTy + "* " + slot);
-                        objPtr = slot;
-                        objTy  = fieldTy;
-                    }
+                // gepTy is the field type, e.g. "%struct.TokenStream*"
+                // Extract struct name directly from gepTy
+                if (!gepPtr.empty() && gepTy.rfind("%struct.", 0) == 0 && gepTy.back() == '*') {
+                    structName = gepTy.substr(8, gepTy.size() - 9); // strip %struct. and *
+                    std::string loaded = tmp();
+                    emitI(loaded + " = load " + gepTy + ", " + gepTy + "* " + gepPtr);
+                    std::string slot = tmp() + ".slot";
+                    emitI(slot + " = alloca " + gepTy);
+                    emitI("store " + gepTy + " " + loaded + ", " + gepTy + "* " + slot);
+                    objPtr = slot;
+                    objTy  = gepTy;
                 }
             }
             if (!structName.empty()) {
