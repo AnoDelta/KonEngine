@@ -260,12 +260,67 @@ class Lexer {
     }
 }
 
+/* -----------------------------------------------------------------------
+   Phase 2: Token stream reader
+   ----------------------------------------------------------------------- */
+
+class TokenStream {
+    let mut tokens: [Token] = [];
+    let mut pos:    I32 = 0;
+
+    func init(mut self, toks: [Token]) {
+        self.tokens = toks;
+        self.pos = 0;
+    }
+
+    func peek(self) -> Token {
+        return self.tokens[self.pos];
+    }
+
+    func advance(mut self) -> Token {
+        let t: Token = self.tokens[self.pos];
+        if self.pos + 1 < self.tokens.len() {
+            self.pos += 1;
+        }
+        return t;
+    }
+
+    func check(self, kind: TokenKind) -> Bool {
+        return self.tokens[self.pos].kind == kind;
+    }
+
+    func consume(mut self, kind: TokenKind) -> Bool {
+        if self.tokens[self.pos].kind == kind {
+            self.pos += 1;
+            return true;
+        }
+        return false;
+    }
+
+    func expect(mut self, kind: TokenKind) -> Token {
+        let t: Token = self.tokens[self.pos];
+        if self.pos + 1 < self.tokens.len() {
+            self.pos += 1;
+        }
+        return t;
+    }
+
+    func atEnd(self) -> Bool {
+        return self.tokens[self.pos].kind == TokenKind::Eof;
+    }
+}
+
 func main() {
     let source: Str = "let x: I32 = 42;";
     let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
     lexer.init(source);
-    let tokens: [Token] = lexer.tokenize();
-    for tok in tokens {
-        Print(tok.value);
+    let toks: [Token] = lexer.tokenize();
+
+    let mut ts: TokenStream = TokenStream { tokens: [], pos: 0 };
+    ts.init(toks);
+
+    while !ts.atEnd() {
+        let t: Token = ts.advance();
+        Print(t.value);
     }
 }
