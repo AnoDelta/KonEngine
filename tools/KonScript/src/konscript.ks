@@ -799,27 +799,319 @@ class TypeChecker {
     }
 }
 
+/* -----------------------------------------------------------------------
+   Phase 6: IR emitter — emits LLVM IR text to stdout
+   Handles: func decls, let, return, binary ops, calls, if, while
+   ----------------------------------------------------------------------- */
+
+class IRGen {
+    let mut ts:      TokenStream = TokenStream  { tokens: [], pos: 0 };
+    let mut ep:      Parser      = Parser       { ts: TokenStream { tokens: [], pos: 0 } };
+    let mut syms:    SymbolTable = SymbolTable  { syms: [], scopeDepth: 0 };
+    let mut tmpId:   I32 = 0;
+    let mut labelId: I32 = 0;
+    let mut out:     [Str] = [];
+
+    func init(mut self, stream: TokenStream) {
+        self.ts = stream;
+        self.ep.ts = stream;
+    }
+
+    func nextTmp(mut self) -> Str {
+        self.tmpId += 1;
+        return "%" + ToString(self.tmpId);
+    }
+
+    func nextLabel(mut self) -> Str {
+        self.labelId += 1;
+        return "L" + ToString(self.labelId);
+    }
+
+    func emit(mut self, line: Str) {
+        self.out.push(line);
+    }
+
+    func emitIndent(mut self, line: Str) {
+        self.out.push("  " + line);
+    }
+
+    func syncTs(mut self) {
+        self.ep.ts = self.ts;
+    }
+
+    func syncBack(mut self) {
+        self.ts = self.ep.ts;
+    }
+
+    func llvmType(self, t: Str) -> Str {
+        if t == "I32"  { return "i32"; }
+        if t == "I64"  { return "i64"; }
+        if t == "F32"  { return "float"; }
+        if t == "F64"  { return "double"; }
+        if t == "Bool" { return "i1"; }
+        if t == "U8"   { return "i8"; }
+        if t == "U16"  { return "i16"; }
+        if t == "U32"  { return "i32"; }
+        if t == "U64"  { return "i64"; }
+        if t == "Str"  { return "i8*"; }
+        return "i32";
+    }
+
+    func parseTypeStr(mut self) -> Str {
+        let mut t: Str = "";
+        while !self.ts.check(TokenKind::Assign) &&
+              !self.ts.check(TokenKind::Semicolon) &&
+              !self.ts.check(TokenKind::LBrace) &&
+              !self.ts.check(TokenKind::KwIn) &&
+              !self.ts.check(TokenKind::Comma) &&
+              !self.ts.check(TokenKind::RParen) &&
+              !self.ts.atEnd() {
+            t = t + self.ts.advance().value;
+        }
+        return t;
+    }
+
+    /* emitExpr: emit instructions for an expression, return the result register */
+    func emitExpr(mut self) -> Str {
+        self.syncTs();
+        /* parse just one primary+op for now — simple Pratt */
+        let left: Str = self.emitPrimary();
+        let t: Token = self.ep.ts.peek();
+
+        if t.kind == TokenKind::Plus || t.kind == TokenKind::Minus ||
+           t.kind == TokenKind::Star || t.kind == TokenKind::Slash ||
+           t.kind == TokenKind::Eq   || t.kind == TokenKind::NotEq ||
+           t.kind == TokenKind::Lt   || t.kind == TokenKind::Gt    ||
+           t.kind == TokenKind::LtEq || t.kind == TokenKind::GtEq {
+            let op: Token = self.ep.ts.advance();
+            let right: Str = self.emitPrimary();
+            let res: Str = self.nextTmp();
+            if op.value == "+"  { self.emitIndent(res + " = add i32 " + left + ", " + right); }
+            else if op.value == "-"  { self.emitIndent(res + " = sub i32 " + left + ", " + right); }
+            else if op.value == "*"  { self.emitIndent(res + " = mul i32 " + left + ", " + right); }
+            else if op.value == "/"  { self.emitIndent(res + " = sdiv i32 " + left + ", " + right); }
+            else if op.value == "==" { self.emitIndent(res + " = icmp eq i32 " + left + ", " + right); }
+            else if op.value == "!=" { self.emitIndent(res + " = icmp ne i32 " + left + ", " + right); }
+            else if op.value == "<"  { self.emitIndent(res + " = icmp slt i32 " + left + ", " + right); }
+            else if op.value == ">"  { self.emitIndent(res + " = icmp sgt i32 " + left + ", " + right); }
+            else if op.value == "<=" { self.emitIndent(res + " = icmp sle i32 " + left + ", " + right); }
+            else if op.value == ">=" { self.emitIndent(res + " = icmp sge i32 " + left + ", " + right); }
+            self.syncBack();
+            return res;
+        }
+        self.syncBack();
+        return left;
+    }
+
+    func emitPrimary(mut self) -> Str {
+        let t: Token = self.ep.ts.peek();
+        if t.kind == TokenKind::Int {
+            self.ep.ts.advance();
+            return t.value;
+        }
+        if t.kind == TokenKind::Ident {
+            self.ep.ts.advance();
+            /* check for call */
+            if self.ep.ts.check(TokenKind::LParen) {
+                self.ep.ts.advance();
+                let mut args: [Str] = [];
+                while !self.ep.ts.check(TokenKind::RParen) && !self.ep.ts.atEnd() {
+                    args.push(self.emitPrimary());
+                    self.ep.ts.consume(TokenKind::Comma);
+                }
+                self.ep.ts.consume(TokenKind::RParen);
+                let res: Str = self.nextTmp();
+                let mut argStr: Str = "";
+                let mut first: Bool = true;
+                for a in args {
+                    if !first { argStr = argStr + ", "; }
+                    first = false;
+                    argStr = argStr + "i32 " + a;
+                }
+                self.emitIndent(res + " = call i32 @" + t.value + "(" + argStr + ")");
+                return res;
+            }
+            /* variable load */
+            let res: Str = self.nextTmp();
+            self.emitIndent(res + " = load i32, i32* %" + t.value + "_ptr");
+            return res;
+        }
+        self.ep.ts.advance();
+        return "0";
+    }
+
+    func emitBlock(mut self) {
+        self.ts.expect(TokenKind::LBrace);
+        self.syms.pushScope();
+        while !self.ts.check(TokenKind::RBrace) && !self.ts.atEnd() {
+            self.emitStmt();
+        }
+        self.ts.expect(TokenKind::RBrace);
+        self.syms.popScope();
+    }
+
+    func emitStmt(mut self) {
+        let t: Token = self.ts.peek();
+        if t.kind == TokenKind::KwLet    { self.emitLet(); return; }
+        if t.kind == TokenKind::KwReturn { self.emitReturn(); return; }
+        if t.kind == TokenKind::KwIf     { self.emitIf(); return; }
+        if t.kind == TokenKind::KwWhile  { self.emitWhile(); return; }
+        /* skip unknown stmts */
+        while !self.ts.check(TokenKind::Semicolon) && !self.ts.atEnd() {
+            self.ts.advance();
+        }
+        self.ts.consume(TokenKind::Semicolon);
+    }
+
+    func emitLet(mut self) {
+        self.ts.advance();
+        let mut isMut: Bool = false;
+        if self.ts.check(TokenKind::KwMut) { self.ts.advance(); isMut = true; }
+        let name: Token = self.ts.expect(TokenKind::Ident);
+        let mut typeName: Str = "I32";
+        if self.ts.consume(TokenKind::Colon) { typeName = self.parseTypeStr(); }
+        let llty: Str = self.llvmType(typeName);
+        self.emitIndent("%" + name.value + "_ptr = alloca " + llty);
+        if self.ts.consume(TokenKind::Assign) {
+            let val: Str = self.emitExpr();
+            self.emitIndent("store " + llty + " " + val + ", " + llty + "* %" + name.value + "_ptr");
+        }
+        self.ts.consume(TokenKind::Semicolon);
+        self.syms.define(name.value, typeName, isMut);
+    }
+
+    func emitReturn(mut self) {
+        self.ts.advance();
+        if self.ts.check(TokenKind::Semicolon) {
+            self.ts.advance();
+            self.emitIndent("ret void");
+            return;
+        }
+        let val: Str = self.emitExpr();
+        self.ts.consume(TokenKind::Semicolon);
+        self.emitIndent("ret i32 " + val);
+    }
+
+    func emitIf(mut self) {
+        self.ts.advance();
+        let cond: Str = self.emitExpr();
+        let thenL: Str = self.nextLabel();
+        let elseL: Str = self.nextLabel();
+        let endL:  Str = self.nextLabel();
+        self.emitIndent("br i1 " + cond + ", label %" + thenL + ", label %" + elseL);
+        self.emit(thenL + ":");
+        self.emitBlock();
+        self.emitIndent("br label %" + endL);
+        self.emit(elseL + ":");
+        if self.ts.check(TokenKind::KwElse) {
+            self.ts.advance();
+            self.emitBlock();
+        }
+        self.emitIndent("br label %" + endL);
+        self.emit(endL + ":");
+    }
+
+    func emitWhile(mut self) {
+        self.ts.advance();
+        let condL: Str = self.nextLabel();
+        let bodyL: Str = self.nextLabel();
+        let endL:  Str = self.nextLabel();
+        self.emitIndent("br label %" + condL);
+        self.emit(condL + ":");
+        let cond: Str = self.emitExpr();
+        self.emitIndent("br i1 " + cond + ", label %" + bodyL + ", label %" + endL);
+        self.emit(bodyL + ":");
+        self.emitBlock();
+        self.emitIndent("br label %" + condL);
+        self.emit(endL + ":");
+    }
+
+    func emitFunc(mut self) {
+        self.ts.advance();
+        let name: Token = self.ts.expect(TokenKind::Ident);
+        self.ts.consume(TokenKind::LParen);
+        self.syms.pushScope();
+        let mut params: [Str] = [];
+        let mut paramTypes: [Str] = [];
+        while !self.ts.check(TokenKind::RParen) && !self.ts.atEnd() {
+            let mut isMutP: Bool = false;
+            if self.ts.check(TokenKind::KwMut) { self.ts.advance(); isMutP = true; }
+            let pname: Token = self.ts.expect(TokenKind::Ident);
+            self.ts.consume(TokenKind::Colon);
+            let ptype: Str = self.parseTypeStr();
+            params.push(pname.value);
+            paramTypes.push(ptype);
+            self.syms.define(pname.value, ptype, isMutP);
+            self.ts.consume(TokenKind::Comma);
+        }
+        self.ts.consume(TokenKind::RParen);
+        let mut retType: Str = "void";
+        if self.ts.check(TokenKind::Arrow) {
+            self.ts.advance();
+            retType = self.parseTypeStr();
+        }
+        let llRet: Str = self.llvmType(retType);
+        let mut sig: Str = "";
+        let mut first: Bool = true;
+        let mut pi: I32 = 0;
+        while pi < params.len() {
+            if !first { sig = sig + ", "; }
+            first = false;
+            sig = sig + self.llvmType(paramTypes[pi]) + " %" + params[pi];
+            pi += 1;
+        }
+        self.emit("define " + llRet + " @" + name.value + "(" + sig + ") {");
+        self.emit("entry:");
+        /* alloca params so they can be stored */
+        pi = 0;
+        while pi < params.len() {
+            let llty: Str = self.llvmType(paramTypes[pi]);
+            self.emitIndent("%" + params[pi] + "_ptr = alloca " + llty);
+            self.emitIndent("store " + llty + " %" + params[pi] + ", " + llty + "* %" + params[pi] + "_ptr");
+            pi += 1;
+        }
+        /* body */
+        self.ts.expect(TokenKind::LBrace);
+        while !self.ts.check(TokenKind::RBrace) && !self.ts.atEnd() {
+            self.emitStmt();
+        }
+        self.ts.expect(TokenKind::RBrace);
+        self.syms.popScope();
+        self.emit("}");
+        self.emit("");
+        self.syms.define(name.value, retType, false);
+    }
+
+    func emitModule(mut self) {
+        self.emit("; KonScript self-hosted IR — generated by konscript.ks");
+        self.emit("target triple = \"x86_64-unknown-linux-gnu\"");
+        self.emit("");
+        while !self.ts.atEnd() {
+            let t: Token = self.ts.peek();
+            if t.kind == TokenKind::KwFunc { self.emitFunc(); }
+            else { self.ts.advance(); }
+        }
+    }
+}
+
 func main() {
-    let source: Str = "func add(a: I32, b: I32) -> I32 { let result: I32 = a + b; return result; } func main() { let x: I32 = add(1, 2); let mut y: I32 = 0; if x > 0 { y = x + 1; } return 0; }";
+    let source: Str = "func add(a: I32, b: I32) -> I32 { let result: I32 = a + b; return result; } func main() -> I32 { let x: I32 = add(2, 3); return x; }";
     let mut lexer: Lexer = Lexer { src: "", pos: 0, line: 1, col: 1, tokens: [] };
     lexer.init(source);
     let toks: [Token] = lexer.tokenize();
     let mut ts: TokenStream = TokenStream { tokens: [], pos: 0 };
     ts.init(toks);
-    let mut tc: TypeChecker = TypeChecker {
+    let mut irgen: IRGen = IRGen {
         ts: ts,
         ep: Parser { ts: TokenStream { tokens: [], pos: 0 } },
         syms: SymbolTable { syms: [], scopeDepth: 0 },
-        errors: [],
+        tmpId: 0,
+        labelId: 0,
+        out: [],
     };
-    tc.init(ts);
-    tc.checkProgram();
-    if tc.errors.len() == 0 {
-        Print("type check OK");
-        Print(f"symbols defined: {tc.syms.syms.len()}");
-    } else {
-        for e in tc.errors {
-            Print(e);
-        }
+    irgen.init(ts);
+    irgen.emitModule();
+    for line in irgen.out {
+        Print(line);
     }
 }
