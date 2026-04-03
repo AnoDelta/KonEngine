@@ -1320,6 +1320,15 @@ func tc_expr(idx: I32) -> Str {
             if method == "contains" || method == "starts" || method == "ends" ||
                method == "isEmpty" || method == "has" { ret = "Bool"; }
             if method == "split" { ret = "[Str]"; }
+            // File methods return Result<Str>
+            if method == "read" || method == "write" || method == "append" ||
+               method == "delete" { ret = "Result<Str>"; }
+            if method == "exists" { ret = "Bool"; }
+            if method == "lines" { ret = "[Str]"; }
+            // HashMap methods
+            if method == "get" { ret = "?"; }
+            if method == "set" { ret = "void"; }
+            if method == "remove" { ret = "void"; }
         }
         let mut arg: I32 = node_b[idx];
         while arg != 0 { tc_expr(node_a[arg]); arg = node_b[arg]; }
@@ -1385,10 +1394,12 @@ func tc_stmt(idx: I32) {
     if k == NK_FOR_IN {
         let iter_t: Str = tc_expr(node_a[idx]);
         tc_push_scope();
-        let mut elem_t: Str = "?";
+        let mut elem_t: Str = "I32";
         if iter_t.len() > 2 && iter_t.starts("[") {
             elem_t = iter_t.substr(1, iter_t.len() - 2);
         }
+        // Range expressions iterate over I32
+        if iter_t == "?" { elem_t = "I32"; }
         tc_define(node_str[idx], elem_t);
         tc_stmt(node_b[idx]);
         tc_pop_scope(); return;
@@ -1614,6 +1625,12 @@ func ir_str_len(idx: I32) -> I32 {
 func ir_type(t: Str) -> Str {
     if t == "I32"  { return "i32"; }
     if t == "I64"  { return "i64"; }
+    if t == "I8"   { return "i8"; }
+    if t == "I16"  { return "i16"; }
+    if t == "U8"   { return "i8"; }
+    if t == "U16"  { return "i16"; }
+    if t == "U32"  { return "i32"; }
+    if t == "U64"  { return "i64"; }
     if t == "F32"  { return "float"; }
     if t == "F64"  { return "double"; }
     if t == "Bool" { return "i1"; }
@@ -1622,6 +1639,9 @@ func ir_type(t: Str) -> Str {
     if t == "?"    { return "i32"; }
     // Array types → opaque pointer
     if t.starts("[") { return "i8*"; }
+    // Result, HashMap, etc. → opaque pointer
+    if t.starts("Result") { return "i8*"; }
+    if t.starts("HashMap") { return "i8*"; }
     return "i8*"; // default: opaque pointer
 }
 
@@ -2920,7 +2940,7 @@ func ir_write_to_file(path: Str) -> Bool {
 }
 
 func main() -> I32 {
-    Print("KonScript self-hosted compiler v0.1 — stage 1 (full pipeline)");
+    Print("KonScript self-hosted compiler v0.1 - stage 1 (full pipeline)");
     Print("");
 
     let path_result: Result<Str> = File.read(".ks_input");

@@ -94,7 +94,16 @@ char* _ks_str_replace(const char* s, const char* from, const char* to) {
     *w = '\0'; return r;
 }
 char* _ks_str_substr(const char* s, int pos, int len) {
-    char* r = malloc(len + 1); memcpy(r, s + pos, len); r[len] = '\0'; return r;
+    if (!s) return strdup("");
+    int slen = (int)strlen(s);
+    if (pos < 0) pos = 0;
+    if (pos > slen) pos = slen;
+    if (len < 0) len = 0;
+    if (pos + len > slen) len = slen - pos;
+    char* r = malloc(len + 1);
+    if (len > 0) memcpy(r, s + pos, len);
+    r[len] = '\0';
+    return r;
 }
 /* Avoid atoi/strtol/strtod: all redirected to __isoc23_* on glibc 2.38+
    which is not present in the bundled musl sysroot. Hand-roll instead. */
