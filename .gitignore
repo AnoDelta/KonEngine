@@ -155,6 +155,11 @@ tools/KonScript/toolchain/
 # KonScript compiler binary (built by build.sh)
 tools/KonScript/konscript
 tools/KonScript/ksc
+tools/KonScript/konscript-stage0
+tools/KonScript/konscript-stage1
+tools/KonScript/konscript-stage2
+tools/KonScript/konscript-stage3
+tools/KonScript/konscript-stage4
 
 # KonScript generated intermediate files
 tools/KonScript/*.ll
