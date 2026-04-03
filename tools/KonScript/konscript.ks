@@ -3175,7 +3175,7 @@ func cg_type(t: Str) -> Str {
     if t == "F32"  { return "float"; }
     if t == "F64"  { return "double"; }
     if t == "Bool" { return "bool"; }
-    if t == "Str"  { return "const char*"; }
+    if t == "Str"  { return "std::string"; }
     if t == "void" { return "void"; }
     // Array type [T] -> std::vector<T>
     if t.len() > 2 && t.starts("[") {
@@ -3219,8 +3219,8 @@ func cg_gen_expr(idx: I32) -> Str {
         let raw: Str = node_str[idx];
         let n_raw: I32 = raw.len();
         let mut i_f: I32 = 0;
-        // For C++ codegen: build f-string as _ks_str_concat chain
-        let mut result: Str = "\"\"";
+        // For C++ codegen: build f-string as std::string concatenation
+        let mut result: Str = "std::string()";
         while i_f < n_raw {
             let mut j_f: I32 = i_f;
             while j_f < n_raw && raw.substr(j_f, 1) != "{" {
@@ -3228,7 +3228,7 @@ func cg_gen_expr(idx: I32) -> Str {
             }
             if j_f > i_f {
                 let lit: Str = cg_escape_str(raw.substr(i_f, j_f - i_f));
-                result = "_ks_str_concat(" + result + ", \"" + lit + "\")";
+                result = result + " + std::string(\"" + lit + "\")";
             }
             if j_f >= n_raw { i_f = n_raw; }
             else {
@@ -3238,11 +3238,11 @@ func cg_gen_expr(idx: I32) -> Str {
                     k_f = k_f + 1;
                 }
                 let expr_name: Str = raw.substr(j_f, k_f - j_f);
-                result = "_ks_str_concat(" + result + ", _ks_int_to_str(" + expr_name + "))";
+                result = result + " + _ks_tostr(" + expr_name + ")";
                 i_f = k_f + 1;
             }
         }
-        return result;
+        return "(" + result + ")";
     }
 
     if k == NK_IDENT {
@@ -3278,25 +3278,18 @@ func cg_gen_expr(idx: I32) -> Str {
             let fname: Str = node_str[callee];
             // Print → std::cout
             if fname == "Print" {
-                // Emit printf calls for each argument
+                // Use variadic Print template
                 let mut parg: I32 = node_b[idx];
-                let mut print_code: Str = "([&](){";
+                let mut print_args: Str = "";
+                let mut first_p: Bool = true;
                 while parg != 0 {
-                    let pa_idx: I32 = node_a[parg];
-                    let pexpr: Str = cg_gen_expr(pa_idx);
-                    let pt: Str = node_types[pa_idx];
-                    if pt == "Str" || pt == "?" {
-                        print_code = print_code + " printf(\"%s\", " + pexpr + ");";
-                    } else {
-                        if pt == "Bool" {
-                            print_code = print_code + " printf(\"%s\", " + pexpr + " ? \"true\" : \"false\");";
-                        } else {
-                            print_code = print_code + " printf(\"%d\", " + pexpr + ");";
-                        }
-                    }
+                    let pexpr: Str = cg_gen_expr(node_a[parg]);
+                    if !first_p { print_args = print_args + ", "; }
+                    print_args = print_args + pexpr;
+                    first_p = false;
                     parg = node_b[parg];
                 }
-                return print_code + " printf(\"\\n\"); }())";
+                return "Print(" + print_args + ")";
             }
             // ToString
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
@@ -3309,31 +3302,32 @@ func cg_gen_expr(idx: I32) -> Str {
             if fname == "KeyReleased" { return "IsKeyReleased(" + args + ")"; }
             if fname == "MouseDown"    { return "IsMouseButtonDown(" + args + ")"; }
             if fname == "MousePressed" { return "IsMouseButtonPressed(" + args + ")"; }
+            if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             return fname + "(" + args + ")";
         }
         if node_kinds[callee] == NK_MEMBER {
             let obj: Str = cg_gen_expr(node_a[callee]);
             let method: Str = node_str[callee];
             let accessor: Str = ".";
-            // Collection methods
-            if method == "len"     { return obj + ".size()"; }
+            // Collection methods — use .size() for vectors, _ks_len for strings
+            if method == "len"     { return "(int)" + obj + ".size()"; }
             if method == "isEmpty" { return obj + ".empty()"; }
             if method == "push"    { return obj + ".push_back(" + args + ")"; }
             if method == "pop"     { return "([&](){ auto _v = " + obj + ".back(); " + obj + ".pop_back(); return _v; }())"; }
             if method == "clear"   { return obj + ".clear()"; }
             // String methods
-            if method == "trim"     { return "_ks_str_trim(" + obj + ")"; }
-            if method == "upper"    { return "_ks_str_upper(" + obj + ")"; }
-            if method == "lower"    { return "_ks_str_lower(" + obj + ")"; }
-            if method == "contains" { return "_ks_str_contains(" + obj + ", " + args + ")"; }
-            if method == "starts"   { return "_ks_str_starts(" + obj + ", " + args + ")"; }
-            if method == "ends"     { return "_ks_str_ends(" + obj + ", " + args + ")"; }
-            if method == "replace"  { return "_ks_str_replace(" + obj + ", " + args + ")"; }
-            if method == "substr"   { return "_ks_str_substr(" + obj + ", " + args + ")"; }
+            if method == "trim"     { return "_ks_trim(" + obj + ")"; }
+            if method == "upper"    { return "_ks_upper(" + obj + ")"; }
+            if method == "lower"    { return "_ks_lower(" + obj + ")"; }
+            if method == "contains" { return "_ks_contains(" + obj + ", " + args + ")"; }
+            if method == "starts"   { return "_ks_starts(" + obj + ", " + args + ")"; }
+            if method == "ends"     { return "_ks_ends(" + obj + ", " + args + ")"; }
+            if method == "replace"  { return "_ks_replace(" + obj + ", " + args + ")"; }
+            if method == "substr"   { return "_ks_substr(" + obj + ", " + args + ")"; }
             if method == "split"    { return "_ks_str_split(" + obj + ", " + args + ")"; }
-            if method == "toInt"    { return "_ks_str_toInt(" + obj + ")"; }
-            if method == "toFloat"  { return "_ks_str_toFloat(" + obj + ")"; }
-            if method == "charAt"   { return "_ks_str_charAt(" + obj + ", " + args + ")"; }
+            if method == "toInt"    { return "_ks_toInt(" + obj + ")"; }
+            if method == "toFloat"  { return "_ks_toFloat(" + obj + ")"; }
+            if method == "charAt"   { return "_ks_charAt(" + obj + ", " + args + ")"; }
             // HashMap methods
             if method == "set"    { return obj + "[" + args + "]"; }
             if method == "get"    { return obj + ".count(" + args + ") ? std::make_optional(" + obj + "[" + args + "]) : std::nullopt"; }
@@ -3344,11 +3338,11 @@ func cg_gen_expr(idx: I32) -> Str {
             if method == "draw"   { return obj + ".Draw()"; }
             if method == "scan"   { return obj + ".Scan()"; }
             // File methods
-            if method == "read"   { return "_ks_file_read(" + args + ")"; }
-            if method == "write"  { return "_ks_file_write(" + args + ")"; }
-            if method == "exists" { return "_ks_file_exists(" + args + ")"; }
-            if method == "delete" { return "_ks_file_delete(" + args + ")"; }
-            if method == "append" { return "_ks_file_append(" + args + ")"; }
+            if method == "read"   { return "_ks_fread(" + args + ")"; }
+            if method == "write"  { return "_ks_fwrite(" + args + ")"; }
+            if method == "exists" { return "_ks_fexists(" + args + ")"; }
+            if method == "delete" { return "_ks_fwrite(" + args + ")"; }
+            if method == "append" { return "_ks_fappend(" + args + ")"; }
             // Scene.add<T>("name")
             if method == "add" {
                 return obj + ".Add<" + args + ">()";
@@ -3362,10 +3356,10 @@ func cg_gen_expr(idx: I32) -> Str {
     if k == NK_MEMBER {
         let obj: Str = cg_gen_expr(node_a[idx]);
         let member: Str = node_str[idx];
-        // Result members
-        if member == "ok"    { return obj + ".ok"; }
-        if member == "value" { return obj + ".value"; }
-        if member == "error" { return obj + ".error"; }
+        // Result members — use wrapper methods
+        if member == "ok"    { return obj + ".ok()"; }
+        if member == "value" { return obj + ".value()"; }
+        if member == "error" { return obj + ".error()"; }
         return obj + "." + member;
     }
 
@@ -3445,21 +3439,33 @@ func cg_gen_stmt(idx: I32) {
         let init: I32 = node_a[idx];
         if init != 0 {
             let val: Str = cg_gen_expr(init);
-            if node_kinds[init] == NK_ARRAY_LIT {
+            let init_k: I32 = node_kinds[init];
+            if init_k == NK_ARRAY_LIT {
                 let mut elem_type: Str = "int32_t";
                 let first_elem: I32 = node_a[init];
                 if first_elem != 0 {
                     let ek: I32 = node_kinds[node_a[first_elem]];
-                    if ek == NK_STR_LIT { elem_type = "const char*"; }
+                    if ek == NK_STR_LIT { elem_type = "std::string"; }
                     if ek == NK_BOOL    { elem_type = "bool"; }
                     if ek == NK_FLOAT   { elem_type = "float"; }
                 }
                 cg_emit("std::vector<" + elem_type + "> " + name + " = " + val + ";");
             } else {
-                cg_emit("auto " + name + " = " + val + ";");
+                // Use explicit std::string for string-typed vars
+                let vtype: Str = node_types[idx];
+                if vtype == "Str" || init_k == NK_STR_LIT || init_k == NK_FSTR {
+                    cg_emit("std::string " + name + " = " + val + ";");
+                } else {
+                    cg_emit("auto " + name + " = " + val + ";");
+                }
             }
         } else {
-            cg_emit("auto " + name + " = 0;");
+            let vtype: Str = node_types[idx];
+            if vtype == "Str" {
+                cg_emit("std::string " + name + " = \"\";");
+            } else {
+                cg_emit("auto " + name + " = 0;");
+            }
         }
         return;
     }
@@ -3648,7 +3654,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("// KonScript runtime helpers");
     cg_emit_raw("#include <cstring>");
     cg_emit_raw("");
-    cg_emit_raw("// Runtime forward declarations (from _ks_runtime.c)");
+    cg_emit_raw("// Runtime C functions");
     cg_emit_raw("extern \"C\" {");
     cg_emit_raw("void* _ks_file_read(const char*);");
     cg_emit_raw("void* _ks_file_write(const char*, const char*);");
@@ -3669,7 +3675,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("char* _ks_str_charAt(const char*, int);");
     cg_emit_raw("int _ks_str_toInt(const char*);");
     cg_emit_raw("float _ks_str_toFloat(const char*);");
-    cg_emit_raw("char* _ks_str_split(const char*, const char*);");
+    cg_emit_raw("void* _ks_str_split(const char*, const char*);");
     cg_emit_raw("char* _ks_int_to_str(int);");
     cg_emit_raw("int _ks_str_isEmpty(const char*);");
     cg_emit_raw("int _ks_str_isAlpha(const char*);");
@@ -3697,6 +3703,78 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("int _ks_system(const char*);");
     cg_emit_raw("}");
     cg_emit_raw("");
+    // C++ wrappers that accept std::string
+    cg_emit_raw("// C++ wrappers for std::string bridge");
+    cg_emit_raw("inline std::string _S(const char* s) { return s ? s : \"\"; }");
+    cg_emit_raw("inline const char* _C(const std::string& s) { return s.c_str(); }");
+    cg_emit_raw("inline std::string _ks_substr(const std::string& s, int p, int l) { return _S(_ks_str_substr(_C(s), p, l)); }");
+    cg_emit_raw("inline std::string _ks_trim(const std::string& s) { return _S(_ks_str_trim(_C(s))); }");
+    cg_emit_raw("inline std::string _ks_upper(const std::string& s) { return _S(_ks_str_upper(_C(s))); }");
+    cg_emit_raw("inline std::string _ks_lower(const std::string& s) { return _S(_ks_str_lower(_C(s))); }");
+    cg_emit_raw("inline std::string _ks_replace(const std::string& s, const std::string& f, const std::string& t) { return _S(_ks_str_replace(_C(s), _C(f), _C(t))); }");
+    cg_emit_raw("inline bool _ks_contains(const std::string& s, const std::string& sub) { return _ks_str_contains(_C(s), _C(sub)); }");
+    cg_emit_raw("inline bool _ks_starts(const std::string& s, const std::string& p) { return _ks_str_starts(_C(s), _C(p)); }");
+    cg_emit_raw("inline bool _ks_ends(const std::string& s, const std::string& e) { return _ks_str_ends(_C(s), _C(e)); }");
+    cg_emit_raw("inline int _ks_len(const std::string& s) { return (int)s.size(); }");
+    cg_emit_raw("inline bool _ks_isEmpty(const std::string& s) { return s.empty(); }");
+    cg_emit_raw("inline std::string _ks_charAt(const std::string& s, int i) { return _S(_ks_str_charAt(_C(s), i)); }");
+    cg_emit_raw("inline int _ks_toInt(const std::string& s) { return _ks_str_toInt(_C(s)); }");
+    cg_emit_raw("inline float _ks_toFloat(const std::string& s) { return _ks_str_toFloat(_C(s)); }");
+    cg_emit_raw("inline int _ks_compare(const std::string& a, const std::string& b) { return _ks_str_compare(_C(a), _C(b)); }");
+    cg_emit_raw("// Result wrapper");
+    cg_emit_raw("struct _KsResultW { void* _r; bool ok() { return _ks_result_ok(_r); } std::string value() { return _S(_ks_result_value(_r)); } std::string error() { return _S(_ks_result_error(_r)); } };");
+    cg_emit_raw("inline _KsResultW _ks_fread(const std::string& p) { return {_ks_file_read(_C(p))}; }");
+    cg_emit_raw("inline _KsResultW _ks_fwrite(const std::string& p, const std::string& c) { return {_ks_file_write(_C(p), _C(c))}; }");
+    cg_emit_raw("inline _KsResultW _ks_fappend(const std::string& p, const std::string& c) { return {_ks_file_append(_C(p), _C(c))}; }");
+    cg_emit_raw("inline bool _ks_fexists(const std::string& p) { return _ks_file_exists(_C(p)); }");
+    cg_emit_raw("inline int _ks_run(const std::string& cmd) { return _ks_system(_C(cmd)); }");
+    cg_emit_raw("// Print helper");
+    cg_emit_raw("template<typename... Args> void Print(Args... args) { ((std::cout << args), ...); std::cout << std::endl; }");
+    cg_emit_raw("// Universal to-string conversion");
+    cg_emit_raw("inline std::string _ks_tostr(const std::string& s) { return s; }");
+    cg_emit_raw("inline std::string _ks_tostr(const char* s) { return s ? s : \"\"; }");
+    cg_emit_raw("inline std::string _ks_tostr(int v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(long v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(float v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(double v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(bool v) { return v ? \"true\" : \"false\"; }");
+    cg_emit_raw("");
+
+    // Forward declarations for all functions
+    let mut fwd: I32 = node_a[prog_idx];
+    while fwd != 0 {
+        let fd: I32 = node_a[fwd];
+        if node_kinds[fd] == NK_FUNC {
+            let full_fn: Str = node_str[fd];
+            let fn_name: Str = func_name(full_fn);
+            let fn_ret: Str = func_ret(full_fn);
+            let fn_ret_cpp: Str = cg_type(fn_ret);
+            // Build param signature
+            let mut fwd_params: Str = "";
+            let mut fpm: I32 = node_a[fd];
+            let mut fwd_first: Bool = true;
+            while fpm != 0 {
+                let fpn: I32 = node_a[fpm];
+                let fps: Str = node_str[fpn];
+                let mut fci: I32 = 0;
+                let mut fptype: Str = "";
+                while fci < fps.len() {
+                    if fps.substr(fci, 1) == ":" {
+                        fptype = fps.substr(fci + 1, fps.len() - fci - 1);
+                        fci = fps.len();
+                    }
+                    fci = fci + 1;
+                }
+                if !fwd_first { fwd_params = fwd_params + ", "; }
+                fwd_params = fwd_params + cg_type(fptype);
+                fwd_first = false;
+                fpm = node_b[fpm];
+            }
+            cg_emit(fn_ret_cpp + " " + fn_name + "(" + fwd_params + ");");
+        }
+        fwd = node_b[fwd];
+    }
+    cg_emit("");
 
     // Emit top-level declarations
     let mut decl: I32 = node_a[prog_idx];
@@ -3722,13 +3800,18 @@ func cg_generate(prog_idx: I32) -> Str {
                 let first_elem: I32 = node_a[ginit];
                 if first_elem != 0 {
                     let ek: I32 = node_kinds[node_a[first_elem]];
-                    if ek == NK_STR_LIT { elem_type = "const char*"; }
+                    if ek == NK_STR_LIT { elem_type = "std::string"; }
                     if ek == NK_BOOL    { elem_type = "bool"; }
                     if ek == NK_FLOAT   { elem_type = "float"; }
                 }
                 cg_emit("std::vector<" + elem_type + "> " + node_str[d] + " = " + val + ";");
             } else {
-                cg_emit("auto " + node_str[d] + " = " + val + ";");
+                // Use std::string for string literal initializers
+                if ginit != 0 && (node_kinds[ginit] == NK_STR_LIT || node_kinds[ginit] == NK_FSTR) {
+                    cg_emit("std::string " + node_str[d] + " = " + val + ";");
+                } else {
+                    cg_emit("auto " + node_str[d] + " = " + val + ";");
+                }
             }
         }
         if node_kinds[d] == NK_INCLUDE_D {

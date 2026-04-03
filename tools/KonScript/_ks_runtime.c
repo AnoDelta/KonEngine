@@ -2,6 +2,7 @@
 // Implements the stdlib functions declared in irgen's emitRuntimeDecls().
 // Compiled once: clang -c _ks_runtime.c -o _ks_runtime.o
 // Linked with every native KonScript binary.
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
