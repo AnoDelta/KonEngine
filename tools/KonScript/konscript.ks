@@ -3480,8 +3480,9 @@ func cg_gen_stmt(idx: I32) {
 
     if k == NK_RETURN {
         if node_a[idx] != 0 {
+            // Emit return as expression statement to avoid concat issues
             let val: Str = cg_gen_expr(node_a[idx]);
-            cg_emit("return " + val + ";");
+            cg_emit_raw("    return " + val + ";");
         } else {
             cg_emit("return;");
         }
