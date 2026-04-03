@@ -202,7 +202,7 @@ func lex(src: Str) -> I32 {
         }
 
         // ── Other whitespace ───────────────────────────────────────
-        if c == " " || c == "\t" || c == "\r" {
+        if c == " " || c == "\t" {
             col += 1;
             i   += 1;
             continue;
@@ -3094,15 +3094,18 @@ func cg_escape_str(s: Str) -> Str {
     let mut out: Str = "";
     let mut i: I32 = 0;
     while i < s.len() {
-        let c: Str = s.substr(i, 1);
-        if c == "\n" { out = out + "\\n"; }
+        let cc: I32 = s.charAt(i).toCharCode();
+        if cc == 10 { out = out + "\\n"; }
         else {
-            if c == "\t" { out = out + "\\t"; }
+            if cc == 9 { out = out + "\\t"; }
             else {
-                if c == "\\" { out = out + "\\\\"; }
+                if cc == 13 { out = out + "\\r"; }
                 else {
-                    if c == "\"" { out = out + "\\\""; }
-                    else { out = out + c; }
+                    if cc == 92 { out = out + "\\\\"; }
+                    else {
+                        if cc == 34 { out = out + "\\\""; }
+                        else { out = out + s.substr(i, 1); }
+                    }
                 }
             }
         }
@@ -3328,6 +3331,8 @@ func cg_gen_expr(idx: I32) -> Str {
             if method == "toInt"    { return "_ks_toInt(" + obj + ")"; }
             if method == "toFloat"  { return "_ks_toFloat(" + obj + ")"; }
             if method == "charAt"   { return "_ks_charAt(" + obj + ", " + args + ")"; }
+            if method == "toCharCode" { return "(int)(" + obj + "[0])"; }
+            if method == "toFloat"  { return "_ks_toFloat(" + obj + ")"; }
             // HashMap methods
             if method == "set"    { return obj + "[" + args + "]"; }
             if method == "get"    { return obj + ".count(" + args + ") ? std::make_optional(" + obj + "[" + args + "]) : std::nullopt"; }
@@ -3479,12 +3484,12 @@ func cg_gen_stmt(idx: I32) {
     }
 
     if k == NK_RETURN {
+        // Push directly to cg_lines to bypass any cg_emit string issues
         if node_a[idx] != 0 {
-            // Emit return as expression statement to avoid concat issues
             let val: Str = cg_gen_expr(node_a[idx]);
-            cg_emit_raw("    return " + val + ";");
+            cg_lines.push("    return " + val + ";");
         } else {
-            cg_emit("return;");
+            cg_lines.push("    return;");
         }
         return;
     }
