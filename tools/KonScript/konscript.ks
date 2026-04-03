@@ -1466,6 +1466,7 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("gconst_define", "void");
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
+    tc_def_fn("gvar_set_init", "void");
     tc_def_fn("ir_write_to_file", "Bool");
     tc_def_fn("ir_str_len", "I32");
     decl = node_a[prog_idx];
@@ -1699,11 +1700,24 @@ let mut gvar_count: I32   = 0;
 
 // Track which global names are arrays (not strings)
 let mut gvar_array_names: [Str] = [""];
+let mut gvar_array_inits: [I32] = [0];  // initializer AST node index
 let mut gvar_array_count: I32 = 0;
 
 func gvar_mark_array(name: Str) {
     gvar_array_count = gvar_array_count + 1;
     gvar_array_names.push(name);
+    gvar_array_inits.push(0);
+}
+
+func gvar_set_init(name: Str, init_node: I32) {
+    let mut i: I32 = gvar_array_count;
+    while i > 0 {
+        if gvar_array_names[i] == name {
+            gvar_array_inits[i] = init_node;
+            return;
+        }
+        i = i - 1;
+    }
 }
 
 func gvar_is_array(name: Str) -> Bool {
@@ -2869,6 +2883,7 @@ func irgen(prog_idx: I32) {
                 ir_emit(f"@{gname} = global i8* null");
                 gvar_define(gname, f"@{gname}", "i8*");
                 gvar_mark_array(gname);
+                if ginit != 0 { gvar_set_init(gname, ginit); }
             }
         }
         decl = node_b[decl];
@@ -2884,6 +2899,40 @@ func irgen(prog_idx: I32) {
             let t: I32 = ir_tmp_id();
             ir_emiti(f"%t{t} = call i8* @_ks_array_new(i32 8)");
             ir_emiti(f"store i8* %t{t}, i8** @{aname}");
+            // Push initial values from array literal
+            let init_node: I32 = gvar_array_inits[gi];
+            if init_node != 0 && node_kinds[init_node] == NK_ARRAY_LIT {
+                let mut elem: I32 = node_a[init_node];
+                while elem != 0 {
+                    let ev: I32 = node_a[elem];
+                    if node_kinds[ev] == NK_INT {
+                        let et: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{et} = inttoptr i32 {node_str[ev]} to i8*");
+                        let lt: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{lt} = load i8*, i8** @{aname}");
+                        ir_emiti(f"call void @_ks_array_push(i8* %t{lt}, i8* %t{et})");
+                    }
+                    if node_kinds[ev] == NK_STR_LIT {
+                        let sidx: I32 = ir_str_const(node_str[ev]);
+                        let slen: I32 = ir_str_len(sidx);
+                        let et: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{et} = getelementptr inbounds [{slen} x i8], [{slen} x i8]* @str.{sidx}, i32 0, i32 0");
+                        let lt: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{lt} = load i8*, i8** @{aname}");
+                        ir_emiti(f"call void @_ks_array_push(i8* %t{lt}, i8* %t{et})");
+                    }
+                    if node_kinds[ev] == NK_BOOL {
+                        let mut bv: Str = "0";
+                        if node_str[ev] == "true" { bv = "1"; }
+                        let et: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{et} = inttoptr i32 {bv} to i8*");
+                        let lt: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{lt} = load i8*, i8** @{aname}");
+                        ir_emiti(f"call void @_ks_array_push(i8* %t{lt}, i8* %t{et})");
+                    }
+                    elem = node_b[elem];
+                }
+            }
             gi = gi + 1;
         }
         ir_emiti("ret void");
