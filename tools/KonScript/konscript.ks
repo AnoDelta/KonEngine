@@ -52,6 +52,8 @@ const TK_CLASS:      I32 = 25;
 const TK_INCLUDE:    I32 = 26;
 const TK_SWITCH:     I32 = 27;
 const TK_SPAWN:      I32 = 28;
+const TK_EXTERN:     I32 = 29;
+const TK_ASM:        I32 = 30;
 
 // Symbols
 const TK_PLUS:       I32 = 40;
@@ -162,6 +164,8 @@ func keyword_kind(w: Str) -> I32 {
     if w == "class"    { return TK_CLASS; }
     if w == "switch"   { return TK_SWITCH; }
     if w == "spawn"    { return TK_SPAWN; }
+    if w == "extern"   { return TK_EXTERN; }
+    if w == "asm"      { return TK_ASM; }
     return TK_IDENT;
 }
 
@@ -1001,6 +1005,9 @@ func parse_stmt() -> I32 {
     if chk(TK_BREAK)    { adv(); mat(TK_SEMICOLON); return alloc_node(NK_BREAK,    0,0,0,""); }
     if chk(TK_CONTINUE) { adv(); mat(TK_SEMICOLON); return alloc_node(NK_CONTINUE, 0,0,0,""); }
 
+    // asm statement
+    if chk(TK_ASM) { adv(); return parse_asm_stmt(); }
+
     // block
     if chk(TK_LBRACE) { return parse_block(); }
 
@@ -1102,6 +1109,71 @@ func parse_node() -> I32 {
     return alloc_node(NK_NODE, mhead, mcnt, 0, name + "|" + base);
 }
 
+// extern "C" func name(params...) -> RetType;
+func parse_extern() -> I32 {
+    // Already consumed 'extern'
+    let mut linkage: Str = "C";
+    if chk(TK_STR) { linkage = pk_val(); adv(); }
+    eat(TK_FUNC, "'func'");
+    let name: Str = eat(TK_IDENT, "function name");
+    eat(TK_LPAREN, "'('");
+    let mut params: Str = "";
+    let mut first: Bool = true;
+    let mut is_variadic: Bool = false;
+    while !chk(TK_RPAREN) && pk() != TK_EOF {
+        if !first { eat(TK_COMMA, "','"); }
+        // Check for ... (parsed as TK_DOTDOT + TK_DOT, or three TK_DOTs)
+        if chk(TK_DOTDOT) {
+            adv(); // consume ..
+            if chk(TK_DOT) { adv(); } // consume third .
+            is_variadic = true;
+            break;
+        }
+        if chk(TK_DOT) && pk_val() == "." {
+            adv(); adv(); adv(); // consume . . .
+            is_variadic = true;
+            break;
+        }
+        let pname: Str = eat(TK_IDENT, "parameter");
+        let mut ptype: Str = pname;
+        if mat(TK_COLON) {
+            ptype = parse_type();
+        }
+        if !first { params = params + "," + ptype; }
+        else { params = ptype; }
+        first = false;
+    }
+    eat(TK_RPAREN, "')'");
+    let mut ret: Str = "void";
+    if mat(TK_ARROW) { ret = parse_type(); }
+    mat(TK_SEMICOLON);
+    let mut variadic_str: Str = "";
+    if is_variadic { variadic_str = "..."; }
+    return alloc_node(NK_EXTERN, 0, 0, 0, name + "|" + linkage + "|" + ret + "|" + params + "|" + variadic_str);
+}
+
+// asm("template" : outputs : inputs : clobbers);
+func parse_asm_stmt() -> I32 {
+    // Already consumed 'asm'
+    eat(TK_LPAREN, "'('");
+    let tmpl: Str = eat(TK_STR, "asm template string");
+    let mut outputs: Str = "";
+    let mut inputs: Str = "";
+    let mut clobbers: Str = "";
+    if mat(TK_COLON) {
+        if chk(TK_STR) { outputs = pk_val(); adv(); }
+        if mat(TK_COLON) {
+            if chk(TK_STR) { inputs = pk_val(); adv(); }
+            if mat(TK_COLON) {
+                if chk(TK_STR) { clobbers = pk_val(); adv(); }
+            }
+        }
+    }
+    eat(TK_RPAREN, "')'");
+    mat(TK_SEMICOLON);
+    return alloc_node(NK_ASM, 0, 0, 0, tmpl + "|" + outputs + "|" + inputs + "|" + clobbers);
+}
+
 func parse_top_level() -> I32 {
     // Skip pub
     if chk(TK_PUB) { adv(); }
@@ -1110,6 +1182,7 @@ func parse_top_level() -> I32 {
     if chk(TK_NODE)   { return parse_node(); }
     if chk(TK_CONST)  { return parse_stmt(); }
     if chk(TK_LET)    { return parse_stmt(); }
+    if chk(TK_EXTERN) { adv(); return parse_extern(); }
     if chk(TK_INCLUDE) {
         let path: Str = pk_val(); adv();
         return alloc_node(NK_INCLUDE_D, 0, 0, 0, path);
@@ -1501,6 +1574,10 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("parse_func", "I32");
     tc_def_fn("parse_struct", "I32");
     tc_def_fn("parse_node", "I32");
+    tc_def_fn("parse_extern", "I32");
+    tc_def_fn("parse_asm_stmt", "I32");
+    tc_def_fn("cg_gen_extern", "void");
+    tc_def_fn("cg_gen_asm", "void");
     tc_def_fn("parse_stmt", "I32");
     tc_def_fn("parse_block", "I32");
     tc_def_fn("parse_expr", "I32");
@@ -3609,6 +3686,7 @@ func cg_gen_stmt(idx: I32) {
 
     if k == NK_BREAK    { cg_emit("break;"); return; }
     if k == NK_CONTINUE { cg_emit("continue;"); return; }
+    if k == NK_ASM      { cg_gen_asm(idx); return; }
 
     if k == NK_BLOCK {
         let mut s: I32 = node_a[idx];
@@ -3776,6 +3854,99 @@ func cg_scene_method(method: Str) -> Str {
     if method == "remove" { return "Remove"; }
     if method == "get"    { return "GetNode"; }
     return "";
+}
+
+// ── Extern declaration codegen ────────────────────────────────────────────
+// Emits: extern "C" { RetType name(params...); }
+// str format: "name|linkage|ret|params|variadic"
+func cg_gen_extern(idx: I32) {
+    let full: Str = node_str[idx];
+    // Parse fields separated by |
+    let mut parts: [Str] = [""];
+    parts.clear();
+    let mut start: I32 = 0;
+    let mut ei: I32 = 0;
+    while ei <= full.len() {
+        if ei == full.len() || full.substr(ei, 1) == "|" {
+            parts.push(full.substr(start, ei - start));
+            start = ei + 1;
+        }
+        ei = ei + 1;
+    }
+    // parts[0]=name, [1]=linkage, [2]=ret, [3]=params, [4]=variadic
+    let mut ename: Str = "";
+    let mut elinkage: Str = "C";
+    let mut eret: Str = "void";
+    let mut eparams: Str = "";
+    let mut evariadic: Str = "";
+    if parts.len() > 0 { ename = parts[0]; }
+    if parts.len() > 1 { elinkage = parts[1]; }
+    if parts.len() > 2 { eret = parts[2]; }
+    if parts.len() > 3 { eparams = parts[3]; }
+    if parts.len() > 4 { evariadic = parts[4]; }
+
+    // Build C++ parameter list — use C types for extern (not std::string)
+    let mut cpp_params: Str = "";
+    if eparams.len() > 0 {
+        let param_parts: [Str] = eparams.split(",");
+        let mut pi: I32 = 0;
+        while pi < param_parts.len() {
+            if pi > 0 { cpp_params = cpp_params + ", "; }
+            let pt: Str = param_parts[pi];
+            // For extern "C", use C-compatible types
+            if pt == "Str" { cpp_params = cpp_params + "const char*"; }
+            else { cpp_params = cpp_params + cg_type(pt); }
+            pi = pi + 1;
+        }
+    }
+    if evariadic == "..." {
+        if cpp_params.len() > 0 { cpp_params = cpp_params + ", ..."; }
+        else { cpp_params = "..."; }
+    }
+
+    // Use C-compatible return type
+    let mut cret: Str = cg_type(eret);
+    if eret == "Str" { cret = "const char*"; }
+    cg_emit_raw("extern \"" + elinkage + "\" " + cret + " " + ename + "(" + cpp_params + ");");
+}
+
+// ── Inline assembly codegen ──────────────────────────────────────────────
+// Emits: __asm__ volatile("template" : outputs : inputs : clobbers);
+// str format: "template|outputs|inputs|clobbers"
+func cg_gen_asm(idx: I32) {
+    let full: Str = node_str[idx];
+    let mut parts: [Str] = [""];
+    parts.clear();
+    let mut start: I32 = 0;
+    let mut ai: I32 = 0;
+    while ai <= full.len() {
+        if ai == full.len() || full.substr(ai, 1) == "|" {
+            parts.push(full.substr(start, ai - start));
+            start = ai + 1;
+        }
+        ai = ai + 1;
+    }
+    let mut tmpl: Str = "";
+    let mut outputs: Str = "";
+    let mut inputs: Str = "";
+    let mut clobbers: Str = "";
+    if parts.len() > 0 { tmpl = parts[0]; }
+    if parts.len() > 1 { outputs = parts[1]; }
+    if parts.len() > 2 { inputs = parts[2]; }
+    if parts.len() > 3 { clobbers = parts[3]; }
+
+    let mut asm_line: Str = "__asm__ volatile(\"" + cg_escape_str(tmpl) + "\"";
+    if outputs.len() > 0 || inputs.len() > 0 || clobbers.len() > 0 {
+        asm_line = asm_line + " : \"" + outputs + "\"";
+        if inputs.len() > 0 || clobbers.len() > 0 {
+            asm_line = asm_line + " : \"" + inputs + "\"";
+            if clobbers.len() > 0 {
+                asm_line = asm_line + " : \"" + clobbers + "\"";
+            }
+        }
+    }
+    asm_line = asm_line + ");";
+    cg_emit(asm_line);
 }
 
 // ── Node codegen ─────────────────────────────────────────────────────────
@@ -4114,7 +4285,16 @@ func cg_generate(prog_idx: I32) -> Str {
             let path: Str = node_str[d];
             if path == "engine" {
                 cg_is_engine = true;
+            } else {
+                // Pass through C/C++ includes: #include "file.h" or #include <header>
+                if path.ends(".h") || path.ends(".hpp") || path.ends(".hh") {
+                    cg_emit_raw("#include \"" + path + "\"");
+                }
             }
+        }
+        // Extern declarations: extern "C" func name(params) -> ret;
+        if node_kinds[d] == NK_EXTERN {
+            cg_gen_extern(d);
         }
         decl = node_b[decl];
     }
