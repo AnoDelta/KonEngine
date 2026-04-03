@@ -1114,9 +1114,41 @@ int main(int argc, char** argv) {
             + " \"" + sr + "/crtn.o\""
             + " -o \"" + outPath + "\"";
     } else {
-        linkCmd = "\"" + lld + "\""
-            + " \"" + objFile + "\"";
+        // System fallback: find CRT objects and library paths on the host
+        std::string crtDir;
+        for (const char* d : {
+            "/usr/lib/x86_64-linux-gnu",
+            "/usr/lib64",
+            "/usr/lib",
+        }) {
+            if (fs::exists(std::string(d) + "/crt1.o")) { crtDir = d; break; }
+        }
+        linkCmd = "\"" + lld + "\"";
+        if (!crtDir.empty()) {
+            linkCmd += " \"" + crtDir + "/crt1.o\""
+                + " \"" + crtDir + "/crti.o\"";
+        }
+        linkCmd += " \"" + objFile + "\"";
         if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
+        if (!crtDir.empty()) {
+            linkCmd += " \"" + crtDir + "/crtn.o\"";
+        }
+        // Add standard library search paths
+        for (const char* libDir : {
+            "/usr/lib/x86_64-linux-gnu",
+            "/usr/lib64",
+            "/usr/lib",
+            "/lib/x86_64-linux-gnu",
+            "/lib64",
+        }) {
+            if (fs::is_directory(libDir))
+                linkCmd += std::string(" -L ") + libDir;
+        }
+        // Dynamic linker for non-static builds
+        if (fs::exists("/lib64/ld-linux-x86-64.so.2"))
+            linkCmd += " -dynamic-linker /lib64/ld-linux-x86-64.so.2";
+        else if (fs::exists("/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"))
+            linkCmd += " -dynamic-linker /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2";
         linkCmd += std::string(" -lm -lc")
             + " -o \"" + outPath + "\"";
     }
