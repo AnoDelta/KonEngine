@@ -46,9 +46,9 @@ public:
         }
         static Target windows64() {
             return {
-                "x86_64-pc-windows-msvc19.0.0",
+                "x86_64-w64-windows-gnu",
                 "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128",
-                "opengl32.lib gdi32.lib winmm.lib user32.lib kernel32.lib"
+                "-lopengl32 -lgdi32 -lwinmm -luser32 -lkernel32"
             };
         }
         static Target wasm32() {
