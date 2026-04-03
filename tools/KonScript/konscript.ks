@@ -4722,7 +4722,7 @@ func main() -> I32 {
     if cg_is_engine {
         let mut engine_dir: Str = "";
         let self_dir: Str = _ks_self_dir();
-        // Search order: next to binary, CWD toolchain, repo layout
+        // Search order: next to binary, CWD toolchain, repo layout, system-wide
         if File.exists(self_dir + "/toolchain/engine/linux64/libKonEngine.a") {
             engine_dir = self_dir + "/toolchain/engine/linux64";
         }
@@ -4748,8 +4748,23 @@ func main() -> I32 {
             }
             link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
         } else {
-            Print("warning: engine toolchain not found — run build-engine-lib.sh");
-            link_flags = link_flags + " -lglfw -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+            // System-wide fallback: check /usr/local for engine install
+            if File.exists("/usr/local/lib/libKonEngine.a") {
+                cxx_flags = cxx_flags + " -I/usr/local/include";
+                link_flags = link_flags + " /usr/local/lib/libKonEngine.a";
+                if File.exists("/usr/local/lib/libglfw3.a") {
+                    link_flags = link_flags + " /usr/local/lib/libglfw3.a";
+                } else {
+                    link_flags = link_flags + " -lglfw";
+                }
+            } else if File.exists("/usr/local/include/KonEngine.hpp") {
+                // Headers installed but no static lib — try dynamic linking
+                cxx_flags = cxx_flags + " -I/usr/local/include";
+                link_flags = link_flags + " -lKonEngine -lglfw";
+            } else {
+                Print("warning: engine toolchain not found — run build-engine-lib.sh");
+            }
+            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
         }
     }
 
