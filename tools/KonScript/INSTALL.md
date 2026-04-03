@@ -37,17 +37,17 @@ sudo pacman -S gcc llvm lld cmake wget make
 git clone https://github.com/AnoDelta/KonEngine.git
 cd KonEngine/tools/KonScript
 
-# 1. Build the compiler (takes ~10 seconds)
+# 1. Build the self-hosted compiler (5-stage bootstrap, installs Stage 4)
 ./build.sh
 
-# 2. Bundle the toolchain (takes ~5 minutes, downloads musl libc)
+# 2. Install system-wide
+sudo ./install.sh
+
+# Optional: bundle the LLVM toolchain for Stage 0 builds
 ./bundle-toolchain.sh
 
-# 3. Build the engine library (takes ~2 minutes)
+# Optional: build the engine library for game development
 ./build-engine-lib.sh
-
-# 4. Install system-wide (optional)
-sudo ./install.sh
 ```
 
 ### Test It
@@ -268,16 +268,10 @@ konscript --target custom:aarch64-linux-gnu game.ks
 
 ## Verifying Your Installation
 
-### Check Compiler Version
+### Check Compiler
 
 ```bash
-konscript --version
-```
-
-### Check Toolchain Status
-
-```bash
-konscript --check-toolchain
+konscript --help
 ```
 
 ### Run the Test Suite

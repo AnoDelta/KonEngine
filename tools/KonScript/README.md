@@ -38,18 +38,18 @@ func main() -> I32 {
 ```bash
 git clone https://github.com/AnoDelta/KonEngine.git
 cd KonEngine/tools/KonScript
-./build.sh                    # Build Stage 0 (C++ compiler)
-./konscript-stage0 konscript.ks -o konscript  # Build self-hosted compiler
-sudo cp konscript /usr/local/bin/
+./build.sh          # Full 5-stage self-hosted build
+sudo ./install.sh   # Install to /usr/local/bin
 ```
 
-### From CMake
-```bash
-cd tools/KonScript
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-sudo cmake --install build
-```
+`build.sh` runs the full bootstrap pipeline:
+1. Stage 0 — builds the C++ bootstrap compiler
+2. Stage 1 — Stage 0 compiles `konscript.ks` (LLVM IR)
+3. Stage 2 — Stage 1 compiles `konscript.ks` (C++ codegen, gets CLI)
+4. Stage 3 — Stage 2 compiles `konscript.ks` (self-hosted)
+5. Stage 4 — Stage 3 compiles `konscript.ks` (verified identical to Stage 3)
+
+The installed binary is Stage 4 — fully self-hosted and verified.
 
 ## CLI Usage
 
@@ -198,7 +198,7 @@ Use `extern "C"` and `-I`/`-l` flags to call any C library: SDL2, OpenGL, Vulkan
 source.ks → Lexer → Parser → Typechecker → C++ Codegen → g++/clang++ → binary
 ```
 
-The compiler is written in KonScript itself (~4800 lines). It:
+The compiler is written in KonScript itself (~5000 lines). It:
 1. **Lexes** source into tokens
 2. **Parses** into an AST (parallel arrays)
 3. **Typechecks** with scope-based inference
@@ -242,13 +242,16 @@ Add C wrapper to `_ks_runtime.c` and declare in codegen header.
 
 ## Self-Hosting
 
-The compiler compiles itself through infinite bootstrap stages:
+The compiler compiles itself. `./build.sh` runs the full 5-stage bootstrap:
 ```
-Stage 0 (C++) → konscript.ks → Stage 1
-Stage 1       → konscript.ks → Stage 2
-Stage 2       → konscript.ks → Stage 3
-Stages 2+ produce byte-identical binaries
+Stage 0 (C++)  → konscript.ks → Stage 1 (LLVM IR, no CLI)
+Stage 1        → konscript.ks → Stage 2 (C++ codegen, has CLI)
+Stage 2        → konscript.ks → Stage 3 (self-hosted)
+Stage 3        → konscript.ks → Stage 4 (verified byte-identical to Stage 3)
 ```
+
+The installed binary is always Stage 4. Stages 2+ produce identical binaries,
+proving the compiler is a fixed point of itself.
 
 ## Splitting KonScript Into Its Own Repo
 

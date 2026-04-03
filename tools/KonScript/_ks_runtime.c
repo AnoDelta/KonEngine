@@ -32,7 +32,10 @@ void* _ks_file_read(const char* path) {
     FILE* f = fopen(path, "r");
     if (!f) { char msg[256]; snprintf(msg,256,"cannot open: %s",path); return _ks_result_err_val(msg); }
     fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
-    char* buf = malloc(sz + 1); fread(buf, 1, sz, f); buf[sz] = '\0'; fclose(f);
+    char* buf = malloc(sz + 1);
+    size_t nr = fread(buf, 1, sz, f);
+    buf[nr] = '\0';
+    fclose(f);
     _KsResult* r = _ks_result_ok_val(buf); free(buf); return r;
 }
 void* _ks_file_write(const char* path, const char* content) {
@@ -373,6 +376,40 @@ double _ks_time_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+// ── Progress bar output ─────────────────────────────────────────────────────
+// step/total: e.g. 1/5
+// name: stage name (e.g. "Lexing")
+// done: 0 = in progress (yellow ░), 1 = completed (green ▓)
+// ms: elapsed time in ms (only shown when done=1)
+void _ks_stage_bar(int step, int total, const char* name, int done, double ms) {
+    char padded[32];
+    snprintf(padded, sizeof(padded), "%-16s", name);
+
+    if (done) {
+        // Format time
+        char timebuf[32];
+        if (ms < 1000.0)
+            snprintf(timebuf, sizeof(timebuf), "%.1fms", ms);
+        else
+            snprintf(timebuf, sizeof(timebuf), "%.1fs", ms / 1000.0);
+
+        fprintf(stderr, "\r\033[2m[%d/%d]\033[0m \033[1m%s\033[0m \033[32m", step, total, padded);
+        for (int i = 0; i < 20; i++) fprintf(stderr, "\xe2\x96\x93");
+        fprintf(stderr, "\033[0m  \033[2m%s\033[0m\n", timebuf);
+    } else {
+        fprintf(stderr, "\033[2m[%d/%d]\033[0m \033[1m%s\033[0m \033[33m", step, total, padded);
+        for (int i = 0; i < 20; i++) fprintf(stderr, "\xe2\x96\x91");
+        fprintf(stderr, "\033[0m  ...\r");
+    }
+    fflush(stderr);
+}
+
+// Print the success checkmark line
+void _ks_print_success(const char* path) {
+    fprintf(stderr, "\n  \033[1m\033[32m\xe2\x9c\x93\033[0m \033[1m%s\033[0m  \033[2m[linux64]\033[0m\n\n", path);
+    fflush(stderr);
 }
 
 // ── Command-line arguments ──────────────────────────────────────────────────

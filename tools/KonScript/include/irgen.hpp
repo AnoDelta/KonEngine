@@ -91,6 +91,7 @@ public:
         m_globalConstInits.clear();
         m_globalTypes.clear();
         m_funcRetTypes.clear();
+        m_declaredExterns.clear();
         m_structFields.clear();
         m_funcRetType = "void";
 
@@ -103,6 +104,26 @@ public:
 
         // Runtime declarations
         emitRuntimeDecls();
+        // Mark all runtime functions as already declared to avoid duplicates
+        // from extern declarations in user code
+        for (auto& name : std::vector<std::string>{
+            "printf","snprintf","sprintf","scanf","malloc","free",
+            "sqrt","fabs","floor","ceil","strlen","strcpy","strcat","strdup",
+            "_ks_file_read","_ks_file_write","_ks_file_append","_ks_file_exists",
+            "_ks_file_delete","_ks_file_lines","_ks_result_ok","_ks_result_value",
+            "_ks_result_error","_ks_str_trim","_ks_str_upper","_ks_str_lower",
+            "_ks_str_replace","_ks_str_split","_ks_str_contains","_ks_str_starts",
+            "_ks_str_ends","_ks_str_len","_ks_str_substr","_ks_str_toInt",
+            "_ks_str_toFloat","_ks_str_concat","_ks_str_charAt","_ks_str_isAlpha",
+            "_ks_str_isDigit","_ks_str_isUpper","_ks_str_isLower","_ks_str_isSpace",
+            "_ks_str_toCharCode","_ks_str_fromCharCode","_ks_array_new",
+            "_ks_array_push","_ks_array_pop","_ks_array_len","_ks_array_get",
+            "_ks_array_has","_ks_array_clear","_ks_array_set","_ks_str_compare",
+            "_ks_hashmap_new","_ks_hashmap_set","_ks_hashmap_get","_ks_hashmap_has",
+            "_ks_hashmap_len","_ks_system","_ks_time_ms","_ks_int_to_str",
+            "_ks_argc","_ks_get_argv","_ks_init_args",
+            "_ks_stage_bar","_ks_print_success"
+        }) m_declaredExterns.insert(name);
 
         // First pass: record symbols from includes then main
         for (auto* _inc : m_includes)
@@ -142,6 +163,11 @@ public:
                     for (auto& m : nd->methods)
                         m_funcRetTypes[nd->name + "_" + m->name] =
                             m->returnType ? llvmType(*m->returnType) : "void";
+                } else if (s->kind == Stmt::Kind::ExternDecl) {
+                    auto* ed = static_cast<const ExternDecl*>(s.get());
+                    std::string ret = ed->returnType.base.empty() ? "void" : llvmType(ed->returnType);
+                    m_funcRetTypes[ed->name] = ret;
+                    emitExternDecl(ed);
                 }
             }
         for (auto& s : prog.stmts) {
@@ -181,6 +207,11 @@ public:
                 for (auto& m : nd->methods)
                     m_funcRetTypes[nd->name + "_" + m->name] =
                         m->returnType ? llvmType(*m->returnType) : "void";
+            } else if (s->kind == Stmt::Kind::ExternDecl) {
+                auto* ed = static_cast<const ExternDecl*>(s.get());
+                std::string ret = ed->returnType.base.empty() ? "void" : llvmType(ed->returnType);
+                m_funcRetTypes[ed->name] = ret;
+                emitExternDecl(ed);
             }
         }
 
@@ -460,6 +491,25 @@ private:
     }
 
     // -----------------------------------------------------------------------
+    std::unordered_set<std::string> m_declaredExterns;
+
+    // Emit an LLVM IR 'declare' for an extern function from the KonScript source
+    void emitExternDecl(const ExternDecl* ed) {
+        if (m_declaredExterns.count(ed->name)) return;  // already declared in runtime
+        m_declaredExterns.insert(ed->name);
+        std::string ret = ed->returnType.base.empty() ? "void" : llvmType(ed->returnType);
+        std::string paramList;
+        for (size_t i = 0; i < ed->params.size(); i++) {
+            if (i) paramList += ", ";
+            paramList += llvmType(ed->params[i].type);
+        }
+        if (ed->variadic) {
+            if (!paramList.empty()) paramList += ", ";
+            paramList += "...";
+        }
+        emit("declare " + ret + " @" + ed->name + "(" + paramList + ")");
+    }
+
     void emitRuntimeDecls() {
         emit("; --- runtime ---");
         emit("declare i32 @printf(i8* nocapture, ...)");
@@ -527,6 +577,8 @@ private:
         emit("declare i32  @_ks_system(i8*)");
         emit("declare double @_ks_time_ms()");
         emit("declare i8*  @_ks_int_to_str(i32)");
+        emit("declare void @_ks_stage_bar(i32, i32, i8*, i32, double)");
+        emit("declare void @_ks_print_success(i8*)");
         emit("declare i32  @_ks_argc()");
         emit("declare i8*  @_ks_get_argv(i32)");
         emit("declare void @_ks_init_args(i32, i8**)");
