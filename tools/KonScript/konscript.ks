@@ -1454,6 +1454,9 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("tc_pop_scope", "void");
     tc_def_fn("gconst_define", "void");
     tc_def_fn("tc_stmt", "void");
+    tc_def_fn("_ks_system", "I32");
+    tc_def_fn("ir_write_to_file", "Bool");
+    tc_def_fn("ir_str_len", "I32");
     decl = node_a[prog_idx];
     while decl != 0 {
         let d: I32 = node_a[decl];
@@ -1506,6 +1509,7 @@ let mut ir_alloca: I32  = 0;
 // Global string constants: value → label index
 let mut gstr_vals:   [Str] = [""];
 let mut gstr_labels: [I32] = [0];
+let mut gstr_lens:   [I32] = [0];  // string byte length + 1 (for null terminator)
 let mut gstr_count:  I32   = 0;
 
 
@@ -1560,6 +1564,7 @@ func ir_reset() {
     ir_tmp = 0; ir_str = 0; ir_label = 0; ir_alloca = 0;
     gstr_vals.clear();   gstr_vals.push("");
     gstr_labels.clear(); gstr_labels.push(0);
+    gstr_lens.clear();   gstr_lens.push(0);
     gstr_count = 0;
     gconst_names.clear();  gconst_names.push("");
     gconst_values.clear(); gconst_values.push("");
@@ -1592,12 +1597,17 @@ func ir_str_const(val: Str) -> I32 {
         if gstr_vals[i] == val { return gstr_labels[i]; }
         i = i + 1;
     }
-    // New string
+    // New string — store length now so we don't need .len() later
     gstr_count = gstr_count + 1;
     let idx: I32 = gstr_count;
     gstr_vals.push(val);
     gstr_labels.push(idx);
+    gstr_lens.push(val.len() + 1);
     return idx;
+}
+
+func ir_str_len(idx: I32) -> I32 {
+    return gstr_lens[idx];
 }
 
 // ── LLVM type from KonScript type string ──────────────────────────────────
@@ -1844,7 +1854,7 @@ func ir_gen_expr(idx: I32) -> Str {
     }
     if k == NK_STR_LIT {
         let sidx: I32 = ir_str_const(node_str[idx]);
-        let slen: I32 = node_str[idx].len() + 1;
+        let slen: I32 = ir_str_len(sidx);
         let t: I32 = ir_tmp_id();
         ir_emiti(f"%t{t} = getelementptr inbounds [{slen} x i8], [{slen} x i8]* @str.{sidx}, i32 0, i32 0");
         return ir_val(f"%t{t}", "i8*");
@@ -2733,6 +2743,8 @@ func irgen(prog_idx: I32) {
     ir_emit("declare i8* @_ks_closure_fn(i8*)");
     ir_emit("declare i8* @_ks_closure_env(i8*)");
     ir_emit("declare void @_ks_closure_free(i8*)");
+    // Shell execution
+    ir_emit("declare i32 @_ks_system(i8*)");
     // Pre-register return types for self-referential functions
     tc_def_fn("ir_escape_str", "Str");
     tc_def_fn("ir_get_v", "Str");
@@ -2856,13 +2868,29 @@ func irgen(prog_idx: I32) {
 
 
 func ir_to_string() -> Str {
+    // Build output using string concat (not f-strings) to avoid buffer limits
     let mut out: Str = "";
     let mut i: I32 = 1;
     while i < ir_lines.len() {
-        out = f"{out}{ir_lines[i]}\n";
+        out = out + ir_lines[i] + "\n";
         i = i + 1;
     }
     return out;
+}
+
+// Write IR directly to file line-by-line (avoids giant string)
+func ir_write_to_file(path: Str) -> Bool {
+    // Write first line
+    let first_result: Result<Str> = File.write(path, "");
+    if !first_result.ok { return false; }
+    let mut i: I32 = 1;
+    while i < ir_lines.len() {
+        let line: Str = ir_lines[i] + "\n";
+        let r: Result<Str> = File.append(path, line);
+        if !r.ok { return false; }
+        i = i + 1;
+    }
+    return true;
 }
 
 func main() -> I32 {
@@ -2904,18 +2932,53 @@ func main() -> I32 {
     Print("Generating IR...");
     irgen(prog);
 
-    let ir: Str = ir_to_string();
     let out_path: Str = "/tmp/konscript_out.ll";
-    let write_result: Result<Str> = File.write(out_path, ir);
-    if !write_result.ok {
-        Print("error: cannot write IR: ", write_result.error);
+
+    // Write IR line-by-line to avoid f-string buffer limits
+    let wrote_ok: Bool = ir_write_to_file(out_path);
+    if !wrote_ok {
+        Print("error: cannot write IR to ", out_path);
         return 1;
     }
 
     Print("IR lines: ", ir_lines.len());
     Print("Written:  ", out_path);
+
+    // ── Compile IR to native binary ─────────────────────────────────────
+    let obj_path: Str = "/tmp/konscript_out.o";
+    let rt_obj: Str   = "/tmp/_ks_runtime.o";
+    let bin_path: Str = "/tmp/konscript_output";
+
+    // Step 1: llc — compile .ll to .o
+    Print("Compiling IR...");
+    let llc_cmd: Str = "llc -filetype=obj -relocation-model=pic -o " + obj_path + " " + out_path;
+    let llc_ret: I32 = _ks_system(llc_cmd);
+    if llc_ret != 0 {
+        Print("error: llc failed (exit ", llc_ret, ")");
+        return 1;
+    }
+
+    // Step 2: compile runtime
+    Print("Compiling runtime...");
+    let rt_cmd: Str = "clang -c -fPIC _ks_runtime.c -o " + rt_obj;
+    let rt_ret: I32 = _ks_system(rt_cmd);
+    if rt_ret != 0 {
+        Print("error: runtime compilation failed (exit ", rt_ret, ")");
+        return 1;
+    }
+
+    // Step 3: link
+    Print("Linking...");
+    let link_cmd: Str = "clang " + obj_path + " " + rt_obj + " -o " + bin_path + " -lm";
+    let link_ret: I32 = _ks_system(link_cmd);
+    if link_ret != 0 {
+        Print("error: linking failed (exit ", link_ret, ")");
+        return 1;
+    }
+
     Print("");
-    Print("OK");
+    Print("  ✓ ", bin_path);
+    Print("");
     return 0;
 }
 

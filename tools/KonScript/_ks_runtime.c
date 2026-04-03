@@ -278,6 +278,11 @@ char* _ks_str_fromCharCode(int code) {
     return r;
 }
 
+// ── Shell execution ──────────────────────────────────────────────────────────
+int _ks_system(const char* cmd) {
+    return system(cmd);
+}
+
 // ── Missing runtime functions (needed by self-hosted compiler) ───────────────
 
 // Convert integer to heap-allocated string
