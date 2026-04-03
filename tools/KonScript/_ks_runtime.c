@@ -367,6 +367,14 @@ void _ks_closure_free(void* c) {
     free(cl);
 }
 
+// ── Timing ──────────────────────────────────────────────────────────────────
+#include <time.h>
+double _ks_time_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
 // ── Command-line arguments ──────────────────────────────────────────────────
 static int _ks_argc_val = 0;
 static char** _ks_argv_val = NULL;

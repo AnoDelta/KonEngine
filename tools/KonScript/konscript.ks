@@ -1643,10 +1643,16 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("gconst_define", "void");
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
+    tc_def_fn("_ks_time_ms", "F64");
     tc_def_fn("_ks_argc", "I32");
     tc_def_fn("_ks_get_argv", "Str");
     tc_def_fn("_ks_init_args", "void");
     tc_def_fn("print_usage", "void");
+    tc_def_fn("stage_doing", "void");
+    tc_def_fn("stage_ok", "void");
+    tc_def_fn("pad_name", "Str");
+    tc_def_fn("format_time", "Str");
+    tc_def_fn("_ks_int_to_str", "Str");
     // C++ codegen functions
     tc_def_fn("cg_escape_str", "Str");
     tc_def_fn("cg_generate", "Str");
@@ -3046,6 +3052,7 @@ func irgen(prog_idx: I32) {
     ir_emit("declare void @_ks_closure_free(i8*)");
     // Shell execution
     ir_emit("declare i32 @_ks_system(i8*)");
+    ir_emit("declare double @_ks_time_ms()");
     ir_emit("declare i32 @_ks_argc()");
     ir_emit("declare i8* @_ks_get_argv(i32)");
     ir_emit("declare void @_ks_init_args(i32, i8**)");
@@ -4182,6 +4189,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("void _ks_init_args(int, char**);");
     cg_emit_raw("int _ks_argc();");
     cg_emit_raw("char* _ks_get_argv(int);");
+    cg_emit_raw("double _ks_time_ms();");
     cg_emit_raw("}");
     cg_emit_raw("");
     // C++ wrappers that accept std::string
@@ -4349,6 +4357,33 @@ func cg_write_to_file(path: Str) -> Bool {
 // ===== END CODEGEN =====
 
 // ── Usage help ───────────────────────────────────────────────────────────
+// ── Progress bar helpers ─────────────────────────────────────────────────
+func pad_name(name: Str, width: I32) -> Str {
+    let mut s: Str = name;
+    while s.len() < width { s = s + " "; }
+    return s;
+}
+
+func stage_doing(step: I32, total: I32, name: Str) {
+    // No-op: stage_ok will print the completed bar
+}
+
+func stage_ok(step: I32, total: I32, name: Str, ms: F64) {
+    // Print progress bar using system printf for ANSI escape codes
+    let si: Str = _ks_int_to_str(step);
+    let ti: Str = _ks_int_to_str(total);
+    let n: Str = pad_name(name, 16);
+    // Use shell printf for Unicode block chars and ANSI colors
+    let cmd: Str = "printf '\\033[2m[" + si + "/" + ti + "]\\033[0m \\033[1m" + n + "\\033[0m \\033[32m";
+    let mut blocks: Str = "";
+    let mut bi: I32 = 0;
+    while bi < 20 {
+        blocks = blocks + "\\xe2\\x96\\x93";
+        bi = bi + 1;
+    }
+    _ks_system(cmd + blocks + "\\033[0m\\n'");
+}
+
 func print_usage() {
     Print("KonScript compiler v0.1 - self-hosted");
     Print("");
@@ -4483,19 +4518,22 @@ func main() -> I32 {
     let src: Str = src_result.value;
 
     // ── Compile ─────────────────────────────────────────────────────────
-    Print("Lexing...");
+    let mut total_steps: I32 = 5;
+    if cpp_only { total_steps = 4; }
+
+    stage_doing(1, total_steps, "Lexing");
     let ntoks: I32 = lex(src);
-    Print("Tokens:   ", ntoks);
+    stage_ok(1, total_steps, "Lexing", 0.0);
 
-    Print("Parsing...");
+    stage_doing(2, total_steps, "Parsing");
     let prog: I32 = parse(ntoks);
-    Print("Nodes:    ", node_kinds.len());
+    stage_ok(2, total_steps, "Parsing", 0.0);
 
-    Print("Typechecking...");
+    stage_doing(3, total_steps, "Type checking");
     typecheck(prog);
-    Print("Functions:", fn_count);
+    stage_ok(3, total_steps, "Type checking", 0.0);
 
-    Print("Generating C++...");
+    stage_doing(4, total_steps, "Transpiling");
     let mut cpp_path: Str = "/tmp/konscript_out.cpp";
     if cpp_only { cpp_path = output_file; }
 
@@ -4505,24 +4543,20 @@ func main() -> I32 {
         Print("error: cannot write C++ to ", cpp_path);
         return 1;
     }
-
-    Print("C++ lines:", cg_lines.len());
-    Print("Written:  ", cpp_path);
+    stage_ok(4, total_steps, "Transpiling", 0.0);
 
     // If --cpp mode, we're done
     if cpp_only {
-        Print("");
-        Print("  ok ", output_file);
-        Print("");
+        _ks_system("printf '\\n\\x1b[1m\\x1b[32m  \\xe2\\x9c\\x93 \\x1b[0m\\x1b[1m" + output_file + "\\x1b[0m\\x1b[2m  [cpp]\\x1b[0m\\n\\n'");
         return 0;
     }
 
     // ── Compile C++ to native binary ────────────────────────────────────
+    stage_doing(5, total_steps, "Compiling");
     let rt_obj: Str = "/tmp/_ks_runtime.o";
 
     // Compile runtime (unless --no-stdlib)
     if !no_stdlib {
-        Print("Compiling runtime...");
         let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
         if rt_ret != 0 {
@@ -4592,7 +4626,7 @@ func main() -> I32 {
     let mut compile_src: Str = cpp_path;
     if !no_stdlib { compile_src = compile_src + " " + rt_obj; }
 
-    Print("Compiling...");
+    // Compile C++ + link
     let cxx_cmd: Str = cxx_flags + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
     let cxx_ret: I32 = _ks_system(cxx_cmd);
     if cxx_ret != 0 {
@@ -4604,9 +4638,10 @@ func main() -> I32 {
         }
     }
 
-    Print("");
-    Print("  ok ", output_file);
-    Print("");
+    stage_ok(5, total_steps, "Compiling", 0.0);
+
+    // Success line (matches Stage 0 format)
+    _ks_system("printf '\\n\\x1b[1m\\x1b[32m  \\xe2\\x9c\\x93 \\x1b[0m\\x1b[1m" + output_file + "\\x1b[0m\\n\\n'");
     return 0;
 }
 
