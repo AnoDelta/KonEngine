@@ -1643,6 +1643,10 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("gconst_define", "void");
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
+    tc_def_fn("_ks_argc", "I32");
+    tc_def_fn("_ks_get_argv", "Str");
+    tc_def_fn("_ks_init_args", "void");
+    tc_def_fn("print_usage", "void");
     // C++ codegen functions
     tc_def_fn("cg_escape_str", "Str");
     tc_def_fn("cg_generate", "Str");
@@ -3042,6 +3046,9 @@ func irgen(prog_idx: I32) {
     ir_emit("declare void @_ks_closure_free(i8*)");
     // Shell execution
     ir_emit("declare i32 @_ks_system(i8*)");
+    ir_emit("declare i32 @_ks_argc()");
+    ir_emit("declare i8* @_ks_get_argv(i32)");
+    ir_emit("declare void @_ks_init_args(i32, i8**)");
     // Pre-register return types for self-referential functions
     tc_def_fn("ir_escape_str", "Str");
     tc_def_fn("ir_get_v", "Str");
@@ -3460,7 +3467,7 @@ func cg_gen_expr(idx: I32) -> Str {
             if method == "ends"     { return "_ks_ends(" + obj + ", " + args + ")"; }
             if method == "replace"  { return "_ks_replace(" + obj + ", " + args + ")"; }
             if method == "substr"   { return "_ks_substr(" + obj + ", " + args + ")"; }
-            if method == "split"    { return "_ks_str_split(" + obj + ", " + args + ")"; }
+            if method == "split"    { return "_ks_split(" + obj + ", " + args + ")"; }
             if method == "toInt"    { return "_ks_toInt(" + obj + ")"; }
             if method == "toFloat"  { return "_ks_toFloat(" + obj + ")"; }
             if method == "charAt"   { return "_ks_charAt(" + obj + ", " + args + ")"; }
@@ -3737,8 +3744,15 @@ func cg_gen_func(idx: I32) {
         pm = node_b[pm];
     }
 
-    cg_emit(ret_cpp + " " + name + "(" + params + ") {");
-    cg_indent_inc();
+    // Special case: main gets argc/argv and initializes runtime args
+    if name == "main" {
+        cg_emit("int main(int argc, char** argv) {");
+        cg_indent_inc();
+        cg_emit("_ks_init_args(argc, argv);");
+    } else {
+        cg_emit(ret_cpp + " " + name + "(" + params + ") {");
+        cg_indent_inc();
+    }
     cg_gen_stmt(node_b[idx]);
     cg_indent_dec();
     cg_emit("}");
@@ -4165,6 +4179,9 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("char* _ks_result_value(void*);");
     cg_emit_raw("char* _ks_result_error(void*);");
     cg_emit_raw("int _ks_system(const char*);");
+    cg_emit_raw("void _ks_init_args(int, char**);");
+    cg_emit_raw("int _ks_argc();");
+    cg_emit_raw("char* _ks_get_argv(int);");
     cg_emit_raw("}");
     cg_emit_raw("");
     // C++ wrappers that accept std::string
@@ -4185,6 +4202,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("inline int _ks_toInt(const std::string& s) { return _ks_str_toInt(_C(s)); }");
     cg_emit_raw("inline float _ks_toFloat(const std::string& s) { return _ks_str_toFloat(_C(s)); }");
     cg_emit_raw("inline int _ks_compare(const std::string& a, const std::string& b) { return _ks_str_compare(_C(a), _C(b)); }");
+    cg_emit_raw("inline std::vector<std::string> _ks_split(const std::string& s, const std::string& d) { auto* arr = _ks_str_split(_C(s), _C(d)); std::vector<std::string> v; for(int i=0;i<_ks_array_len(arr);i++) v.push_back(_S((const char*)_ks_array_get(arr,i))); return v; }");
     cg_emit_raw("// Result wrapper");
     cg_emit_raw("struct _KsResultW { void* _r; bool ok() { return _ks_result_ok(_r); } std::string value() { return _S(_ks_result_value(_r)); } std::string error() { return _S(_ks_result_error(_r)); } };");
     cg_emit_raw("inline _KsResultW _ks_fread(const std::string& p) { return {_ks_file_read(_C(p))}; }");
@@ -4234,7 +4252,11 @@ func cg_generate(prog_idx: I32) -> Str {
                 fwd_first = false;
                 fpm = node_b[fpm];
             }
-            cg_emit(fn_ret_cpp + " " + fn_name + "(" + fwd_params + ");");
+            if fn_name == "main" {
+                cg_emit("int main(int argc, char** argv);");
+            } else {
+                cg_emit(fn_ret_cpp + " " + fn_name + "(" + fwd_params + ");");
+            }
         }
         fwd = node_b[fwd];
     }
@@ -4326,33 +4348,145 @@ func cg_write_to_file(path: Str) -> Bool {
 
 // ===== END CODEGEN =====
 
-func main() -> I32 {
-    Print("KonScript self-hosted compiler v0.1 - stage 1 (full pipeline)");
+// ── Usage help ───────────────────────────────────────────────────────────
+func print_usage() {
+    Print("KonScript compiler v0.1 - self-hosted");
     Print("");
+    Print("Usage: konscript [options] <file.ks>");
+    Print("");
+    Print("Options:");
+    Print("  -o <file>        Output file name (default: input stem)");
+    Print("  -I<dir>          Add include search directory");
+    Print("  -L<dir>          Add library search directory");
+    Print("  -l<lib>          Link library (e.g. -lSDL2)");
+    Print("  --cpp            Output C++ source only (don't compile)");
+    Print("  --no-stdlib      Don't link KonScript runtime (for OS dev)");
+    Print("  --help, -h       Show this help");
+    Print("");
+    Print("Examples:");
+    Print("  konscript game.ks                        Compile to native binary");
+    Print("  konscript game.ks -o mygame              Custom output name");
+    Print("  konscript --cpp game.ks -o game.cpp      Emit C++ only");
+    Print("  konscript app.ks -I/usr/include/SDL2 -lSDL2");
+    Print("  konscript kernel.ks --no-stdlib          Bare-metal (OS dev)");
+    Print("  konscript app.ks -I/usr/include/qt6 -lQt6Widgets -lQt6Core");
+}
 
-    let path_result: Result<Str> = File.read(".ks_input");
-    if !path_result.ok {
-        Print("Usage: echo 'path/to/file.ks' > .ks_input && ./konscript1");
+func main() -> I32 {
+    // ── Parse command-line arguments ─────────────────────────────────────
+    let arg_count: I32 = _ks_argc();
+
+    let mut input_file: Str = "";
+    let mut output_file: Str = "";
+    let mut extra_includes: [Str] = [""];
+    let mut extra_libdirs: [Str] = [""];
+    let mut extra_libs: [Str] = [""];
+    let mut cpp_only: Bool = false;
+    let mut no_stdlib: Bool = false;
+    extra_includes.clear();
+    extra_libdirs.clear();
+    extra_libs.clear();
+
+    // If no args, fall back to .ks_input file (backwards compatible)
+    if arg_count < 2 {
+        let path_result: Result<Str> = File.read(".ks_input");
+        if !path_result.ok {
+            print_usage();
+            return 1;
+        }
+        input_file = path_result.value.trim();
+    } else {
+        // Parse CLI flags
+        let mut i: I32 = 1;
+        while i < arg_count {
+            let arg: Str = _ks_get_argv(i);
+            if arg == "--help" || arg == "-h" { print_usage(); return 0; }
+            if arg == "--cpp" { cpp_only = true; i = i + 1; continue; }
+            if arg == "--no-stdlib" { no_stdlib = true; i = i + 1; continue; }
+            if arg == "-o" && i + 1 < arg_count {
+                i = i + 1;
+                output_file = _ks_get_argv(i);
+                i = i + 1;
+                continue;
+            }
+            // -Idir or -I dir
+            if arg.starts("-I") {
+                if arg.len() > 2 {
+                    extra_includes.push(arg.substr(2, arg.len() - 2));
+                } else {
+                    if i + 1 < arg_count { i = i + 1; extra_includes.push(_ks_get_argv(i)); }
+                }
+                i = i + 1;
+                continue;
+            }
+            // -Ldir or -L dir
+            if arg.starts("-L") {
+                if arg.len() > 2 {
+                    extra_libdirs.push(arg.substr(2, arg.len() - 2));
+                } else {
+                    if i + 1 < arg_count { i = i + 1; extra_libdirs.push(_ks_get_argv(i)); }
+                }
+                i = i + 1;
+                continue;
+            }
+            // -llib or -l lib
+            if arg.starts("-l") {
+                if arg.len() > 2 {
+                    extra_libs.push(arg.substr(2, arg.len() - 2));
+                } else {
+                    if i + 1 < arg_count { i = i + 1; extra_libs.push(_ks_get_argv(i)); }
+                }
+                i = i + 1;
+                continue;
+            }
+            // Positional argument: input file
+            if !arg.starts("-") && input_file.len() == 0 {
+                input_file = arg;
+            }
+            i = i + 1;
+        }
+    }
+
+    if input_file.len() == 0 {
+        Print("error: no input file specified");
+        print_usage();
         return 1;
     }
 
-    let input_path: Str = path_result.value.trim();
-    if input_path.len() == 0 {
-        Print("error: .ks_input is empty");
-        return 1;
+    // Derive output name from input if not specified
+    if output_file.len() == 0 {
+        // Strip .ks extension and path
+        let mut stem: Str = input_file;
+        // Remove directory path
+        let mut last_slash: I32 = -1;
+        let mut si: I32 = 0;
+        while si < stem.len() {
+            if stem.substr(si, 1) == "/" { last_slash = si; }
+            si = si + 1;
+        }
+        if last_slash >= 0 { stem = stem.substr(last_slash + 1, stem.len() - last_slash - 1); }
+        // Remove .ks extension
+        if stem.ends(".ks") { stem = stem.substr(0, stem.len() - 3); }
+        if cpp_only {
+            output_file = stem + ".cpp";
+        } else {
+            output_file = stem;
+        }
     }
 
-    let src_result: Result<Str> = File.read(input_path);
+    // ── Read source file ────────────────────────────────────────────────
+    let src_result: Result<Str> = File.read(input_file);
     if !src_result.ok {
-        Print("error: cannot read '", input_path, "': ", src_result.error);
+        Print("error: cannot read '", input_file, "'");
         return 1;
     }
-
     let src: Str = src_result.value;
 
+    // ── Compile ─────────────────────────────────────────────────────────
     Print("Lexing...");
     let ntoks: I32 = lex(src);
     Print("Tokens:   ", ntoks);
+
     Print("Parsing...");
     let prog: I32 = parse(ntoks);
     Print("Nodes:    ", node_kinds.len());
@@ -4362,9 +4496,9 @@ func main() -> I32 {
     Print("Functions:", fn_count);
 
     Print("Generating C++...");
-    let cpp_path: Str = "/tmp/konscript_out.cpp";
+    let mut cpp_path: Str = "/tmp/konscript_out.cpp";
+    if cpp_only { cpp_path = output_file; }
 
-    // Generate C++ via codegen
     cg_generate(prog);
     let cg_ok: Bool = cg_write_to_file(cpp_path);
     if !cg_ok {
@@ -4375,76 +4509,94 @@ func main() -> I32 {
     Print("C++ lines:", cg_lines.len());
     Print("Written:  ", cpp_path);
 
-    // Compile C++ to native binary
-    let bin_path: Str = "/tmp/konscript_output";
+    // If --cpp mode, we're done
+    if cpp_only {
+        Print("");
+        Print("  ok ", output_file);
+        Print("");
+        return 0;
+    }
 
-    // Compile runtime as C
+    // ── Compile C++ to native binary ────────────────────────────────────
     let rt_obj: Str = "/tmp/_ks_runtime.o";
-    Print("Compiling runtime...");
-    let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
-    let rt_ret: I32 = _ks_system(rt_cmd);
-    if rt_ret != 0 {
-        let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
-        _ks_system(rt_cmd2);
+
+    // Compile runtime (unless --no-stdlib)
+    if !no_stdlib {
+        Print("Compiling runtime...");
+        let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+        let rt_ret: I32 = _ks_system(rt_cmd);
+        if rt_ret != 0 {
+            let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+            _ks_system(rt_cmd2);
+        }
     }
 
     // Build compilation command
     let mut cxx_flags: Str = "g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
-    let mut link_flags: Str = " -lm";
+    let mut link_flags: Str = "";
 
-    // Engine mode: add include paths and libraries
+    // Add user -I flags
+    let mut ii: I32 = 0;
+    while ii < extra_includes.len() {
+        cxx_flags = cxx_flags + " -I" + extra_includes[ii];
+        ii = ii + 1;
+    }
+
+    // Add user -L flags
+    let mut li: I32 = 0;
+    while li < extra_libdirs.len() {
+        link_flags = link_flags + " -L" + extra_libdirs[li];
+        li = li + 1;
+    }
+
+    // Add user -l flags
+    let mut ki: I32 = 0;
+    while ki < extra_libs.len() {
+        link_flags = link_flags + " -l" + extra_libs[ki];
+        ki = ki + 1;
+    }
+
+    // Engine mode: auto-detect and add engine paths
     if cg_is_engine {
-        // Search for engine toolchain in common locations
         let mut engine_dir: Str = "";
-        let mut glm_dir: Str = "";
-        // Try: ./toolchain/engine/linux64
         if File.exists("toolchain/engine/linux64/libKonEngine.a") {
             engine_dir = "toolchain/engine/linux64";
         }
-        // Try: relative to script dir
         if engine_dir.len() == 0 && File.exists("../tools/KonScript/toolchain/engine/linux64/libKonEngine.a") {
             engine_dir = "../tools/KonScript/toolchain/engine/linux64";
         }
-        // Try KONSCRIPT_TOOLCHAIN env (would need env reading - skip for now)
-
         if engine_dir.len() > 0 {
             let inc: Str = engine_dir + "/include";
             cxx_flags = cxx_flags + " -I" + inc;
             cxx_flags = cxx_flags + " -I" + inc + "/glad/include";
             cxx_flags = cxx_flags + " -I" + inc + "/stb";
-            // GLM
-            if File.exists(inc + "/glm/glm/glm.hpp") {
-                cxx_flags = cxx_flags + " -I" + inc + "/glm";
-            }
-            if File.exists("../../libs/glm/glm/glm.hpp") {
-                cxx_flags = cxx_flags + " -I../../libs/glm";
-            }
-            // Link engine libraries
-            link_flags = " " + engine_dir + "/libKonEngine.a";
+            if File.exists(inc + "/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I" + inc + "/glm"; }
+            if File.exists("../../libs/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I../../libs/glm"; }
+            link_flags = link_flags + " " + engine_dir + "/libKonEngine.a";
             if File.exists(engine_dir + "/libglfw3.a") {
                 link_flags = link_flags + " " + engine_dir + "/libglfw3.a";
             } else {
                 link_flags = link_flags + " -lglfw";
             }
-            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread -lm";
+            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
         } else {
-            Print("warning: engine toolchain not found");
-            Print("  Run build-engine-lib.sh to set up the engine library");
-            Print("  Or set engine_dir manually");
-            // Fall back to system libraries
-            link_flags = " -lglfw -lGL -lX11 -lXrandr -lXi -ldl -lpthread -lm";
+            Print("warning: engine toolchain not found — run build-engine-lib.sh");
+            link_flags = link_flags + " -lglfw -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
         }
     }
 
+    // Always add -lm
+    link_flags = link_flags + " -lm";
+
+    // Build final command
+    let mut compile_src: Str = cpp_path;
+    if !no_stdlib { compile_src = compile_src + " " + rt_obj; }
+
     Print("Compiling...");
-    let cxx_cmd: Str = cxx_flags + " -o " + bin_path + " " + cpp_path + " " + rt_obj + link_flags + " 2>&1";
+    let cxx_cmd: Str = cxx_flags + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
     let cxx_ret: I32 = _ks_system(cxx_cmd);
     if cxx_ret != 0 {
-        // Try clang++ as fallback
-        let mut cxx2: Str = cxx_cmd;
-        // Replace g++ with clang++
-        // Simple approach: rebuild with clang++
-        let cxx_cmd2: Str = "clang++ -std=c++17 -O2 -DGLM_FORCE_PURE -o " + bin_path + " " + cpp_path + " " + rt_obj + link_flags + " 2>&1";
+        let cxx_cmd2: Str = "clang++ -std=c++17 -O2 -DGLM_FORCE_PURE -o " + output_file + " " + compile_src + link_flags + " 2>&1";
         let cxx_ret2: I32 = _ks_system(cxx_cmd2);
         if cxx_ret2 != 0 {
             Print("error: compilation failed");
@@ -4453,7 +4605,7 @@ func main() -> I32 {
     }
 
     Print("");
-    Print("  ok ", bin_path);
+    Print("  ok ", output_file);
     Print("");
     return 0;
 }

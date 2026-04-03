@@ -132,6 +132,26 @@ mkdir -p \"$OUTDIR\"
     )
 endif()
 
+# Install self-hosted compiler source (for bootstrapping)
+install(FILES konscript.ks
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/konscript
+)
+
+# Install documentation
+foreach(doc README.md USAGE.md INSTALL.md DOCS.md)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${doc}")
+        install(FILES ${doc} DESTINATION ${CMAKE_INSTALL_DATADIR}/konscript/doc)
+    endif()
+endforeach()
+
+# Install editor integrations
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/editor")
+    install(DIRECTORY editor/
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/konscript/editor
+        PATTERN "*.cpp" EXCLUDE
+    )
+endif()
+
 # ── Summary ──────────────────────────────────────────────────────────────
 message(STATUS "")
 message(STATUS "KonScript ${PROJECT_VERSION} configuration:")

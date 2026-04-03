@@ -366,3 +366,19 @@ void _ks_closure_free(void* c) {
     if (cl->env) free(cl->env);
     free(cl);
 }
+
+// ── Command-line arguments ──────────────────────────────────────────────────
+static int _ks_argc_val = 0;
+static char** _ks_argv_val = NULL;
+
+void _ks_init_args(int argc, char** argv) {
+    _ks_argc_val = argc;
+    _ks_argv_val = argv;
+}
+
+int _ks_argc() { return _ks_argc_val; }
+
+char* _ks_get_argv(int idx) {
+    if (idx < 0 || idx >= _ks_argc_val || !_ks_argv_val) return "";
+    return _ks_argv_val[idx] ? _ks_argv_val[idx] : "";
+}

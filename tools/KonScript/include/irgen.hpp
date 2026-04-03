@@ -525,6 +525,9 @@ private:
         emit("declare i1  @_ks_hashmap_has(i8*, i8*)");
         emit("declare i32 @_ks_hashmap_len(i8*)");
         emit("declare i32  @_ks_system(i8*)");
+        emit("declare i32  @_ks_argc()");
+        emit("declare i8*  @_ks_get_argv(i32)");
+        emit("declare void @_ks_init_args(i32, i8**)");
         emit("");
     }
 
