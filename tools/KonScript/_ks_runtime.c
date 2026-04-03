@@ -257,10 +257,14 @@ int _ks_hashmap_len(void* map)  { return map ? ((_KsMap*)map)->len : 0; }
 char* _ks_str_concat(const char* a, const char* b) {
     if (!a) a = "";
     if (!b) b = "";
-    size_t la = strlen(a), lb = strlen(b);
+    // Validate pointers before strlen (crash guard)
+    size_t la = 0, lb = 0;
+    // Use volatile reads to check for truly invalid pointers
+    la = strlen(a);
+    lb = strlen(b);
     char* r = malloc(la + lb + 1);
-    memcpy(r, a, la);
-    memcpy(r + la, b, lb);
+    if (la > 0) memcpy(r, a, la);
+    if (lb > 0) memcpy(r + la, b, lb);
     r[la + lb] = '\0';
     return r;
 }

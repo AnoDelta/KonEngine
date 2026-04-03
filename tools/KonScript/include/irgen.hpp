@@ -862,12 +862,25 @@ private:
     // -----------------------------------------------------------------------
     // Alloca helper — allocates stack space for a local variable
     // -----------------------------------------------------------------------
+    // Zero-initialize an alloca to prevent uninitialized memory bugs
+    void zeroInitAlloca(const std::string& reg, const std::string& lt) {
+        if (lt == "i8*")         emitI("store i8* null, i8** " + reg);
+        else if (lt == "i32")    emitI("store i32 0, i32* " + reg);
+        else if (lt == "i64")    emitI("store i64 0, i64* " + reg);
+        else if (lt == "i1")     emitI("store i1 0, i1* " + reg);
+        else if (lt == "i8")     emitI("store i8 0, i8* " + reg);
+        else if (lt == "i16")    emitI("store i16 0, i16* " + reg);
+        else if (lt == "float")  emitI("store float 0.0, float* " + reg);
+        else if (lt == "double") emitI("store double 0.0, double* " + reg);
+    }
+
     void allocaParam(const std::string& name, const TypeAnnotation& type) {
         std::string lt  = llvmType(type);
         std::string reg = "%" + name + ".addr";
         if (m_locals.count(name))
             reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
+        zeroInitAlloca(reg, lt);
         std::string ks = type.isArray ? "Array" : type.base;
         m_locals[name] = {reg, lt, ks};
     }
@@ -878,6 +891,7 @@ private:
         if (m_locals.count(name))
             reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
+        zeroInitAlloca(reg, lt);
         // ksTy: use "Array" for arrays, "HashMap" stays as-is, otherwise base
         std::string ks = type.isArray ? "Array" : type.base;
         m_locals[name] = {reg, lt, ks};
