@@ -516,6 +516,8 @@ private:
         emit("declare i8* @_ks_array_get(i8*, i32)");
         emit("declare i1  @_ks_array_has(i8*, i8*)");
         emit("declare void @_ks_array_clear(i8*)");
+        emit("declare i32  @_ks_str_compare(i8*, i8*)");
+        emit("declare i8*  @strdup(i8*)");
         emit("declare i8* @_ks_hashmap_new()");
         emit("declare void @_ks_hashmap_set(i8*, i8*, i8*)");
         emit("declare i8* @_ks_hashmap_get(i8*, i8*)");
@@ -812,6 +814,17 @@ private:
         // main() calls the global initializer first so String globals are ready
         if (f->name == "main") {
             emitI("call void @__ks_global_init()");
+            // Initialize global arrays and other complex expressions
+            for (auto* gl : m_globalInits) {
+                if (!gl->init) continue;
+                if (gl->init->kind == Expr::Kind::StrLit ||
+                    gl->init->kind == Expr::Kind::FStrLit) continue; // handled by __ks_global_init
+                auto [val, lt] = genExpr(gl->init.get(), gl->type);
+                std::string declTy = m_globalTypes.count(gl->name)
+                    ? m_globalTypes[gl->name] : lt;
+                if (lt != declTy) val = coerce(val, lt, declTy);
+                emitI("store " + declTy + " " + val + ", " + declTy + "* @" + gl->name);
+            }
         }
 
         // Body
@@ -968,7 +981,9 @@ private:
                 storeVal = coerce(val, lt, declTy);
                 lt = declTy;
             }
-            emitI("store " + declTy + " " + storeVal + ", " + declTy + "* %" + l->name + ".addr");
+            // Use the actual register from m_locals (may have numeric suffix for shadowed vars)
+            std::string reg = m_locals[l->name].addr;
+            emitI("store " + declTy + " " + storeVal + ", " + declTy + "* " + reg);
         }
     }
     void genConst(const Stmt* s) {
@@ -981,7 +996,8 @@ private:
             if (lt != declTy && !declTy.empty() && declTy != "void") {
                 storeVal = coerce(val, lt, declTy);
             }
-            emitI("store " + declTy + " " + storeVal + ", " + declTy + "* %" + c->name + ".addr");
+            std::string reg = m_locals[c->name].addr;
+            emitI("store " + declTy + " " + storeVal + ", " + declTy + "* " + reg);
         }
     }
 
@@ -1002,6 +1018,11 @@ private:
             emitI("ret void");
         } else {
             auto [val, lt] = genExpr(r->value.get());
+            // Coerce return value to match function signature if types differ
+            if (lt != m_funcRetType) {
+                val = coerce(val, lt, m_funcRetType);
+                lt = m_funcRetType;
+            }
             emitI("ret " + lt + " " + val);
         }
     }
@@ -1662,11 +1683,15 @@ private:
         auto [lv, lt] = genExpr(e->left.get());
         auto [rv, rt] = genExpr(e->right.get());
 
-        // Promote int to float if types differ
+        // Promote operands if types differ
         std::string lt2 = lt, lv2 = lv, rv2 = rv;
         if (lt != rt) {
             bool lFloat = (lt == "float" || lt == "double");
             bool rFloat = (rt == "float" || rt == "double");
+            bool lPtr   = (lt == "i8*");
+            bool rPtr   = (rt == "i8*");
+            bool lInt   = (lt == "i32" || lt == "i1" || lt == "i64");
+            bool rInt   = (rt == "i32" || rt == "i1" || rt == "i64");
             if (lFloat && !rFloat) {
                 std::string t2 = tmp();
                 emitI(t2 + " = sitofp " + rt + " " + rv + " to " + lt);
@@ -1684,6 +1709,12 @@ private:
                     emitI(t2 + " = fpext float " + rv + " to double");
                     rv2 = t2;
                 }
+            } else if (lPtr && rInt) {
+                // Boxed value from array — unbox lhs to match rhs integer type
+                lv2 = coerce(lv, lt, rt); lt2 = rt;
+            } else if (rPtr && lInt) {
+                // Boxed value from array — unbox rhs to match lhs integer type
+                rv2 = coerce(rv, rt, lt);
             }
         }
 
@@ -1700,6 +1731,21 @@ private:
         else if (op == "*") { emitI(t + " = " + (isFloat?"fmul":"mul") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "/") { emitI(t + " = " + (isFloat?"fdiv":"sdiv") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "%") { emitI(t + " = " + (isFloat?"frem":"srem") + " " + lt2 + " " + lv2 + ", " + rv2); }
+        else if ((op == "==" || op == "!=" || op == "<" || op == "<=" ||
+                  op == ">" || op == ">=") && lt2 == "i8*" && !isFloat) {
+            // String comparison via _ks_str_compare (strcmp semantics)
+            isBool=true;
+            std::string cmp = tmp();
+            emitI(cmp + " = call i32 @_ks_str_compare(i8* " + lv2 + ", i8* " + rv2 + ")");
+            std::string icmpOp;
+            if      (op == "==") icmpOp = "eq";
+            else if (op == "!=") icmpOp = "ne";
+            else if (op == "<")  icmpOp = "slt";
+            else if (op == "<=") icmpOp = "sle";
+            else if (op == ">")  icmpOp = "sgt";
+            else                 icmpOp = "sge";
+            emitI(t + " = icmp " + icmpOp + " i32 " + cmp + ", 0");
+        }
         else if (op == "==") { isBool=true; emitI(t + " = " + (isFloat?"fcmp oeq":"icmp eq") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "!=") { isBool=true; emitI(t + " = " + (isFloat?"fcmp one":"icmp ne") + " " + lt2 + " " + lv2 + ", " + rv2); }
         else if (op == "<")  { isBool=true; emitI(t + " = " + (isFloat?"fcmp olt":"icmp slt") + " " + lt2 + " " + lv2 + ", " + rv2); }
@@ -1722,6 +1768,7 @@ private:
 
     ValType genAssign(const AssignExpr* e) {
         auto [val, lt] = genExpr(e->value.get());
+        std::string origTy = lt; // remember the RHS type before overriding
 
         // Find the lvalue address
         std::string addr;
@@ -1741,6 +1788,10 @@ private:
                     addrTy = gt->second;
                     lt = addrTy;
                 }
+            }
+            // Coerce RHS to match target type if they differ
+            if (lt != origTy) {
+                val = coerce(val, origTy, lt);
             }
         } else if (e->target->kind == Expr::Kind::Member) {
             // self.field op= value  →  GEP + optional load+op + store
@@ -2033,6 +2084,7 @@ private:
                 std::pair<std::string,std::string>> collMethods = {
                 {"push",     {"@_ks_array_push",   "void"}},
                 {"pop",      {"@_ks_array_pop",    "i8*"}},
+                {"clear",    {"@_ks_array_clear",  "void"}},
                 // String methods
                 {"trim",     {"@_ks_str_trim",     "i8*"}},
                 {"upper",    {"@_ks_str_upper",    "i8*"}},
@@ -2413,6 +2465,8 @@ private:
     ValType genIndex(const IndexExpr* e) {
         auto [base, baseTy] = genExpr(e->object.get());
         auto [idx,  idxTy]  = genExpr(e->index.get());
+        // Ensure index is i32 (may be i8* from nested array access)
+        if (idxTy != "i32") idx = coerce(idx, idxTy, "i32");
         // KonScript arrays are i8* (opaque pointer to KsArray)
         // Use _ks_array_get to retrieve elements
         if (baseTy == "i8*") {
@@ -2495,7 +2549,7 @@ private:
             }
         }
 
-        // Stack buffer — 512 bytes
+        // Stack buffer — 512 bytes (temporary for snprintf)
         std::string bufReg = tmp();
         emitI(bufReg + " = alloca [512 x i8]");
         std::string ptrReg = tmp();
@@ -2510,7 +2564,11 @@ private:
         std::string callReg = tmp();
         emitI(callReg + " = call i32 (i8*, i64, i8*, ...) @snprintf(" + snArgs + ")");
 
-        return {ptrReg, "i8*"};
+        // Copy to heap so the result survives beyond the current stack frame
+        std::string heapReg = tmp();
+        emitI(heapReg + " = call i8* @strdup(i8* " + ptrReg + ")");
+
+        return {heapReg, "i8*"};
     }
 };
 
