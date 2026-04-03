@@ -32,7 +32,10 @@ void* _ks_file_read(const char* path) {
     FILE* f = fopen(path, "r");
     if (!f) { char msg[256]; snprintf(msg,256,"cannot open: %s",path); return _ks_result_err_val(msg); }
     fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
-    char* buf = malloc(sz + 1); fread(buf, 1, sz, f); buf[sz] = '\0'; fclose(f);
+    char* buf = malloc(sz + 1);
+    size_t nr = fread(buf, 1, sz, f);
+    buf[nr] = '\0';
+    fclose(f);
     _KsResult* r = _ks_result_ok_val(buf); free(buf); return r;
 }
 void* _ks_file_write(const char* path, const char* content) {
@@ -366,6 +369,15 @@ void _ks_closure_free(void* c) {
     if (cl->env) free(cl->env);
     free(cl);
 }
+
+// ── Timing ──────────────────────────────────────────────────────────────────
+#include <time.h>
+double _ks_time_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
 
 // ── Command-line arguments ──────────────────────────────────────────────────
 static int _ks_argc_val = 0;

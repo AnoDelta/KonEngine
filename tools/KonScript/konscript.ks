@@ -1,23 +1,34 @@
 // ---------------------------------------------------------------------------
 // konscript.ks — the KonScript compiler, written in KonScript
 //
-// Stage plan:
-//   Stage 0 — C++ compiler (src/main.cpp)       <- current
-//   Stage 1 — this file compiled by stage 0      <- IN PROGRESS
-//   Stage 2 — this file compiled by stage 1      <- goal (self-hosting)
+// Self-hosting bootstrap:
+//   Stage 0 — C++ bootstrap compiler (src/main.cpp)
+//   Stage 1 — compiled by Stage 0 via LLVM IR (no CLI, uses .ks_input)
+//   Stage 2 — compiled by Stage 1 via C++ codegen (has CLI args)
+//   Stage 3 — compiled by Stage 2 (self-hosted, verified)
+//   Stage 4 — compiled by Stage 3 (byte-identical to Stage 3)
 //
-// Progress:
-//   [x] Token constants
-//   [x] Lexer
-//   [ ] Parser
-//   [ ] Typechecker
-//   [ ] IRGen
+//   The installed binary is Stage 4. Stages 2+ produce identical binaries.
 //
-// Build stage 1:
-//   konscript --cpp konscript.ks -o konscript1.cpp
-//   clang++ -std=c++17 konscript1.cpp -o konscript1
-// Verify:
-//   ./konscript1 hello.ks  (should lex hello.ks and print tokens)
+// Implemented:
+//   [x] Token constants (TK_*)
+//   [x] Lexer (lex)
+//   [x] Parser (parse, parallel arrays)
+//   [x] Typechecker (typecheck, scope-based inference)
+//   [x] C++ Codegen (cg_generate, cg_write_to_file)
+//   [x] CLI flags (-o, -I, -L, -l, --cpp, --no-stdlib, --help)
+//   [x] Engine game compilation (node/scene/lifecycle)
+//   [x] FFI support (extern "C", inline asm)
+//   [x] Self-hosting (4-stage bootstrap, byte-identical)
+//   [x] Progress bars (pure KonScript, ANSI/Unicode)
+//   [x] Timing (_ks_time_ms, format_ms)
+//
+// Build:
+//   ./build.sh          # 5-stage bootstrap
+//   sudo ./install.sh   # install Stage 4 system-wide
+//
+// Self-compile:
+//   konscript konscript.ks -o konscript2   # produces identical binary
 // ---------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------
@@ -1643,10 +1654,17 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("gconst_define", "void");
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
+    tc_def_fn("_ks_time_ms", "F64");
     tc_def_fn("_ks_argc", "I32");
     tc_def_fn("_ks_get_argv", "Str");
     tc_def_fn("_ks_init_args", "void");
+    tc_def_fn("pad_name", "Str");
+    tc_def_fn("format_ms", "Str");
+    tc_def_fn("stage_doing", "void");
+    tc_def_fn("stage_ok", "void");
+    tc_def_fn("print_success", "void");
     tc_def_fn("print_usage", "void");
+    tc_def_fn("_ks_int_to_str", "Str");
     // C++ codegen functions
     tc_def_fn("cg_escape_str", "Str");
     tc_def_fn("cg_generate", "Str");
@@ -3046,6 +3064,7 @@ func irgen(prog_idx: I32) {
     ir_emit("declare void @_ks_closure_free(i8*)");
     // Shell execution
     ir_emit("declare i32 @_ks_system(i8*)");
+    ir_emit("declare double @_ks_time_ms()");
     ir_emit("declare i32 @_ks_argc()");
     ir_emit("declare i8* @_ks_get_argv(i32)");
     ir_emit("declare void @_ks_init_args(i32, i8**)");
@@ -3441,6 +3460,7 @@ func cg_gen_expr(idx: I32) -> Str {
             // ToString
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
+            if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
             // Check engine function mapping table
             let mapped: Str = cg_engine_func(fname);
             if mapped.len() > 0 {
@@ -4154,7 +4174,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("int _ks_str_toInt(const char*);");
     cg_emit_raw("float _ks_str_toFloat(const char*);");
     cg_emit_raw("void* _ks_str_split(const char*, const char*);");
-    cg_emit_raw("char* _ks_int_to_str(int);");
+    cg_emit_raw("extern \"C\" char* _ks_int_to_str(int);");
     cg_emit_raw("int _ks_str_isEmpty(const char*);");
     cg_emit_raw("int _ks_str_isAlpha(const char*);");
     cg_emit_raw("int _ks_str_isDigit(const char*);");
@@ -4182,6 +4202,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("void _ks_init_args(int, char**);");
     cg_emit_raw("int _ks_argc();");
     cg_emit_raw("char* _ks_get_argv(int);");
+    cg_emit_raw("double _ks_time_ms();");
     cg_emit_raw("}");
     cg_emit_raw("");
     // C++ wrappers that accept std::string
@@ -4349,6 +4370,60 @@ func cg_write_to_file(path: Str) -> Bool {
 // ===== END CODEGEN =====
 
 // ── Usage help ───────────────────────────────────────────────────────────
+// ── Progress bar helpers (pure KonScript) ────────────────────────────────
+// Uses _ks_system("printf ...") for ANSI escape codes and Unicode blocks.
+// Each call is kept small to avoid string concat issues in the LLVM path.
+// Progress bar block characters are inlined in the functions below
+
+func pad_name(name: Str, width: I32) -> Str {
+    let mut s: Str = name;
+    while s.len() < width { s = s + " "; }
+    return s;
+}
+
+func format_ms(ms: F64) -> Str {
+    // Convert to tenths of a millisecond via integer math
+    let mut tenths: I32 = (ms * 10.0) as I32;
+    if tenths < 0 { tenths = 0; }
+    if tenths < 10000 {
+        // Under 1 second → show as N.Nms
+        let whole: I32 = tenths / 10;
+        let frac: I32 = tenths - whole * 10;
+        return _ks_int_to_str(whole) + "." + _ks_int_to_str(frac) + "ms";
+    }
+    // 1 second or more → show as N.Ns
+    let ms_i: I32 = tenths / 10;
+    let secs: I32 = ms_i / 1000;
+    let sfrac: I32 = (ms_i - secs * 1000) / 100;
+    return _ks_int_to_str(secs) + "." + _ks_int_to_str(sfrac) + "s";
+}
+
+func stage_doing(step: I32, total: I32, name: Str) {
+    let hdr: Str = "[" + _ks_int_to_str(step) + "/" + _ks_int_to_str(total) + "]";
+    let n: Str = pad_name(name, 16);
+    // Multiple small calls — avoids heap pressure in LLVM-compiled binaries
+    _ks_system("printf '\\033[2m" + hdr + "\\033[0m '");
+    _ks_system("printf '\\033[1m" + n + "\\033[0m '");
+    _ks_system("printf '\\033[33m\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\033[0m'");
+    _ks_system("printf '  ...\\r'");
+}
+
+func stage_ok(step: I32, total: I32, name: Str, ms: F64) {
+    let hdr: Str = "[" + _ks_int_to_str(step) + "/" + _ks_int_to_str(total) + "]";
+    let n: Str = pad_name(name, 16);
+    let ts: Str = format_ms(ms);
+    _ks_system("printf '\\r\\033[2m" + hdr + "\\033[0m '");
+    _ks_system("printf '\\033[1m" + n + "\\033[0m '");
+    _ks_system("printf '\\033[32m\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\033[0m'");
+    _ks_system("printf '  \\033[2m" + ts + "\\033[0m\\n'");
+}
+
+func print_success(path: Str) {
+    _ks_system("printf '\\n  \\033[1m\\033[32m\\xe2\\x9c\\x93\\033[0m '");
+    _ks_system("printf '\\033[1m" + path + "\\033[0m  '");
+    _ks_system("printf '\\033[2m[linux64]\\033[0m\\n\\n'");
+}
+
 func print_usage() {
     Print("KonScript compiler v0.1 - self-hosted");
     Print("");
@@ -4483,19 +4558,24 @@ func main() -> I32 {
     let src: Str = src_result.value;
 
     // ── Compile ─────────────────────────────────────────────────────────
-    Print("Lexing...");
+    let mut total_steps: I32 = 5;
+    if cpp_only { total_steps = 4; }
+    let has_cli: Bool = arg_count >= 2;
+    let mut t0: F64 = 0.0;
+
+    if has_cli { stage_doing(1, total_steps, "Lexing"); t0 = _ks_time_ms(); }
     let ntoks: I32 = lex(src);
-    Print("Tokens:   ", ntoks);
+    if has_cli { stage_ok(1, total_steps, "Lexing", _ks_time_ms() - t0); }
 
-    Print("Parsing...");
+    if has_cli { stage_doing(2, total_steps, "Parsing"); t0 = _ks_time_ms(); }
     let prog: I32 = parse(ntoks);
-    Print("Nodes:    ", node_kinds.len());
+    if has_cli { stage_ok(2, total_steps, "Parsing", _ks_time_ms() - t0); }
 
-    Print("Typechecking...");
+    if has_cli { stage_doing(3, total_steps, "Type checking"); t0 = _ks_time_ms(); }
     typecheck(prog);
-    Print("Functions:", fn_count);
+    if has_cli { stage_ok(3, total_steps, "Type checking", _ks_time_ms() - t0); }
 
-    Print("Generating C++...");
+    if has_cli { stage_doing(4, total_steps, "Transpiling"); t0 = _ks_time_ms(); }
     let mut cpp_path: Str = "/tmp/konscript_out.cpp";
     if cpp_only { cpp_path = output_file; }
 
@@ -4505,24 +4585,20 @@ func main() -> I32 {
         Print("error: cannot write C++ to ", cpp_path);
         return 1;
     }
-
-    Print("C++ lines:", cg_lines.len());
-    Print("Written:  ", cpp_path);
+    if has_cli { stage_ok(4, total_steps, "Transpiling", _ks_time_ms() - t0); }
 
     // If --cpp mode, we're done
     if cpp_only {
-        Print("");
-        Print("  ok ", output_file);
-        Print("");
+        if has_cli { print_success(output_file); }
         return 0;
     }
 
     // ── Compile C++ to native binary ────────────────────────────────────
+    if has_cli { stage_doing(5, total_steps, "Linking"); t0 = _ks_time_ms(); }
     let rt_obj: Str = "/tmp/_ks_runtime.o";
 
     // Compile runtime (unless --no-stdlib)
     if !no_stdlib {
-        Print("Compiling runtime...");
         let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
         if rt_ret != 0 {
@@ -4592,7 +4668,7 @@ func main() -> I32 {
     let mut compile_src: Str = cpp_path;
     if !no_stdlib { compile_src = compile_src + " " + rt_obj; }
 
-    Print("Compiling...");
+    // Compile C++ + link
     let cxx_cmd: Str = cxx_flags + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
     let cxx_ret: I32 = _ks_system(cxx_cmd);
     if cxx_ret != 0 {
@@ -4604,9 +4680,9 @@ func main() -> I32 {
         }
     }
 
-    Print("");
-    Print("  ok ", output_file);
-    Print("");
+    if has_cli { stage_ok(5, total_steps, "Linking", _ks_time_ms() - t0); }
+
+    if has_cli { print_success(output_file); }
     return 0;
 }
 
