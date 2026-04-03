@@ -4382,12 +4382,19 @@ func pad_name(name: Str, width: I32) -> Str {
 }
 
 func format_ms(ms: F64) -> Str {
-    let ims: I32 = ms as I32;
-    if ims < 1000 {
-        return _ks_int_to_str(ims) + "ms";
+    // Convert to tenths of a millisecond via integer math
+    let mut tenths: I32 = (ms * 10.0) as I32;
+    if tenths < 0 { tenths = 0; }
+    if tenths < 10000 {
+        // Under 1 second → show as N.Nms
+        let whole: I32 = tenths / 10;
+        let frac: I32 = tenths - whole * 10;
+        return _ks_int_to_str(whole) + "." + _ks_int_to_str(frac) + "ms";
     }
-    let secs: I32 = ims / 1000;
-    let sfrac: I32 = (ims - secs * 1000) / 100;
+    // 1 second or more → show as N.Ns
+    let ms_i: I32 = tenths / 10;
+    let secs: I32 = ms_i / 1000;
+    let sfrac: I32 = (ms_i - secs * 1000) / 100;
     return _ks_int_to_str(secs) + "." + _ks_int_to_str(sfrac) + "s";
 }
 
