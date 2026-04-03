@@ -4721,7 +4721,12 @@ func main() -> I32 {
     // Engine mode: auto-detect and add engine paths
     if cg_is_engine {
         let mut engine_dir: Str = "";
-        if File.exists("toolchain/engine/linux64/libKonEngine.a") {
+        let self_dir: Str = _ks_self_dir();
+        // Search order: next to binary, CWD toolchain, repo layout
+        if File.exists(self_dir + "/toolchain/engine/linux64/libKonEngine.a") {
+            engine_dir = self_dir + "/toolchain/engine/linux64";
+        }
+        if engine_dir.len() == 0 && File.exists("toolchain/engine/linux64/libKonEngine.a") {
             engine_dir = "toolchain/engine/linux64";
         }
         if engine_dir.len() == 0 && File.exists("../tools/KonScript/toolchain/engine/linux64/libKonEngine.a") {
@@ -4734,6 +4739,7 @@ func main() -> I32 {
             cxx_flags = cxx_flags + " -I" + inc + "/stb";
             if File.exists(inc + "/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I" + inc + "/glm"; }
             if File.exists("../../libs/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I../../libs/glm"; }
+            if File.exists(self_dir + "/../../libs/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I" + self_dir + "/../../libs/glm"; }
             link_flags = link_flags + " " + engine_dir + "/libKonEngine.a";
             if File.exists(engine_dir + "/libglfw3.a") {
                 link_flags = link_flags + " " + engine_dir + "/libglfw3.a";
