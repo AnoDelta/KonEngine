@@ -254,17 +254,17 @@ func lex(src: Str) -> I32 {
                     else {
                         if fsc == "\\" && i + 1 < n {
                             let fesc: Str = src.substr(i + 1, 1);
-                            if fesc == "n"  { val = f"{val}\n"; i += 2; col += 2; }
+                            if fesc == "n"  { val = val + "\n"; i += 2; col += 2; }
                             else {
-                                if fesc == "t"  { val = f"{val}\t"; i += 2; col += 2; }
+                                if fesc == "t"  { val = val + "\t"; i += 2; col += 2; }
                                 else {
-                                    val = f"{val}{fesc}";
+                                    val = val + fesc;
                                     i += 2; col += 2;
                                 }
                             }
                         } else {
-                            if fsc == "\n" { line = line + 1; col = 1; val = f"{val}\n"; i += 1; }
-                            else { val = f"{val}{fsc}"; i += 1; col += 1; }
+                            if fsc == "\n" { line = line + 1; col = 1; val = val + "\n"; i += 1; }
+                            else { val = val + fsc; i += 1; col += 1; }
                         }
                     }
                 }
@@ -282,15 +282,15 @@ func lex(src: Str) -> I32 {
                 let sc: Str = src.substr(i, 1);
                 if sc == "\\" && i + 1 < n {
                     let esc: Str = src.substr(i + 1, 1);
-                    if esc == "n"  { val = f"{val}\n"; i += 2; col += 2; }
+                    if esc == "n"  { val = val + "\n"; i += 2; col += 2; }
                     else {
-                        if esc == "t"  { val = f"{val}\t"; i += 2; col += 2; }
+                        if esc == "t"  { val = val + "\t"; i += 2; col += 2; }
                         else {
-                            if esc == "\\" { val = f"{val}\\"; i += 2; col += 2; }
+                            if esc == "\\" { val = val + "\\"; i += 2; col += 2; }
                             else {
-                                if esc == "\"" { val = f"{val}\""; i += 2; col += 2; }
+                                if esc == "\"" { val = val + "\""; i += 2; col += 2; }
                                 else {
-                                    val = f"{val}{esc}";
+                                    val = val + esc;
                                     i += 2; col += 2;
                                 }
                             }
@@ -298,7 +298,7 @@ func lex(src: Str) -> I32 {
                     }
                 } else {
                     if sc == "\n" { line = line + 1; col = 1; }
-                    val = f"{val}{sc}";
+                    val = val + sc;
                     i += 1; col += 1;
                 }
             }
@@ -314,16 +314,16 @@ func lex(src: Str) -> I32 {
             let mut num: Str = "";
             let mut is_float: Bool = false;
             while i < n && is_digit(src.substr(i, 1)) {
-                num = f"{num}{src.substr(i, 1)}";
+                num = num + src.substr(i, 1);
                 i += 1; col += 1;
             }
             // decimal part
             if i < n && src.substr(i, 1) == "." && i + 1 < n && is_digit(src.substr(i + 1, 1)) {
                 is_float = true;
-                num = f"{num}.";
+                num = num + ".";
                 i += 1; col += 1;
                 while i < n && is_digit(src.substr(i, 1)) {
-                    num = f"{num}{src.substr(i, 1)}";
+                    num = num + src.substr(i, 1);
                     i += 1; col += 1;
                 }
             }
@@ -340,7 +340,7 @@ func lex(src: Str) -> I32 {
             let tok_col: I32 = col;
             let mut word: Str = "";
             while i < n && is_alnum(src.substr(i, 1)) {
-                word = f"{word}{src.substr(i, 1)}";
+                word = word + src.substr(i, 1);
                 i += 1; col += 1;
             }
             let kind: I32 = keyword_kind(word);
@@ -363,7 +363,7 @@ func lex(src: Str) -> I32 {
                 if src.substr(i, 1) == "<" { close = ">"; }
                 i += 1; col += 1;
                 while i < n && src.substr(i, 1) != close {
-                    path = f"{path}{src.substr(i, 1)}";
+                    path = path + src.substr(i, 1);
                     i += 1; col += 1;
                 }
                 if i < n { i += 1; col += 1; }
@@ -3015,7 +3015,6 @@ func main() -> I32 {
     Print("Lexing...");
     let ntoks: I32 = lex(src);
     Print("Tokens:   ", ntoks);
-
     Print("Parsing...");
     let prog: I32 = parse(ntoks);
     Print("Nodes:    ", node_kinds.len());
@@ -3029,11 +3028,16 @@ func main() -> I32 {
 
     let out_path: Str = "/tmp/konscript_out.ll";
 
-    // Write IR line-by-line to avoid f-string buffer limits
-    let wrote_ok: Bool = ir_write_to_file(out_path);
-    if !wrote_ok {
-        Print("error: cannot write IR to ", out_path);
-        return 1;
+    // Write IR: try file first, fall back to line-by-line file write
+    let ir_str: Str = ir_to_string();
+    let write_result: Result<Str> = File.write(out_path, ir_str);
+    if !write_result.ok {
+        // Fallback: write line by line
+        let wrote_ok: Bool = ir_write_to_file(out_path);
+        if !wrote_ok {
+            Print("error: cannot write IR to ", out_path);
+            return 1;
+        }
     }
 
     Print("IR lines: ", ir_lines.len());

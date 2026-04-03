@@ -12,12 +12,12 @@
 typedef struct { int ok; char* value; char* error; } _KsResult;
 
 static _KsResult* _ks_result_ok_val(char* v) {
-    _KsResult* r = malloc(sizeof(_KsResult));
+    _KsResult* r = calloc(1, sizeof(_KsResult));
     r->ok = 1; r->value = v ? strdup(v) : strdup(""); r->error = strdup("");
     return r;
 }
 static _KsResult* _ks_result_err_val(const char* e) {
-    _KsResult* r = malloc(sizeof(_KsResult));
+    _KsResult* r = calloc(1, sizeof(_KsResult));
     r->ok = 0; r->value = strdup(""); r->error = strdup(e);
     return r;
 }
@@ -59,9 +59,10 @@ void* _ks_file_delete(const char* path) {
 // ── String methods ────────────────────────────────────────────────────────────
 int   _ks_str_len(const char* s)       { return s ? (int)strlen(s) : 0; }
 int   _ks_str_isEmpty(const char* s)   { return !s || *s == '\0'; }
-int   _ks_str_contains(const char* s, const char* sub) { return strstr(s, sub) != NULL; }
-int   _ks_str_starts(const char* s, const char* p)     { return strncmp(s, p, strlen(p)) == 0; }
+int   _ks_str_contains(const char* s, const char* sub) { if (!s || !sub) return 0; return strstr(s, sub) != NULL; }
+int   _ks_str_starts(const char* s, const char* p)     { if (!s || !p) return 0; return strncmp(s, p, strlen(p)) == 0; }
 int   _ks_str_ends(const char* s, const char* e) {
+    if (!s || !e) return 0;
     size_t sl = strlen(s), el = strlen(e);
     return sl >= el && strcmp(s + sl - el, e) == 0;
 }
