@@ -2058,17 +2058,42 @@ func ir_gen_expr(idx: I32) -> Str {
             let plt: Str    = ir_get_t(ptr_vt);
             let idx_vt: Str = ir_gen_expr(node_b[tgt]);
             let idx_v: Str  = ir_get_v(idx_vt);
-            if ptr_v != "0" && ptr_v != "null" {
-                let tp: I32 = ir_tmp_id();
-                let tp2: I32 = ir_tmp_id();
-                // Bitcast pointer to rlt* if needed
-                let mut ptr_cast: Str = ptr_v;
-                if plt != f"{rlt}*" && plt != rlt {
-                    ir_emiti(f"%t{tp} = bitcast {plt} {ptr_v} to {rlt}*");
-                    ptr_cast = f"%t{tp}";
+            // Check if target is a KsArray (global array or typed as array)
+            let mut is_ks_array: Bool = false;
+            if node_kinds[node_a[tgt]] == NK_IDENT {
+                let arr_name: Str = node_str[node_a[tgt]];
+                if gvar_is_array(arr_name) { is_ks_array = true; }
+                if node_types[node_a[tgt]].starts("[") { is_ks_array = true; }
+            }
+            if is_ks_array {
+                // Use _ks_array_set for KsArray runtime arrays
+                let mut val_ptr: Str = rv;
+                if rlt != "i8*" {
+                    let cvt: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{cvt} = inttoptr {rlt} {rv} to i8*");
+                    val_ptr = f"%t{cvt}";
                 }
-                ir_emiti(f"%t{tp2} = getelementptr {rlt}, {rlt}* {ptr_cast}, i32 {idx_v}");
-                ir_emiti(f"store {rlt} {rv}, {rlt}* %t{tp2}");
+                // Ensure index is i32
+                let mut idx_i32: Str = idx_v;
+                if ir_get_t(idx_vt) != "i32" {
+                    let cvt2: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{cvt2} = trunc i64 {idx_v} to i32");
+                    idx_i32 = f"%t{cvt2}";
+                }
+                ir_emiti(f"call void @_ks_array_set(i8* {ptr_v}, i32 {idx_i32}, i8* {val_ptr})");
+            } else {
+                // Raw pointer index assignment (for non-KsArray pointers)
+                if ptr_v != "0" && ptr_v != "null" {
+                    let tp: I32 = ir_tmp_id();
+                    let tp2: I32 = ir_tmp_id();
+                    let mut ptr_cast: Str = ptr_v;
+                    if plt != f"{rlt}*" && plt != rlt {
+                        ir_emiti(f"%t{tp} = bitcast {plt} {ptr_v} to {rlt}*");
+                        ptr_cast = f"%t{tp}";
+                    }
+                    ir_emiti(f"%t{tp2} = getelementptr {rlt}, {rlt}* {ptr_cast}, i32 {idx_v}");
+                    ir_emiti(f"store {rlt} {rv}, {rlt}* %t{tp2}");
+                }
             }
         }
         return rvt;
@@ -2716,6 +2741,7 @@ func irgen(prog_idx: I32) {
     ir_emit("declare i8* @_ks_array_get(i8*, i32)");
     ir_emit("declare i32 @_ks_array_len(i8*)");
     ir_emit("declare void @_ks_array_clear(i8*)");
+    ir_emit("declare void @_ks_array_set(i8*, i32, i8*)");
     ir_emit("declare i8* @_ks_array_pop(i8*)");
     ir_emit("declare i32 @_ks_array_has(i8*, i8*)");
     ir_emit("declare i8* @_ks_array_clone(i8*)");

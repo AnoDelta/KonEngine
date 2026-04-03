@@ -516,6 +516,7 @@ private:
         emit("declare i8* @_ks_array_get(i8*, i32)");
         emit("declare i1  @_ks_array_has(i8*, i8*)");
         emit("declare void @_ks_array_clear(i8*)");
+        emit("declare void @_ks_array_set(i8*, i32, i8*)");
         emit("declare i32  @_ks_str_compare(i8*, i8*)");
         emit("declare i8*  @strdup(i8*)");
         emit("declare i8* @_ks_hashmap_new()");
@@ -1816,6 +1817,27 @@ private:
                 }
                 emitI("store " + gepTy + " " + storeVal + ", " + gepTy + "* " + gepPtr);
             }
+            return {val, lt};
+        } else if (e->target->kind == Expr::Kind::Index) {
+            // arr[i] = val  →  _ks_array_set(arr, i, val)
+            auto* idx = static_cast<const IndexExpr*>(e->target.get());
+            auto [arrV, arrT] = genExpr(idx->object.get());
+            auto [idxV, idxT] = genExpr(idx->index.get());
+            // Coerce value to i8* for _ks_array_set
+            std::string valPtr = val;
+            if (lt != "i8*") {
+                std::string cvt = tmp();
+                emitI(cvt + " = inttoptr " + lt + " " + val + " to i8*");
+                valPtr = cvt;
+            }
+            // Coerce index to i32
+            std::string idxI32 = idxV;
+            if (idxT == "i64") {
+                std::string cvt = tmp();
+                emitI(cvt + " = trunc i64 " + idxV + " to i32");
+                idxI32 = cvt;
+            }
+            emitI("call void @_ks_array_set(i8* " + arrV + ", i32 " + idxI32 + ", i8* " + valPtr + ")");
             return {val, lt};
         } else {
             // truly unsupported — downgrade to warning so IR is still emitted

@@ -160,6 +160,12 @@ void* _ks_array_get(void* arr, int idx) {
     return a->data[idx];
 }
 
+void _ks_array_set(void* arr, int idx, void* val) {
+    _KsArray* a = arr;
+    if (idx >= 0 && idx < a->len)
+        a->data[idx] = val;
+}
+
 void _ks_array_clear(void* arr) {
     if (arr) ((_KsArray*)arr)->len = 0;
 }
