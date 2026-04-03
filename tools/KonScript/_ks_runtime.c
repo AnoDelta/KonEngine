@@ -277,3 +277,66 @@ char* _ks_str_fromCharCode(int code) {
     r[1] = '\0';
     return r;
 }
+
+// ── Missing runtime functions (needed by self-hosted compiler) ───────────────
+
+// Convert integer to heap-allocated string
+char* _ks_int_to_str(int val) {
+    char buf[32];
+    int neg = 0, i = 0;
+    if (val < 0) { neg = 1; val = -val; }
+    if (val == 0) { buf[i++] = '0'; }
+    else { while (val > 0) { buf[i++] = '0' + (val % 10); val /= 10; } }
+    if (neg) buf[i++] = '-';
+    char* r = malloc(i + 1);
+    for (int j = 0; j < i; j++) r[j] = buf[i - 1 - j];
+    r[i] = '\0';
+    return r;
+}
+
+// Compare two strings (wrapper around strcmp for self-hosted irgen)
+int _ks_str_compare(const char* a, const char* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    return strcmp(a, b);
+}
+
+// ── Array clone and free ─────────────────────────────────────────────────────
+
+void* _ks_array_clone(void* arr) {
+    if (!arr) return _ks_array_new(8);
+    _KsArray* src = arr;
+    _KsArray* dst = _ks_array_new(src->cap);
+    for (int i = 0; i < src->len; i++)
+        _ks_array_push(dst, src->data[i]);
+    return dst;
+}
+
+void _ks_array_free(void* arr) {
+    if (!arr) return;
+    _KsArray* a = arr;
+    free(a->data);
+    free(a);
+}
+
+// ── Closure runtime ──────────────────────────────────────────────────────────
+
+typedef struct { void* fn; void* env; } _KsClosure;
+
+void* _ks_closure_new(void* fn, void* env) {
+    _KsClosure* c = malloc(sizeof(_KsClosure));
+    c->fn = fn;
+    c->env = env;
+    return c;
+}
+
+void* _ks_closure_fn(void* c)  { return c ? ((_KsClosure*)c)->fn : NULL; }
+void* _ks_closure_env(void* c) { return c ? ((_KsClosure*)c)->env : NULL; }
+
+void _ks_closure_free(void* c) {
+    if (!c) return;
+    _KsClosure* cl = c;
+    if (cl->env) free(cl->env);
+    free(cl);
+}
