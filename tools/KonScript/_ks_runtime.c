@@ -372,10 +372,23 @@ void _ks_closure_free(void* c) {
 
 // ── Timing ──────────────────────────────────────────────────────────────────
 #include <time.h>
+#include <unistd.h>
 double _ks_time_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+// ── Self-directory (for finding _ks_runtime.c next to the binary) ───────────
+char* _ks_self_dir() {
+    static char buf[4096];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        char* last = strrchr(buf, '/');
+        if (last) { *last = '\0'; return buf; }
+    }
+    return ".";
 }
 
 

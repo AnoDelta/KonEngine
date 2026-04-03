@@ -120,7 +120,7 @@ public:
             "_ks_array_push","_ks_array_pop","_ks_array_len","_ks_array_get",
             "_ks_array_has","_ks_array_clear","_ks_array_set","_ks_str_compare",
             "_ks_hashmap_new","_ks_hashmap_set","_ks_hashmap_get","_ks_hashmap_has",
-            "_ks_hashmap_len","_ks_system","_ks_time_ms","_ks_int_to_str",
+            "_ks_hashmap_len","_ks_system","_ks_time_ms","_ks_self_dir","_ks_int_to_str",
             "_ks_argc","_ks_get_argv","_ks_init_args",
         }) m_declaredExterns.insert(name);
 
@@ -575,6 +575,7 @@ private:
         emit("declare i32 @_ks_hashmap_len(i8*)");
         emit("declare i32  @_ks_system(i8*)");
         emit("declare double @_ks_time_ms()");
+        emit("declare i8*  @_ks_self_dir()");
         emit("declare i8*  @_ks_int_to_str(i32)");
         emit("declare i32  @_ks_argc()");
         emit("declare i8*  @_ks_get_argv(i32)");

@@ -1655,6 +1655,7 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
     tc_def_fn("_ks_time_ms", "F64");
+    tc_def_fn("_ks_self_dir", "Str");
     tc_def_fn("_ks_argc", "I32");
     tc_def_fn("_ks_get_argv", "Str");
     tc_def_fn("_ks_init_args", "void");
@@ -3408,7 +3409,12 @@ func cg_gen_expr(idx: I32) -> Str {
                     k_f = k_f + 1;
                 }
                 let expr_name: Str = raw.substr(j_f, k_f - j_f);
-                result = result + " + _ks_tostr(" + expr_name + ")";
+                // Result member access: .ok, .value, .error are methods → need ()
+                if expr_name.ends(".ok") || expr_name.ends(".value") || expr_name.ends(".error") {
+                    result = result + " + _ks_tostr(" + expr_name + "())";
+                } else {
+                    result = result + " + _ks_tostr(" + expr_name + ")";
+                }
                 i_f = k_f + 1;
             }
         }
@@ -3465,6 +3471,7 @@ func cg_gen_expr(idx: I32) -> Str {
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
+            if fname == "_ks_self_dir"   { return "std::string(_ks_self_dir())"; }
             // Check engine function mapping table
             let mapped: Str = cg_engine_func(fname);
             if mapped.len() > 0 {
@@ -4265,6 +4272,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("int _ks_argc();");
     cg_emit_raw("char* _ks_get_argv(int);");
     cg_emit_raw("double _ks_time_ms();");
+    cg_emit_raw("char* _ks_self_dir();");
     cg_emit_raw("}");
     cg_emit_raw("");
     // C++ wrappers that accept std::string
@@ -4303,6 +4311,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("inline std::string _ks_tostr(float v) { return std::to_string(v); }");
     cg_emit_raw("inline std::string _ks_tostr(double v) { return std::to_string(v); }");
     cg_emit_raw("inline std::string _ks_tostr(bool v) { return v ? \"true\" : \"false\"; }");
+    cg_emit_raw("inline std::string _ks_tostr(const _KsResultW& r) { if (!r._r) return \"Result(null)\"; return ((_KsResultW&)r).ok() ? (\"Result::Ok(\" + ((_KsResultW&)r).value() + \")\") : (\"Result::Err(\" + ((_KsResultW&)r).error() + \")\"); }");
     cg_emit_raw("");
 
     // Forward declarations for all functions
@@ -4674,7 +4683,7 @@ func main() -> I32 {
     // Compile runtime (unless --no-stdlib)
     if !no_stdlib {
         // Look for _ks_runtime.c next to the binary first, then CWD
-        let mut rt_src: Str = binary_dir() + "/_ks_runtime.c";
+        let mut rt_src: Str = _ks_self_dir() + "/_ks_runtime.c";
         if !File.exists(rt_src) { rt_src = "_ks_runtime.c"; }
         let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
