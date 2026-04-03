@@ -2438,8 +2438,20 @@ func ir_gen_expr(idx: I32) -> Str {
                 return ir_val(f"%t{t}", "i8*");
             }
             if method == "write" {
-                ir_emiti(f"%t{t} = call i32 @_ks_file_write(i8* {obj_v}, {m_arglist})");
+                ir_emiti(f"%t{t} = call i8* @_ks_file_write({m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "exists" {
+                ir_emiti(f"%t{t} = call i32 @_ks_file_exists({m_arglist})");
                 return ir_val(f"%t{t}", "i32");
+            }
+            if method == "append" {
+                ir_emiti(f"%t{t} = call i8* @_ks_file_append({m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "delete" {
+                ir_emiti(f"%t{t} = call i8* @_ks_file_delete({m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
             }
         }
         // Unknown method — placeholder
@@ -3805,16 +3817,28 @@ func cg_gen_node(idx: I32) {
             if finit != 0 {
                 let fval: Str = cg_gen_expr(finit);
                 let fk: I32 = node_kinds[finit];
-                // Check if init is trivial (literal) or needs ctor
+                // Determine field type for class member (auto not allowed)
+                let mut ftype: Str = "int32_t";
+                if fk == NK_INT   { ftype = "int32_t"; }
+                if fk == NK_FLOAT { ftype = "float"; }
+                if fk == NK_BOOL  { ftype = "bool"; }
+                if fk == NK_STR_LIT { ftype = "std::string"; }
+                if fk == NK_NULL_LIT { ftype = "void*"; }
+                let ft: Str = node_types[member];
+                if ft == "F64" || ft == "F32" { ftype = "float"; }
+                if ft == "Str" { ftype = "std::string"; }
+                if ft == "Bool" { ftype = "bool"; }
+                if cg_is_ptr_type(ft) { ftype = ft + "*"; }
+                // Check if init is trivial or needs ctor
                 if fk == NK_INT || fk == NK_FLOAT || fk == NK_BOOL || fk == NK_STR_LIT || fk == NK_NULL_LIT {
-                    cg_emit("auto " + fname + " = " + fval + ";");
+                    cg_emit(ftype + " " + fname + " = " + fval + ";");
                 } else {
                     // Non-trivial: declare field, defer init to ctor
-                    cg_emit("auto " + fname + " = decltype(" + fval + ")();");
+                    cg_emit(ftype + " " + fname + " = {};");
                     ctor_inits.push(fname + " = " + fval + ";");
                 }
             } else {
-                cg_emit("auto " + fname + " = 0;");
+                cg_emit("int32_t " + fname + " = 0;");
             }
         }
 
@@ -4174,22 +4198,73 @@ func main() -> I32 {
     // Compile C++ to native binary
     let bin_path: Str = "/tmp/konscript_output";
 
-    // Compile runtime as C, then compile C++ and link
+    // Compile runtime as C
     let rt_obj: Str = "/tmp/_ks_runtime.o";
     Print("Compiling runtime...");
-    let rt_cmd: Str = "cc -std=c11 -O2 -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+    let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
     let rt_ret: I32 = _ks_system(rt_cmd);
     if rt_ret != 0 {
-        // Try with clang
-        let rt_cmd2: Str = "clang -std=c11 -O2 -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+        let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
         _ks_system(rt_cmd2);
     }
 
+    // Build compilation command
+    let mut cxx_flags: Str = "g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
+    let mut link_flags: Str = " -lm";
+
+    // Engine mode: add include paths and libraries
+    if cg_is_engine {
+        // Search for engine toolchain in common locations
+        let mut engine_dir: Str = "";
+        let mut glm_dir: Str = "";
+        // Try: ./toolchain/engine/linux64
+        if File.exists("toolchain/engine/linux64/libKonEngine.a") {
+            engine_dir = "toolchain/engine/linux64";
+        }
+        // Try: relative to script dir
+        if engine_dir.len() == 0 && File.exists("../tools/KonScript/toolchain/engine/linux64/libKonEngine.a") {
+            engine_dir = "../tools/KonScript/toolchain/engine/linux64";
+        }
+        // Try KONSCRIPT_TOOLCHAIN env (would need env reading - skip for now)
+
+        if engine_dir.len() > 0 {
+            let inc: Str = engine_dir + "/include";
+            cxx_flags = cxx_flags + " -I" + inc;
+            cxx_flags = cxx_flags + " -I" + inc + "/glad/include";
+            cxx_flags = cxx_flags + " -I" + inc + "/stb";
+            // GLM
+            if File.exists(inc + "/glm/glm/glm.hpp") {
+                cxx_flags = cxx_flags + " -I" + inc + "/glm";
+            }
+            if File.exists("../../libs/glm/glm/glm.hpp") {
+                cxx_flags = cxx_flags + " -I../../libs/glm";
+            }
+            // Link engine libraries
+            link_flags = " " + engine_dir + "/libKonEngine.a";
+            if File.exists(engine_dir + "/libglfw3.a") {
+                link_flags = link_flags + " " + engine_dir + "/libglfw3.a";
+            } else {
+                link_flags = link_flags + " -lglfw";
+            }
+            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread -lm";
+        } else {
+            Print("warning: engine toolchain not found");
+            Print("  Run build-engine-lib.sh to set up the engine library");
+            Print("  Or set engine_dir manually");
+            // Fall back to system libraries
+            link_flags = " -lglfw -lGL -lX11 -lXrandr -lXi -ldl -lpthread -lm";
+        }
+    }
+
     Print("Compiling...");
-    let cxx_cmd: Str = "g++ -std=c++17 -O2 -o " + bin_path + " " + cpp_path + " " + rt_obj + " -lm 2>&1";
+    let cxx_cmd: Str = cxx_flags + " -o " + bin_path + " " + cpp_path + " " + rt_obj + link_flags + " 2>&1";
     let cxx_ret: I32 = _ks_system(cxx_cmd);
     if cxx_ret != 0 {
-        let cxx_cmd2: Str = "clang++ -std=c++17 -O2 -o " + bin_path + " " + cpp_path + " " + rt_obj + " -lm 2>&1";
+        // Try clang++ as fallback
+        let mut cxx2: Str = cxx_cmd;
+        // Replace g++ with clang++
+        // Simple approach: rebuild with clang++
+        let cxx_cmd2: Str = "clang++ -std=c++17 -O2 -DGLM_FORCE_PURE -o " + bin_path + " " + cpp_path + " " + rt_obj + link_flags + " 2>&1";
         let cxx_ret2: I32 = _ks_system(cxx_cmd2);
         if cxx_ret2 != 0 {
             Print("error: compilation failed");
