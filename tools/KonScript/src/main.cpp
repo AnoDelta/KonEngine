@@ -1047,8 +1047,39 @@ int main(int argc, char** argv) {
                 std::string bundledClang = toolchainDir + "/llvm/bin/clang" + exe;
                 if (fs::exists(bundledClang)) cc = bundledClang;
             }
-            std::string rtCmd = "\"" + cc + "\" -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -c \""
-                              + runtimeSrc + "\" -o \"" + runtimeObj + "\"";
+            std::string rtCmd;
+            bool isWinTarget = (targetName == "windows64" || targetName == "windows");
+            if (isWinTarget) {
+                // Cross-compile runtime for Windows using clang with target triple
+                std::string winClang = cc;
+                // Try llvm-mingw clang first
+                std::string llvmMingwClang = toolchainDir + "/llvm-mingw/bin/x86_64-w64-mingw32-clang";
+                if (!toolchainDir.empty() && fs::exists(llvmMingwClang))
+                    winClang = llvmMingwClang;
+                else {
+                    // Try system mingw gcc
+                    if (std::system("x86_64-w64-mingw32-gcc --version > /dev/null 2>&1") == 0)
+                        winClang = "x86_64-w64-mingw32-gcc";
+                    else {
+                        // Need clang for --target flag (gcc doesn't support it)
+                        std::string clangPath = "clang";
+                        if (!toolchainDir.empty()) {
+                            std::string bc = toolchainDir + "/llvm/bin/clang";
+                            if (fs::exists(bc)) clangPath = bc;
+                        }
+                        winClang = clangPath;
+                    }
+                }
+                std::string winFlags = "";
+                // If not using a mingw-prefixed compiler, add --target flag
+                if (winClang.find("mingw") == std::string::npos)
+                    winFlags = " --target=x86_64-pc-windows-gnu";
+                rtCmd = "\"" + winClang + "\"" + winFlags + " -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c \""
+                      + runtimeSrc + "\" -o \"" + runtimeObj + "\"";
+            } else {
+                rtCmd = "\"" + cc + "\" -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -c \""
+                      + runtimeSrc + "\" -o \"" + runtimeObj + "\"";
+            }
             if (std::system(rtCmd.c_str()) == 0) {
                 hasRuntime = true;
             } else {
@@ -1062,31 +1093,28 @@ int main(int argc, char** argv) {
 
     std::string lld;
     if (!toolchainDir.empty()) {
-        if (isWindows)     lld = toolchainDir + "/llvm/bin/lld-link" + exe;
+        if (isWindows)     lld = toolchainDir + "/llvm/bin/ld.lld" + exe; // MinGW GNU ld style
         else if (isWasm)   lld = toolchainDir + "/llvm/bin/wasm-ld"  + exe;
         else               lld = toolchainDir + "/llvm/bin/ld.lld"   + exe;
     } else {
-        lld = isWindows ? "lld-link" : "ld.lld";
+        // Use ld.lld for all platforms (GNU ld compatible for MinGW)
+        lld = isWasm ? "wasm-ld" : "ld.lld";
     }
 
     std::string linkCmd;
 
     if (isWindows) {
         std::string sr = toolchainDir.empty() ? "" : toolchainDir + "/sysroot/windows64/lib";
-        linkCmd = "\"" + lld + "\""
-            + " /OUT:\"" + outPath + "\""
-            + " /SUBSYSTEM:CONSOLE"
-            + " /ENTRY:mainCRTStartup";
+        // Use GNU ld-style linking (MinGW ABI)
+        linkCmd = "\"" + lld + "\" -m i386pep -static";
         if (!sr.empty() && fs::exists(sr + "/crt2.o")) {
             linkCmd += " \"" + sr + "/crt2.o\""
                      + " \"" + objFile + "\"";
             if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
-            linkCmd += " \"" + sr + "/libmingw32.a\""
-                     + " \"" + sr + "/libmingwex.a\""
-                     + " \"" + sr + "/libmsvcrt.a\""
-                     + " \"" + sr + "/libkernel32.a\"";
-            if (fs::exists(sr + "/libucrt.a")) linkCmd += " \"" + sr + "/libucrt.a\"";
-            if (fs::exists(sr + "/libgcc.a"))  linkCmd += " \"" + sr + "/libgcc.a\"";
+            linkCmd += " -L\"" + sr + "\""
+                     + " -lmingw32 -lmingwex -lmsvcrt -lkernel32";
+            if (fs::exists(sr + "/libucrt.a")) linkCmd += " -lucrt";
+            if (fs::exists(sr + "/libgcc.a"))  linkCmd += " -lgcc";
         } else {
             linkCmd += " \"" + objFile + "\"";
             if (hasRuntime) linkCmd += " \"" + runtimeObj + "\"";
@@ -1095,6 +1123,7 @@ int main(int argc, char** argv) {
                           << (toolchainDir + "/sysroot/windows64/lib") << "\n"
                           << "  Run bundle-toolchain.sh to set up the Windows sysroot.\n";
         }
+        linkCmd += " -o \"" + outPath + "\"";
     } else if (isWasm) {
         linkCmd = "\"" + lld + "\""
             + " --export-all --no-entry"

@@ -52,6 +52,8 @@ const TK_CLASS:      I32 = 25;
 const TK_INCLUDE:    I32 = 26;
 const TK_SWITCH:     I32 = 27;
 const TK_SPAWN:      I32 = 28;
+const TK_EXTERN:     I32 = 29;
+const TK_ASM:        I32 = 30;
 
 // Symbols
 const TK_PLUS:       I32 = 40;
@@ -162,6 +164,8 @@ func keyword_kind(w: Str) -> I32 {
     if w == "class"    { return TK_CLASS; }
     if w == "switch"   { return TK_SWITCH; }
     if w == "spawn"    { return TK_SPAWN; }
+    if w == "extern"   { return TK_EXTERN; }
+    if w == "asm"      { return TK_ASM; }
     return TK_IDENT;
 }
 
@@ -202,7 +206,7 @@ func lex(src: Str) -> I32 {
         }
 
         // ── Other whitespace ───────────────────────────────────────
-        if c == " " || c == "\t" || c == "\r" {
+        if c == " " || c == "\t" {
             col += 1;
             i   += 1;
             continue;
@@ -254,17 +258,17 @@ func lex(src: Str) -> I32 {
                     else {
                         if fsc == "\\" && i + 1 < n {
                             let fesc: Str = src.substr(i + 1, 1);
-                            if fesc == "n"  { val = f"{val}\n"; i += 2; col += 2; }
+                            if fesc == "n"  { val = val + "\n"; i += 2; col += 2; }
                             else {
-                                if fesc == "t"  { val = f"{val}\t"; i += 2; col += 2; }
+                                if fesc == "t"  { val = val + "\t"; i += 2; col += 2; }
                                 else {
-                                    val = f"{val}{fesc}";
+                                    val = val + fesc;
                                     i += 2; col += 2;
                                 }
                             }
                         } else {
-                            if fsc == "\n" { line = line + 1; col = 1; val = f"{val}\n"; i += 1; }
-                            else { val = f"{val}{fsc}"; i += 1; col += 1; }
+                            if fsc == "\n" { line = line + 1; col = 1; val = val + "\n"; i += 1; }
+                            else { val = val + fsc; i += 1; col += 1; }
                         }
                     }
                 }
@@ -282,15 +286,15 @@ func lex(src: Str) -> I32 {
                 let sc: Str = src.substr(i, 1);
                 if sc == "\\" && i + 1 < n {
                     let esc: Str = src.substr(i + 1, 1);
-                    if esc == "n"  { val = f"{val}\n"; i += 2; col += 2; }
+                    if esc == "n"  { val = val + "\n"; i += 2; col += 2; }
                     else {
-                        if esc == "t"  { val = f"{val}\t"; i += 2; col += 2; }
+                        if esc == "t"  { val = val + "\t"; i += 2; col += 2; }
                         else {
-                            if esc == "\\" { val = f"{val}\\"; i += 2; col += 2; }
+                            if esc == "\\" { val = val + "\\"; i += 2; col += 2; }
                             else {
-                                if esc == "\"" { val = f"{val}\""; i += 2; col += 2; }
+                                if esc == "\"" { val = val + "\""; i += 2; col += 2; }
                                 else {
-                                    val = f"{val}{esc}";
+                                    val = val + esc;
                                     i += 2; col += 2;
                                 }
                             }
@@ -298,7 +302,7 @@ func lex(src: Str) -> I32 {
                     }
                 } else {
                     if sc == "\n" { line = line + 1; col = 1; }
-                    val = f"{val}{sc}";
+                    val = val + sc;
                     i += 1; col += 1;
                 }
             }
@@ -314,16 +318,16 @@ func lex(src: Str) -> I32 {
             let mut num: Str = "";
             let mut is_float: Bool = false;
             while i < n && is_digit(src.substr(i, 1)) {
-                num = f"{num}{src.substr(i, 1)}";
+                num = num + src.substr(i, 1);
                 i += 1; col += 1;
             }
             // decimal part
             if i < n && src.substr(i, 1) == "." && i + 1 < n && is_digit(src.substr(i + 1, 1)) {
                 is_float = true;
-                num = f"{num}.";
+                num = num + ".";
                 i += 1; col += 1;
                 while i < n && is_digit(src.substr(i, 1)) {
-                    num = f"{num}{src.substr(i, 1)}";
+                    num = num + src.substr(i, 1);
                     i += 1; col += 1;
                 }
             }
@@ -340,7 +344,7 @@ func lex(src: Str) -> I32 {
             let tok_col: I32 = col;
             let mut word: Str = "";
             while i < n && is_alnum(src.substr(i, 1)) {
-                word = f"{word}{src.substr(i, 1)}";
+                word = word + src.substr(i, 1);
                 i += 1; col += 1;
             }
             let kind: I32 = keyword_kind(word);
@@ -363,7 +367,7 @@ func lex(src: Str) -> I32 {
                 if src.substr(i, 1) == "<" { close = ">"; }
                 i += 1; col += 1;
                 while i < n && src.substr(i, 1) != close {
-                    path = f"{path}{src.substr(i, 1)}";
+                    path = path + src.substr(i, 1);
                     i += 1; col += 1;
                 }
                 if i < n { i += 1; col += 1; }
@@ -420,7 +424,7 @@ func lex(src: Str) -> I32 {
         if c == "?" { emit_token(TK_QUESTION,  "?", line, col); i += 1; col += 1; continue; }
 
         // ── Unknown character — report and skip ────────────────────
-        lex_error(line, col, f"unexpected character '{c}'");
+        lex_error(line, col, "unexpected character '" + c + "'");
         i += 1; col += 1;
     }
 
@@ -595,6 +599,14 @@ const NK_INCLUDE_D: I32 = 28; // str=path
 const NK_NULL_LIT:  I32 = 29;
 const NK_STRUCT_D:  I32 = 30; // str=name, a=fields list
 const NK_FIELD:     I32 = 31; // str="name:type"
+const NK_EXTERN:    I32 = 32;
+const NK_ASM:       I32 = 33;
+const NK_UNION_D:   I32 = 34;
+const NK_REF:       I32 = 35;
+const NK_REF_MUT:   I32 = 36;
+const NK_DEREF:     I32 = 37;
+const NK_FUNC_EXPR: I32 = 38;
+const NK_NODE:      I32 = 39;  // str="Name|Base", a=fields/methods list, b=body
 
 // ── AST storage — parallel arrays, index 0 is the null node ─────────────
 let mut node_kinds: [I32] = [0];
@@ -643,7 +655,7 @@ func mat(k: I32) -> Bool {
 
 func eat(k: I32, msg: Str) -> Str {
     if tok_kinds[pos] != k {
-        parse_error(pk_ln(), pk_col(), f"expected {msg}, got '{pk_val()}'");
+        parse_error(pk_ln(), pk_col(), "expected " + msg + ", got '" + pk_val() + "'");
         return "";
     }
     let v: Str = tok_values[pos];
@@ -664,8 +676,8 @@ func parse_type() -> Str {
     if mat(TK_LBRACKET) {
         let inner: Str = parse_type();
         eat(TK_RBRACKET, "']'");
-        let mut t: Str = f"[{inner}]";
-        if mat(TK_QUESTION) { t = f"{t}?"; }
+        let mut t: Str = "[" + inner + "]";
+        if mat(TK_QUESTION) { t = t + "?"; }
         return t;
     }
     // Tuple type: (A, B, ...)
@@ -674,29 +686,29 @@ func parse_type() -> Str {
         let mut t: Str = "(";
         let mut first: Bool = true;
         while !chk(TK_RPAREN) && pk() != TK_EOF {
-            if !first { eat(TK_COMMA, "','"); t = f"{t},"; }
-            t = f"{t}{parse_type()}";
+            if !first { eat(TK_COMMA, "','"); t = t + ","; }
+            t = t + parse_type();
             first = false;
         }
         eat(TK_RPAREN, "')'");
-        if mat(TK_QUESTION) { t = f"{t}?"; }
-        return f"{t})";
+        if mat(TK_QUESTION) { t = t + "?"; }
+        return t + ")";
     }
     // Named type (possibly generic: Result<T>, HashMap<K,V>)
     let name: Str = eat(TK_IDENT, "type name");
     let mut t: Str = name;
     if mat(TK_LT) {
-        t = f"{t}<";
+        t = t + "<";
         let mut first: Bool = true;
         while !chk(TK_GT) && pk() != TK_EOF {
-            if !first { eat(TK_COMMA, "','"); t = f"{t},"; }
-            t = f"{t}{parse_type()}";
+            if !first { eat(TK_COMMA, "','"); t = t + ","; }
+            t = t + parse_type();
             first = false;
         }
         eat(TK_GT, "'>'");
-        t = f"{t}>";
+        t = t + ">";
     }
-    if mat(TK_QUESTION) { t = f"{t}?"; }
+    if mat(TK_QUESTION) { t = t + "?"; }
     return t;
 }
 
@@ -765,7 +777,7 @@ func parse_primary() -> I32 {
         return inner;
     }
 
-    parse_error(ln, cl, f"unexpected token '{pk_val()}' in expression");
+    parse_error(ln, cl, "unexpected token '" + pk_val() + "' in expression");
     adv(); // skip bad token
     return 0;
 }
@@ -993,6 +1005,9 @@ func parse_stmt() -> I32 {
     if chk(TK_BREAK)    { adv(); mat(TK_SEMICOLON); return alloc_node(NK_BREAK,    0,0,0,""); }
     if chk(TK_CONTINUE) { adv(); mat(TK_SEMICOLON); return alloc_node(NK_CONTINUE, 0,0,0,""); }
 
+    // asm statement
+    if chk(TK_ASM) { adv(); return parse_asm_stmt(); }
+
     // block
     if chk(TK_LBRACE) { return parse_block(); }
 
@@ -1017,7 +1032,7 @@ func parse_func() -> I32 {
         let pname: Str = eat(TK_IDENT, "parameter name");
         eat(TK_COLON, "':'");
         let ptype: Str = parse_type();
-        let pnode: I32 = alloc_node(NK_PARAM, 0, 0, 0, f"{pname}:{ptype}");
+        let pnode: I32 = alloc_node(NK_PARAM, 0, 0, 0, pname + ":" + ptype);
         let ln: I32 = list_node(pnode, 0);
         if phead == 0 { phead = ln; ptail = ln; }
         else { node_b[ptail] = ln; ptail = ln; }
@@ -1031,7 +1046,7 @@ func parse_func() -> I32 {
 
     let body: I32 = parse_block();
     // Store return type in node_str as "name|rettype"
-    return alloc_node(NK_FUNC, phead, body, pcnt, f"{name}|{ret_type_str}");
+    return alloc_node(NK_FUNC, phead, body, pcnt, name + "|" + ret_type_str);
 }
 
 func parse_struct() -> I32 {
@@ -1046,7 +1061,7 @@ func parse_struct() -> I32 {
         eat(TK_COLON, "':'");
         let ftype: Str = parse_type();
         mat(TK_COMMA);
-        let fn2: I32 = alloc_node(NK_FIELD, 0, 0, 0, f"{fname}:{ftype}");
+        let fn2: I32 = alloc_node(NK_FIELD, 0, 0, 0, fname + ":" + ftype);
         let ln2: I32 = list_node(fn2, 0);
         if fhead == 0 { fhead = ln2; ftail = ln2; }
         else { node_b[ftail] = ln2; ftail = ln2; }
@@ -1056,19 +1071,124 @@ func parse_struct() -> I32 {
     return alloc_node(NK_STRUCT_D, fhead, fcnt, 0, name);
 }
 
+// node Name : Base { fields, methods }
+func parse_node() -> I32 {
+    eat(TK_NODE, "'node'");
+    let name: Str = eat(TK_IDENT, "node name");
+    // Optional base type
+    let mut base: Str = "Node2D";
+    if mat(TK_COLON) {
+        base = eat(TK_IDENT, "base type");
+    }
+    eat(TK_LBRACE, "'{'");
+    // Parse members: fields (let) and methods (func)
+    let mut mhead: I32 = 0;
+    let mut mtail: I32 = 0;
+    let mut mcnt: I32 = 0;
+    while !chk(TK_RBRACE) && pk() != TK_EOF {
+        let mut is_pub: Bool = false;
+        if chk(TK_PUB) { adv(); is_pub = true; }
+        let mut member: I32 = 0;
+        if chk(TK_FUNC) {
+            member = parse_func();
+        }
+        if chk(TK_LET) {
+            member = parse_stmt();
+        }
+        if chk(TK_CONST) {
+            member = parse_stmt();
+        }
+        if member != 0 {
+            let ln: I32 = list_node(member, 0);
+            if mhead == 0 { mhead = ln; mtail = ln; }
+            else { node_b[mtail] = ln; mtail = ln; }
+            mcnt = mcnt + 1;
+        }
+    }
+    eat(TK_RBRACE, "'}'");
+    return alloc_node(NK_NODE, mhead, mcnt, 0, name + "|" + base);
+}
+
+// extern "C" func name(params...) -> RetType;
+func parse_extern() -> I32 {
+    // Already consumed 'extern'
+    let mut linkage: Str = "C";
+    if chk(TK_STR) { linkage = pk_val(); adv(); }
+    eat(TK_FUNC, "'func'");
+    let name: Str = eat(TK_IDENT, "function name");
+    eat(TK_LPAREN, "'('");
+    let mut params: Str = "";
+    let mut first: Bool = true;
+    let mut is_variadic: Bool = false;
+    while !chk(TK_RPAREN) && pk() != TK_EOF {
+        if !first { eat(TK_COMMA, "','"); }
+        // Check for ... (parsed as TK_DOTDOT + TK_DOT, or three TK_DOTs)
+        if chk(TK_DOTDOT) {
+            adv(); // consume ..
+            if chk(TK_DOT) { adv(); } // consume third .
+            is_variadic = true;
+            break;
+        }
+        if chk(TK_DOT) && pk_val() == "." {
+            adv(); adv(); adv(); // consume . . .
+            is_variadic = true;
+            break;
+        }
+        let pname: Str = eat(TK_IDENT, "parameter");
+        let mut ptype: Str = pname;
+        if mat(TK_COLON) {
+            ptype = parse_type();
+        }
+        if !first { params = params + "," + ptype; }
+        else { params = ptype; }
+        first = false;
+    }
+    eat(TK_RPAREN, "')'");
+    let mut ret: Str = "void";
+    if mat(TK_ARROW) { ret = parse_type(); }
+    mat(TK_SEMICOLON);
+    let mut variadic_str: Str = "";
+    if is_variadic { variadic_str = "..."; }
+    return alloc_node(NK_EXTERN, 0, 0, 0, name + "|" + linkage + "|" + ret + "|" + params + "|" + variadic_str);
+}
+
+// asm("template" : outputs : inputs : clobbers);
+func parse_asm_stmt() -> I32 {
+    // Already consumed 'asm'
+    eat(TK_LPAREN, "'('");
+    let tmpl: Str = eat(TK_STR, "asm template string");
+    let mut outputs: Str = "";
+    let mut inputs: Str = "";
+    let mut clobbers: Str = "";
+    if mat(TK_COLON) {
+        if chk(TK_STR) { outputs = pk_val(); adv(); }
+        if mat(TK_COLON) {
+            if chk(TK_STR) { inputs = pk_val(); adv(); }
+            if mat(TK_COLON) {
+                if chk(TK_STR) { clobbers = pk_val(); adv(); }
+            }
+        }
+    }
+    eat(TK_RPAREN, "')'");
+    mat(TK_SEMICOLON);
+    return alloc_node(NK_ASM, 0, 0, 0, tmpl + "|" + outputs + "|" + inputs + "|" + clobbers);
+}
+
 func parse_top_level() -> I32 {
     // Skip pub
     if chk(TK_PUB) { adv(); }
     if chk(TK_FUNC)   { return parse_func(); }
     if chk(TK_STRUCT) { return parse_struct(); }
+    if chk(TK_NODE)   { return parse_node(); }
     if chk(TK_CONST)  { return parse_stmt(); }
     if chk(TK_LET)    { return parse_stmt(); }
+    if chk(TK_EXTERN) { adv(); return parse_extern(); }
     if chk(TK_INCLUDE) {
         let path: Str = pk_val(); adv();
         return alloc_node(NK_INCLUDE_D, 0, 0, 0, path);
     }
     // Unknown — skip
-    parse_error(pk_ln(), pk_col(), f"unexpected token '{pk_val()}' at top level");
+    parse_error(pk_ln(), pk_col(), "unexpected token '" + pk_val() + "' at top level");
     adv();
     return 0;
 }
@@ -1132,7 +1252,7 @@ func dump_node(idx: I32, indent: I32) {
     if idx == 0 { return; }
     let mut pad: Str = "";
     let mut i: I32 = 0;
-    while i < indent { pad = f"{pad}  "; i = i + 1; }
+    while i < indent { pad = pad + "  "; i = i + 1; }
 
     let k: I32   = node_kinds[idx];
     let s: Str   = node_str[idx];
@@ -1320,6 +1440,15 @@ func tc_expr(idx: I32) -> Str {
             if method == "contains" || method == "starts" || method == "ends" ||
                method == "isEmpty" || method == "has" { ret = "Bool"; }
             if method == "split" { ret = "[Str]"; }
+            // File methods return Result<Str>
+            if method == "read" || method == "write" || method == "append" ||
+               method == "delete" { ret = "Result<Str>"; }
+            if method == "exists" { ret = "Bool"; }
+            if method == "lines" { ret = "[Str]"; }
+            // HashMap methods
+            if method == "get" { ret = "?"; }
+            if method == "set" { ret = "void"; }
+            if method == "remove" { ret = "void"; }
         }
         let mut arg: I32 = node_b[idx];
         while arg != 0 { tc_expr(node_a[arg]); arg = node_b[arg]; }
@@ -1351,7 +1480,7 @@ func tc_expr(idx: I32) -> Str {
         let mut elem: I32 = node_a[idx];
         let mut elem_t: Str = "?";
         if elem != 0 { elem_t = tc_expr(node_a[elem]); }
-        let t: Str = f"[{elem_t}]";
+        let t: Str = "[" + elem_t + "]";
         node_types[idx] = t; return t;
     }
     return "?";
@@ -1385,10 +1514,12 @@ func tc_stmt(idx: I32) {
     if k == NK_FOR_IN {
         let iter_t: Str = tc_expr(node_a[idx]);
         tc_push_scope();
-        let mut elem_t: Str = "?";
+        let mut elem_t: Str = "I32";
         if iter_t.len() > 2 && iter_t.starts("[") {
             elem_t = iter_t.substr(1, iter_t.len() - 2);
         }
+        // Range expressions iterate over I32
+        if iter_t == "?" { elem_t = "I32"; }
         tc_define(node_str[idx], elem_t);
         tc_stmt(node_b[idx]);
         tc_pop_scope(); return;
@@ -1435,6 +1566,63 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("ir_tmp_id", "I32");
     tc_def_fn("ir_label_id", "I32");
     tc_def_fn("ir_str_const", "I32");
+    // Parser functions
+    tc_def_fn("eat", "Str");
+    tc_def_fn("pk_val", "Str");
+    tc_def_fn("parse_type", "Str");
+    tc_def_fn("parse_top_level", "I32");
+    tc_def_fn("parse_func", "I32");
+    tc_def_fn("parse_struct", "I32");
+    tc_def_fn("parse_node", "I32");
+    tc_def_fn("parse_extern", "I32");
+    tc_def_fn("parse_asm_stmt", "I32");
+    tc_def_fn("cg_gen_extern", "void");
+    tc_def_fn("cg_gen_asm", "void");
+    tc_def_fn("parse_stmt", "I32");
+    tc_def_fn("parse_block", "I32");
+    tc_def_fn("parse_expr", "I32");
+    tc_def_fn("parse_or", "I32");
+    tc_def_fn("parse_and", "I32");
+    tc_def_fn("parse_eq", "I32");
+    tc_def_fn("parse_cmp", "I32");
+    tc_def_fn("parse_add", "I32");
+    tc_def_fn("parse_mul", "I32");
+    tc_def_fn("parse_unary", "I32");
+    tc_def_fn("parse_postfix", "I32");
+    tc_def_fn("parse_primary", "I32");
+    tc_def_fn("parse", "I32");
+    tc_def_fn("pk", "I32");
+    tc_def_fn("pk_ln", "I32");
+    tc_def_fn("pk_col", "I32");
+    tc_def_fn("mat", "Bool");
+    tc_def_fn("chk", "Bool");
+    tc_def_fn("keyword_kind", "I32");
+    tc_def_fn("alloc_node", "I32");
+    tc_def_fn("list_node", "I32");
+    tc_def_fn("adv", "void");
+    tc_def_fn("reset_ast", "void");
+    tc_def_fn("emit_token", "void");
+    tc_def_fn("lex_error", "void");
+    tc_def_fn("parse_error", "void");
+    tc_def_fn("dump_tokens", "void");
+    tc_def_fn("dump_node", "void");
+    // Lexer functions
+    tc_def_fn("lex", "I32");
+    tc_def_fn("is_digit", "Bool");
+    tc_def_fn("is_alpha", "Bool");
+    tc_def_fn("is_alnum", "Bool");
+    tc_def_fn("is_hex", "Bool");
+    tc_def_fn("token_kind_name", "Str");
+    tc_def_fn("node_kind_name", "Str");
+    // IRGen helpers
+    tc_def_fn("gvar_define", "void");
+    tc_def_fn("gvar_mark_array", "void");
+    tc_def_fn("gvar_set_init", "void");
+    tc_def_fn("gvar_is_array", "Bool");
+    tc_def_fn("gvar_lookup_reg", "Str");
+    tc_def_fn("gvar_lookup_type", "Str");
+    tc_def_fn("ir_escape_str", "Str");
+    tc_def_fn("ir_str_len", "I32");
     tc_def_fn("ir_gen_func", "void");
     tc_def_fn("ir_gen_stmt", "void");
     tc_def_fn("ir_emit", "void");
@@ -1455,6 +1643,36 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("gconst_define", "void");
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
+    tc_def_fn("_ks_argc", "I32");
+    tc_def_fn("_ks_get_argv", "Str");
+    tc_def_fn("_ks_init_args", "void");
+    tc_def_fn("print_usage", "void");
+    // C++ codegen functions
+    tc_def_fn("cg_escape_str", "Str");
+    tc_def_fn("cg_generate", "Str");
+    tc_def_fn("cg_write_to_file", "Bool");
+    tc_def_fn("cg_gen_expr", "Str");
+    tc_def_fn("cg_type", "Str");
+    tc_def_fn("cg_is_node_type", "Bool");
+    tc_def_fn("cg_is_ptr", "Bool");
+    tc_def_fn("cg_reset", "void");
+    tc_def_fn("cg_emit", "void");
+    tc_def_fn("cg_emit_raw", "void");
+    tc_def_fn("cg_indent_inc", "void");
+    tc_def_fn("cg_indent_dec", "void");
+    tc_def_fn("cg_mark_ptr", "void");
+    tc_def_fn("cg_gen_stmt", "void");
+    tc_def_fn("cg_gen_func", "void");
+    tc_def_fn("cg_gen_struct", "void");
+    tc_def_fn("cg_gen_node", "void");
+    tc_def_fn("cg_register_node", "void");
+    tc_def_fn("cg_is_engine_node", "Bool");
+    tc_def_fn("cg_is_user_node", "Bool");
+    tc_def_fn("cg_is_ptr_type", "Bool");
+    tc_def_fn("cg_lifecycle_sig", "Str");
+    tc_def_fn("cg_engine_func", "Str");
+    tc_def_fn("cg_scene_method", "Str");
+    tc_def_fn("gvar_set_init", "void");
     tc_def_fn("ir_write_to_file", "Bool");
     tc_def_fn("ir_str_len", "I32");
     decl = node_a[prog_idx];
@@ -1477,7 +1695,7 @@ func typecheck(prog_idx: I32) {
                         ptype = ps.substr(ci + 1, ps.len() - ci - 1);
                         ci = ps.len();
                     } else {
-                        if !found { pname = f"{pname}{ch}"; }
+                        if !found { pname = pname + ch; }
                     }
                     ci += 1;
                 }
@@ -1614,6 +1832,12 @@ func ir_str_len(idx: I32) -> I32 {
 func ir_type(t: Str) -> Str {
     if t == "I32"  { return "i32"; }
     if t == "I64"  { return "i64"; }
+    if t == "I8"   { return "i8"; }
+    if t == "I16"  { return "i16"; }
+    if t == "U8"   { return "i8"; }
+    if t == "U16"  { return "i16"; }
+    if t == "U32"  { return "i32"; }
+    if t == "U64"  { return "i64"; }
     if t == "F32"  { return "float"; }
     if t == "F64"  { return "double"; }
     if t == "Bool" { return "i1"; }
@@ -1622,6 +1846,9 @@ func ir_type(t: Str) -> Str {
     if t == "?"    { return "i32"; }
     // Array types → opaque pointer
     if t.starts("[") { return "i8*"; }
+    // Result, HashMap, etc. → opaque pointer
+    if t.starts("Result") { return "i8*"; }
+    if t.starts("HashMap") { return "i8*"; }
     return "i8*"; // default: opaque pointer
 }
 
@@ -1679,11 +1906,24 @@ let mut gvar_count: I32   = 0;
 
 // Track which global names are arrays (not strings)
 let mut gvar_array_names: [Str] = [""];
+let mut gvar_array_inits: [I32] = [0];  // initializer AST node index
 let mut gvar_array_count: I32 = 0;
 
 func gvar_mark_array(name: Str) {
     gvar_array_count = gvar_array_count + 1;
     gvar_array_names.push(name);
+    gvar_array_inits.push(0);
+}
+
+func gvar_set_init(name: Str, init_node: I32) {
+    let mut i: I32 = gvar_array_count;
+    while i > 0 {
+        if gvar_array_names[i] == name {
+            gvar_array_inits[i] = init_node;
+            return;
+        }
+        i = i - 1;
+    }
 }
 
 func gvar_is_array(name: Str) -> Bool {
@@ -2058,17 +2298,42 @@ func ir_gen_expr(idx: I32) -> Str {
             let plt: Str    = ir_get_t(ptr_vt);
             let idx_vt: Str = ir_gen_expr(node_b[tgt]);
             let idx_v: Str  = ir_get_v(idx_vt);
-            if ptr_v != "0" && ptr_v != "null" {
-                let tp: I32 = ir_tmp_id();
-                let tp2: I32 = ir_tmp_id();
-                // Bitcast pointer to rlt* if needed
-                let mut ptr_cast: Str = ptr_v;
-                if plt != f"{rlt}*" && plt != rlt {
-                    ir_emiti(f"%t{tp} = bitcast {plt} {ptr_v} to {rlt}*");
-                    ptr_cast = f"%t{tp}";
+            // Check if target is a KsArray (global array or typed as array)
+            let mut is_ks_array: Bool = false;
+            if node_kinds[node_a[tgt]] == NK_IDENT {
+                let arr_name: Str = node_str[node_a[tgt]];
+                if gvar_is_array(arr_name) { is_ks_array = true; }
+                if node_types[node_a[tgt]].starts("[") { is_ks_array = true; }
+            }
+            if is_ks_array {
+                // Use _ks_array_set for KsArray runtime arrays
+                let mut val_ptr: Str = rv;
+                if rlt != "i8*" {
+                    let cvt: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{cvt} = inttoptr {rlt} {rv} to i8*");
+                    val_ptr = f"%t{cvt}";
                 }
-                ir_emiti(f"%t{tp2} = getelementptr {rlt}, {rlt}* {ptr_cast}, i32 {idx_v}");
-                ir_emiti(f"store {rlt} {rv}, {rlt}* %t{tp2}");
+                // Ensure index is i32
+                let mut idx_i32: Str = idx_v;
+                if ir_get_t(idx_vt) != "i32" {
+                    let cvt2: I32 = ir_tmp_id();
+                    ir_emiti(f"%t{cvt2} = trunc i64 {idx_v} to i32");
+                    idx_i32 = f"%t{cvt2}";
+                }
+                ir_emiti(f"call void @_ks_array_set(i8* {ptr_v}, i32 {idx_i32}, i8* {val_ptr})");
+            } else {
+                // Raw pointer index assignment (for non-KsArray pointers)
+                if ptr_v != "0" && ptr_v != "null" {
+                    let tp: I32 = ir_tmp_id();
+                    let tp2: I32 = ir_tmp_id();
+                    let mut ptr_cast: Str = ptr_v;
+                    if plt != f"{rlt}*" && plt != rlt {
+                        ir_emiti(f"%t{tp} = bitcast {plt} {ptr_v} to {rlt}*");
+                        ptr_cast = f"%t{tp}";
+                    }
+                    ir_emiti(f"%t{tp2} = getelementptr {rlt}, {rlt}* {ptr_cast}, i32 {idx_v}");
+                    ir_emiti(f"store {rlt} {rv}, {rlt}* %t{tp2}");
+                }
             }
         }
         return rvt;
@@ -2254,8 +2519,20 @@ func ir_gen_expr(idx: I32) -> Str {
                 return ir_val(f"%t{t}", "i8*");
             }
             if method == "write" {
-                ir_emiti(f"%t{t} = call i32 @_ks_file_write(i8* {obj_v}, {m_arglist})");
+                ir_emiti(f"%t{t} = call i8* @_ks_file_write({m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "exists" {
+                ir_emiti(f"%t{t} = call i32 @_ks_file_exists({m_arglist})");
                 return ir_val(f"%t{t}", "i32");
+            }
+            if method == "append" {
+                ir_emiti(f"%t{t} = call i8* @_ks_file_append({m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
+            }
+            if method == "delete" {
+                ir_emiti(f"%t{t} = call i8* @_ks_file_delete({m_arglist})");
+                return ir_val(f"%t{t}", "i8*");
             }
         }
         // Unknown method — placeholder
@@ -2370,6 +2647,12 @@ func ir_gen_stmt(idx: I32) {
             ir_alloca = ir_alloca + 1;
             reg = f"%{name}.{uid}";
             ir_emiti(f"{reg} = alloca {lt}");
+            // Zero-initialize
+            if lt == "i8*" { ir_emiti(f"store i8* null, i8** {reg}"); }
+            if lt == "i32" { ir_emiti(f"store i32 0, i32* {reg}"); }
+            if lt == "i1"  { ir_emiti(f"store i1 0, i1* {reg}"); }
+            if lt == "float" { ir_emiti(f"store float 0.0, float* {reg}"); }
+            if lt == "double" { ir_emiti(f"store double 0.0, double* {reg}"); }
             irv_def(name, reg, lt);
         }
         if node_a[idx] != 0 {
@@ -2542,6 +2825,22 @@ func ir_pre_alloca(idx: I32) {
         ir_alloca = ir_alloca + 1;
         let reg: Str  = f"%{name}.{uid}";
         ir_emiti(f"{reg} = alloca {lt}");
+        // Zero-initialize to prevent uninitialized memory bugs
+        if lt == "i8*" {
+            ir_emiti(f"store i8* null, i8** {reg}");
+        }
+        if lt == "i32" {
+            ir_emiti(f"store i32 0, i32* {reg}");
+        }
+        if lt == "i1" {
+            ir_emiti(f"store i1 0, i1* {reg}");
+        }
+        if lt == "float" {
+            ir_emiti(f"store float 0.0, float* {reg}");
+        }
+        if lt == "double" {
+            ir_emiti(f"store double 0.0, double* {reg}");
+        }
         irv_def(name, reg, lt);
         return;
     }
@@ -2590,7 +2889,7 @@ func ir_gen_func(idx: I32) {
                 ptype = ps.substr(ci + 1, ps.len() - ci - 1);
                 ci = ps.len();
             } else {
-                if !found { pname = f"{pname}{ch}"; }
+                if !found { pname = pname + ch; }
             }
             ci = ci + 1;
         }
@@ -2608,6 +2907,7 @@ func ir_gen_func(idx: I32) {
     } else {
         ir_emit(f"define {retlt} @{name}({params}) " + "{");
     }
+    ir_emit("entry:");
     // Alloca for params
     pm = node_a[idx];
     while pm != 0 {
@@ -2624,7 +2924,7 @@ func ir_gen_func(idx: I32) {
                 ptype = ps.substr(ci + 1, ps.len() - ci - 1);
                 ci = ps.len();
             } else {
-                if !found { pname = f"{pname}{ch}"; }
+                if !found { pname = pname + ch; }
             }
             ci = ci + 1;
         }
@@ -2716,6 +3016,7 @@ func irgen(prog_idx: I32) {
     ir_emit("declare i8* @_ks_array_get(i8*, i32)");
     ir_emit("declare i32 @_ks_array_len(i8*)");
     ir_emit("declare void @_ks_array_clear(i8*)");
+    ir_emit("declare void @_ks_array_set(i8*, i32, i8*)");
     ir_emit("declare i8* @_ks_array_pop(i8*)");
     ir_emit("declare i32 @_ks_array_has(i8*, i8*)");
     ir_emit("declare i8* @_ks_array_clone(i8*)");
@@ -2745,6 +3046,9 @@ func irgen(prog_idx: I32) {
     ir_emit("declare void @_ks_closure_free(i8*)");
     // Shell execution
     ir_emit("declare i32 @_ks_system(i8*)");
+    ir_emit("declare i32 @_ks_argc()");
+    ir_emit("declare i8* @_ks_get_argv(i32)");
+    ir_emit("declare void @_ks_init_args(i32, i8**)");
     // Pre-register return types for self-referential functions
     tc_def_fn("ir_escape_str", "Str");
     tc_def_fn("ir_get_v", "Str");
@@ -2823,6 +3127,7 @@ func irgen(prog_idx: I32) {
                 ir_emit(f"@{gname} = global i8* null");
                 gvar_define(gname, f"@{gname}", "i8*");
                 gvar_mark_array(gname);
+                if ginit != 0 { gvar_set_init(gname, ginit); }
             }
         }
         decl = node_b[decl];
@@ -2838,6 +3143,40 @@ func irgen(prog_idx: I32) {
             let t: I32 = ir_tmp_id();
             ir_emiti(f"%t{t} = call i8* @_ks_array_new(i32 8)");
             ir_emiti(f"store i8* %t{t}, i8** @{aname}");
+            // Push initial values from array literal
+            let init_node: I32 = gvar_array_inits[gi];
+            if init_node != 0 && node_kinds[init_node] == NK_ARRAY_LIT {
+                let mut elem: I32 = node_a[init_node];
+                while elem != 0 {
+                    let ev: I32 = node_a[elem];
+                    if node_kinds[ev] == NK_INT {
+                        let et: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{et} = inttoptr i32 {node_str[ev]} to i8*");
+                        let lt: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{lt} = load i8*, i8** @{aname}");
+                        ir_emiti(f"call void @_ks_array_push(i8* %t{lt}, i8* %t{et})");
+                    }
+                    if node_kinds[ev] == NK_STR_LIT {
+                        let sidx: I32 = ir_str_const(node_str[ev]);
+                        let slen: I32 = ir_str_len(sidx);
+                        let et: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{et} = getelementptr inbounds [{slen} x i8], [{slen} x i8]* @str.{sidx}, i32 0, i32 0");
+                        let lt: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{lt} = load i8*, i8** @{aname}");
+                        ir_emiti(f"call void @_ks_array_push(i8* %t{lt}, i8* %t{et})");
+                    }
+                    if node_kinds[ev] == NK_BOOL {
+                        let mut bv: Str = "0";
+                        if node_str[ev] == "true" { bv = "1"; }
+                        let et: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{et} = inttoptr i32 {bv} to i8*");
+                        let lt: I32 = ir_tmp_id();
+                        ir_emiti(f"%t{lt} = load i8*, i8** @{aname}");
+                        ir_emiti(f"call void @_ks_array_push(i8* %t{lt}, i8* %t{et})");
+                    }
+                    elem = node_b[elem];
+                }
+            }
             gi = gi + 1;
         }
         ir_emiti("ret void");
@@ -2893,30 +3232,1257 @@ func ir_write_to_file(path: Str) -> Bool {
     return true;
 }
 
-func main() -> I32 {
-    Print("KonScript self-hosted compiler v0.1 — stage 1 (full pipeline)");
+
+// ===== C++ string escaping helper =====
+func cg_escape_str(s: Str) -> Str {
+    let mut out: Str = "";
+    let mut i: I32 = 0;
+    while i < s.len() {
+        let cc: I32 = s.charAt(i).toCharCode();
+        if cc == 10 { out = out + "\\n"; }
+        else {
+            if cc == 9 { out = out + "\\t"; }
+            else {
+                if cc == 13 { out = out + "\\r"; }
+                else {
+                    if cc == 92 { out = out + "\\\\"; }
+                    else {
+                        if cc == 34 { out = out + "\\\""; }
+                        else { out = out + s.substr(i, 1); }
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// ===== C++ CODEGEN (from ks_codegen.ks) =====
+
+// ks_codegen.ks — C++ transpiler for KonScript self-hosted compiler
+// Generates C++ source from the AST, compatible with KonEngine.
+// This enables engine game compilation via: konscript --cpp game.ks
+
+// ── Output buffer ────────────────────────────────────────────────────────
+let mut cg_lines: [Str] = [""];
+let mut cg_indent: I32 = 0;
+
+// ── State tracking ───────────────────────────────────────────────────────
+let mut cg_ptr_vars: [Str] = [""];      // variables that are pointers
+let mut cg_ptr_count: I32 = 0;
+let mut cg_is_engine: Bool = false;     // true if #include <engine> found
+
+func cg_reset() {
+    cg_lines.clear(); cg_lines.push("");
+    cg_indent = 0;
+    cg_ptr_vars.clear(); cg_ptr_vars.push("");
+    cg_ptr_count = 0;
+    cg_is_engine = false;
+}
+
+func cg_emit(line: Str) {
+    let mut pad: Str = "";
+    let mut i: I32 = 0;
+    while i < cg_indent { pad = pad + "    "; i = i + 1; }
+    cg_lines.push(pad + line);
+}
+
+func cg_emit_raw(line: Str) {
+    cg_lines.push(line);
+}
+
+func cg_indent_inc() { cg_indent = cg_indent + 1; }
+func cg_indent_dec() { if cg_indent > 0 { cg_indent = cg_indent - 1; } }
+
+func cg_is_ptr(name: Str) -> Bool {
+    let mut i: I32 = 1;
+    while i <= cg_ptr_count {
+        if cg_ptr_vars[i] == name { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+func cg_mark_ptr(name: Str) {
+    cg_ptr_count = cg_ptr_count + 1;
+    cg_ptr_vars.push(name);
+}
+
+// ── Type mapping ─────────────────────────────────────────────────────────
+func cg_type(t: Str) -> Str {
+    if t == "I8"   { return "int8_t"; }
+    if t == "I16"  { return "int16_t"; }
+    if t == "I32"  { return "int32_t"; }
+    if t == "I64"  { return "int64_t"; }
+    if t == "U8"   { return "uint8_t"; }
+    if t == "U16"  { return "uint16_t"; }
+    if t == "U32"  { return "uint32_t"; }
+    if t == "U64"  { return "uint64_t"; }
+    if t == "F32"  { return "float"; }
+    if t == "F64"  { return "double"; }
+    if t == "Bool" { return "bool"; }
+    if t == "Str"  { return "std::string"; }
+    if t == "void" { return "void"; }
+    // Array type [T] -> std::vector<T>
+    if t.len() > 2 && t.starts("[") {
+        let inner: Str = t.substr(1, t.len() - 2);
+        return "std::vector<" + cg_type(inner) + ">";
+    }
+    // Nullable T? -> std::optional<T>
+    if t.ends("?") {
+        let inner: Str = t.substr(0, t.len() - 1);
+        return "std::optional<" + cg_type(inner) + ">";
+    }
+    return t;
+}
+
+// ── Engine node types (always pointers) ──────────────────────────────────
+func cg_is_node_type(t: Str) -> Bool {
+    if t == "Node2D" || t == "Sprite2D" || t == "Collider2D" { return true; }
+    if t == "AnimatedSprite2D" || t == "AnimationPlayer" { return true; }
+    if t == "CameraNode2D" || t == "Camera2D" { return true; }
+    return false;
+}
+
+// ── Expression codegen ───────────────────────────────────────────────────
+func cg_gen_expr(idx: I32) -> Str {
+    if idx == 0 { return ""; }
+    let k: I32 = node_kinds[idx];
+
+    if k == NK_INT   { return node_str[idx]; }
+    if k == NK_FLOAT { return node_str[idx] + "f"; }
+    if k == NK_BOOL  {
+        if node_str[idx] == "true" { return "true"; }
+        return "false";
+    }
+    if k == NK_STR_LIT {
+        return "\"" + cg_escape_str(node_str[idx]) + "\"";
+    }
+    if k == NK_NULL_LIT { return "nullptr"; }
+
+    if k == NK_FSTR {
+        // F-strings: parse template and emit C++ string concatenation
+        let raw: Str = node_str[idx];
+        let n_raw: I32 = raw.len();
+        let mut i_f: I32 = 0;
+        // For C++ codegen: build f-string as std::string concatenation
+        let mut result: Str = "std::string()";
+        while i_f < n_raw {
+            let mut j_f: I32 = i_f;
+            while j_f < n_raw && raw.substr(j_f, 1) != "{" {
+                j_f = j_f + 1;
+            }
+            if j_f > i_f {
+                let lit: Str = cg_escape_str(raw.substr(i_f, j_f - i_f));
+                result = result + " + std::string(\"" + lit + "\")";
+            }
+            if j_f >= n_raw { i_f = n_raw; }
+            else {
+                j_f = j_f + 1;
+                let mut k_f: I32 = j_f;
+                while k_f < n_raw && raw.substr(k_f, 1) != "}" {
+                    k_f = k_f + 1;
+                }
+                let expr_name: Str = raw.substr(j_f, k_f - j_f);
+                result = result + " + _ks_tostr(" + expr_name + ")";
+                i_f = k_f + 1;
+            }
+        }
+        return "(" + result + ")";
+    }
+
+    if k == NK_IDENT {
+        return node_str[idx];
+    }
+
+    if k == NK_BINARY {
+        let left: Str = cg_gen_expr(node_a[idx]);
+        let right: Str = cg_gen_expr(node_b[idx]);
+        let op: Str = node_str[idx];
+        return "(" + left + " " + op + " " + right + ")";
+    }
+
+    if k == NK_UNARY {
+        let operand: Str = cg_gen_expr(node_a[idx]);
+        return "(" + node_str[idx] + operand + ")";
+    }
+
+    if k == NK_CALL {
+        let callee: I32 = node_a[idx];
+        // Build args
+        let mut args: Str = "";
+        let mut arg: I32 = node_b[idx];
+        let mut first: Bool = true;
+        while arg != 0 {
+            let aexpr: Str = cg_gen_expr(node_a[arg]);
+            if !first { args = args + ", "; }
+            args = args + aexpr;
+            first = false;
+            arg = node_b[arg];
+        }
+        if node_kinds[callee] == NK_IDENT {
+            let fname: Str = node_str[callee];
+            // Print → std::cout
+            if fname == "Print" {
+                // Use variadic Print template
+                let mut parg: I32 = node_b[idx];
+                let mut print_args: Str = "";
+                let mut first_p: Bool = true;
+                while parg != 0 {
+                    let pexpr: Str = cg_gen_expr(node_a[parg]);
+                    if !first_p { print_args = print_args + ", "; }
+                    print_args = print_args + pexpr;
+                    first_p = false;
+                    parg = node_b[parg];
+                }
+                return "Print(" + print_args + ")";
+            }
+            // ToString
+            if fname == "ToString" { return "std::to_string(" + args + ")"; }
+            if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
+            // Check engine function mapping table
+            let mapped: Str = cg_engine_func(fname);
+            if mapped.len() > 0 {
+                return mapped + "(" + args + ")";
+            }
+            return fname + "(" + args + ")";
+        }
+        if node_kinds[callee] == NK_MEMBER {
+            let obj: Str = cg_gen_expr(node_a[callee]);
+            let method: Str = node_str[callee];
+            let accessor: Str = ".";
+            // Collection methods — use .size() for vectors, _ks_len for strings
+            if method == "len"     { return "(int)" + obj + ".size()"; }
+            if method == "isEmpty" { return obj + ".empty()"; }
+            if method == "push"    { return obj + ".push_back(" + args + ")"; }
+            if method == "pop"     { return "([&](){ auto _v = " + obj + ".back(); " + obj + ".pop_back(); return _v; }())"; }
+            if method == "clear"   { return obj + ".clear()"; }
+            // String methods
+            if method == "trim"     { return "_ks_trim(" + obj + ")"; }
+            if method == "upper"    { return "_ks_upper(" + obj + ")"; }
+            if method == "lower"    { return "_ks_lower(" + obj + ")"; }
+            if method == "contains" { return "_ks_contains(" + obj + ", " + args + ")"; }
+            if method == "starts"   { return "_ks_starts(" + obj + ", " + args + ")"; }
+            if method == "ends"     { return "_ks_ends(" + obj + ", " + args + ")"; }
+            if method == "replace"  { return "_ks_replace(" + obj + ", " + args + ")"; }
+            if method == "substr"   { return "_ks_substr(" + obj + ", " + args + ")"; }
+            if method == "split"    { return "_ks_split(" + obj + ", " + args + ")"; }
+            if method == "toInt"    { return "_ks_toInt(" + obj + ")"; }
+            if method == "toFloat"  { return "_ks_toFloat(" + obj + ")"; }
+            if method == "charAt"   { return "_ks_charAt(" + obj + ", " + args + ")"; }
+            if method == "toCharCode" { return "(int)(" + obj + "[0])"; }
+            if method == "toFloat"  { return "_ks_toFloat(" + obj + ")"; }
+            // HashMap methods
+            if method == "set"    { return obj + "[" + args + "]"; }
+            if method == "get"    { return obj + ".count(" + args + ") ? std::make_optional(" + obj + "[" + args + "]) : std::nullopt"; }
+            if method == "has"    { return obj + ".count(" + args + ") > 0"; }
+            if method == "remove" { return obj + ".erase(" + args + ")"; }
+            // Scene methods (modular mapping)
+            let scene_mapped: Str = cg_scene_method(method);
+            if scene_mapped.len() > 0 {
+                return obj + "." + scene_mapped + "(" + args + ")";
+            }
+            // File namespace methods
+            if method == "read"   { return "_ks_fread(" + args + ")"; }
+            if method == "write"  { return "_ks_fwrite(" + args + ")"; }
+            if method == "exists" { return "_ks_fexists(" + args + ")"; }
+            if method == "delete" { return "_ks_fwrite(" + args + ")"; }
+            if method == "append" { return "_ks_fappend(" + args + ")"; }
+            if method == "lines"  { return "_ks_file_lines(_C(" + args + "))"; }
+            // Node/Scene factory: .add(Type, "name") → .Add<Type>("name") or ->AddChild<Type>("name")
+            if method == "add" {
+                // Check if obj is 'this' (inside node) → use ->AddChild
+                if obj == "this" {
+                    return "this->AddChild<" + args + ">()";
+                }
+                return obj + ".Add<" + args + ">()";
+            }
+            // Node methods: use -> for pointer types, . for values
+            // Check if obj is a known pointer type
+            if cg_is_ptr(obj) {
+                return obj + "->" + method + "(" + args + ")";
+            }
+            // Default: method call with . accessor
+            return obj + "." + method + "(" + args + ")";
+        }
+        return "/* unknown call */";
+    }
+
+    if k == NK_MEMBER {
+        let obj: Str = cg_gen_expr(node_a[idx]);
+        let member: Str = node_str[idx];
+        // Result members — use wrapper methods
+        if member == "ok"    { return obj + ".ok()"; }
+        if member == "value" { return obj + ".value()"; }
+        if member == "error" { return obj + ".error()"; }
+        return obj + "." + member;
+    }
+
+    if k == NK_INDEX {
+        let obj: Str = cg_gen_expr(node_a[idx]);
+        let index: Str = cg_gen_expr(node_b[idx]);
+        return obj + "[" + index + "]";
+    }
+
+    if k == NK_CAST {
+        let val: Str = cg_gen_expr(node_a[idx]);
+        let target: Str = cg_type(node_str[idx]);
+        return "static_cast<" + target + ">(" + val + ")";
+    }
+
+    if k == NK_ARRAY_LIT {
+        let mut elems: Str = "";
+        let mut el: I32 = node_a[idx];
+        let mut first: Bool = true;
+        while el != 0 {
+            let eexpr: Str = cg_gen_expr(node_a[el]);
+            if !first { elems = elems + ", "; }
+            elems = elems + eexpr;
+            first = false;
+            el = node_b[el];
+        }
+        return "{" + elems + "}";
+    }
+
+    if k == NK_ASSIGN {
+        let target: Str = cg_gen_expr(node_a[idx]);
+        let value: Str = cg_gen_expr(node_b[idx]);
+        let op: Str = node_str[idx];
+        return target + " " + op + " " + value;
+    }
+
+    if k == NK_FUNC_EXPR {
+        // Lambda: [&](params) -> RetType { body }
+        let ret_str: Str = node_str[idx];
+        let ret_t: Str = ret_str.substr(1, ret_str.len() - 1);
+        let mut params: Str = "";
+        let mut pm: I32 = node_a[idx];
+        let mut first: Bool = true;
+        while pm != 0 {
+            let pn: I32 = node_a[pm];
+            let ps: Str = node_str[pn];
+            // Parse "name:type"
+            let mut ci: I32 = 0;
+            let mut pname: Str = "";
+            let mut ptype: Str = "";
+            while ci < ps.len() {
+                if ps.substr(ci, 1) == ":" {
+                    pname = ps.substr(0, ci);
+                    ptype = ps.substr(ci + 1, ps.len() - ci - 1);
+                    ci = ps.len();
+                }
+                ci = ci + 1;
+            }
+            if !first { params = params + ", "; }
+            params = params + cg_type(ptype) + " " + pname;
+            first = false;
+            pm = node_b[pm];
+        }
+        return "[&](" + params + ") -> " + cg_type(ret_t) + " { /* body */ }";
+    }
+
+    return "/* expr " + node_str[idx] + " */";
+}
+
+// ── Statement codegen ────────────────────────────────────────────────────
+func cg_gen_stmt(idx: I32) {
+    if idx == 0 { return; }
+    let k: I32 = node_kinds[idx];
+
+    if k == NK_LET {
+        let name: Str = node_str[idx];
+        let init: I32 = node_a[idx];
+        if init != 0 {
+            let val: Str = cg_gen_expr(init);
+            let init_k: I32 = node_kinds[init];
+            if init_k == NK_ARRAY_LIT {
+                let mut elem_type: Str = "int32_t";
+                let first_elem: I32 = node_a[init];
+                if first_elem != 0 {
+                    let ek: I32 = node_kinds[node_a[first_elem]];
+                    if ek == NK_STR_LIT { elem_type = "std::string"; }
+                    if ek == NK_BOOL    { elem_type = "bool"; }
+                    if ek == NK_FLOAT   { elem_type = "float"; }
+                }
+                cg_emit("std::vector<" + elem_type + "> " + name + " = " + val + ";");
+            } else {
+                // Use explicit std::string for string-typed vars
+                let vtype: Str = node_types[idx];
+                if vtype == "Str" || init_k == NK_STR_LIT || init_k == NK_FSTR {
+                    cg_emit("std::string " + name + " = " + val + ";");
+                } else {
+                    cg_emit("auto " + name + " = " + val + ";");
+                }
+            }
+        } else {
+            let vtype: Str = node_types[idx];
+            if vtype == "Str" {
+                cg_emit("std::string " + name + " = \"\";");
+            } else {
+                cg_emit("auto " + name + " = 0;");
+            }
+        }
+        return;
+    }
+
+    if k == NK_CONST_D {
+        let name: Str = node_str[idx];
+        let init: I32 = node_a[idx];
+        let val: Str = cg_gen_expr(init);
+        cg_emit("constexpr auto " + name + " = " + val + ";");
+        return;
+    }
+
+    if k == NK_RETURN {
+        // Push directly to cg_lines to bypass any cg_emit string issues
+        if node_a[idx] != 0 {
+            let val: Str = cg_gen_expr(node_a[idx]);
+            cg_lines.push("    return " + val + ";");
+        } else {
+            cg_lines.push("    return;");
+        }
+        return;
+    }
+
+    if k == NK_IF {
+        let cond: Str = cg_gen_expr(node_a[idx]);
+        cg_emit("if (" + cond + ") {");
+        cg_indent_inc();
+        cg_gen_stmt(node_b[idx]);
+        cg_indent_dec();
+        if node_c[idx] != 0 {
+            cg_emit("} else {");
+            cg_indent_inc();
+            cg_gen_stmt(node_c[idx]);
+            cg_indent_dec();
+        }
+        cg_emit("}");
+        return;
+    }
+
+    if k == NK_WHILE {
+        let cond: Str = cg_gen_expr(node_a[idx]);
+        cg_emit("while (" + cond + ") {");
+        cg_indent_inc();
+        cg_gen_stmt(node_b[idx]);
+        cg_indent_dec();
+        cg_emit("}");
+        return;
+    }
+
+    if k == NK_LOOP {
+        cg_emit("while (true) {");
+        cg_indent_inc();
+        cg_gen_stmt(node_a[idx]);
+        cg_indent_dec();
+        cg_emit("}");
+        return;
+    }
+
+    if k == NK_FOR_IN {
+        let var_name: Str = node_str[idx];
+        let iter: Str = cg_gen_expr(node_a[idx]);
+        cg_emit("for (auto& " + var_name + " : " + iter + ") {");
+        cg_indent_inc();
+        cg_gen_stmt(node_b[idx]);
+        cg_indent_dec();
+        cg_emit("}");
+        return;
+    }
+
+    if k == NK_BREAK    { cg_emit("break;"); return; }
+    if k == NK_CONTINUE { cg_emit("continue;"); return; }
+    if k == NK_ASM      { cg_gen_asm(idx); return; }
+
+    if k == NK_BLOCK {
+        let mut s: I32 = node_a[idx];
+        while s != 0 {
+            cg_gen_stmt(node_a[s]);
+            s = node_b[s];
+        }
+        return;
+    }
+
+    // Expression statement
+    let expr: Str = cg_gen_expr(idx);
+    if expr.len() > 0 {
+        cg_emit(expr + ";");
+    }
+}
+
+// ── Function codegen ─────────────────────────────────────────────────────
+func cg_gen_func(idx: I32) {
+    let full_name: Str = node_str[idx];
+    let name: Str = func_name(full_name);
+    let ret: Str = func_ret(full_name);
+    let ret_cpp: Str = cg_type(ret);
+
+    // Build params
+    let mut params: Str = "";
+    let mut pm: I32 = node_a[idx];
+    let mut first: Bool = true;
+    while pm != 0 {
+        let pn: I32 = node_a[pm];
+        let ps: Str = node_str[pn];
+        let mut ci: I32 = 0;
+        let mut pname: Str = "";
+        let mut ptype: Str = "";
+        let mut found: Bool = false;
+        while ci < ps.len() {
+            let ch: Str = ps.substr(ci, 1);
+            if ch == ":" && !found {
+                found = true;
+                pname = ps.substr(0, ci);
+                ptype = ps.substr(ci + 1, ps.len() - ci - 1);
+            }
+            ci = ci + 1;
+        }
+        if !first { params = params + ", "; }
+        params = params + cg_type(ptype) + " " + pname;
+        first = false;
+        pm = node_b[pm];
+    }
+
+    // Special case: main gets argc/argv and initializes runtime args
+    if name == "main" {
+        cg_emit("int main(int argc, char** argv) {");
+        cg_indent_inc();
+        cg_emit("_ks_init_args(argc, argv);");
+    } else {
+        cg_emit(ret_cpp + " " + name + "(" + params + ") {");
+        cg_indent_inc();
+    }
+    cg_gen_stmt(node_b[idx]);
+    cg_indent_dec();
+    cg_emit("}");
+    cg_emit("");
+}
+
+// ── Struct codegen ───────────────────────────────────────────────────────
+func cg_gen_struct(idx: I32) {
+    let name: Str = node_str[idx];
+    cg_emit("struct " + name + " {");
+    cg_indent_inc();
+    let mut f: I32 = node_a[idx];
+    while f != 0 {
+        let fn2: I32 = node_a[f];
+        let fs: Str = node_str[fn2];
+        // Parse "name:type"
+        let mut ci: I32 = 0;
+        let mut fname: Str = "";
+        let mut ftype: Str = "";
+        while ci < fs.len() {
+            if fs.substr(ci, 1) == ":" {
+                fname = fs.substr(0, ci);
+                ftype = fs.substr(ci + 1, fs.len() - ci - 1);
+                ci = fs.len();
+            }
+            ci = ci + 1;
+        }
+        cg_emit(cg_type(ftype) + " " + fname + ";");
+        f = node_b[f];
+    }
+    cg_indent_dec();
+    cg_emit("};");
+    cg_emit("");
+}
+
+// ── Node codegen (engine) ────────────────────────────────────────────────
+// ── Engine node type check ───────────────────────────────────────────────
+// Returns true if a type name is a built-in engine node (always a pointer)
+func cg_is_engine_node(t: Str) -> Bool {
+    if t == "Node2D" || t == "Sprite2D" || t == "Collider2D" { return true; }
+    if t == "AnimatedSprite2D" || t == "AnimationPlayer" { return true; }
+    if t == "CameraNode2D" || t == "Camera2D" { return true; }
+    if t == "Node" { return true; }
+    return false;
+}
+
+// Check if a type is a user-defined node (tracked during codegen)
+let mut cg_user_nodes: [Str] = [""];
+let mut cg_user_node_count: I32 = 0;
+
+func cg_register_node(name: Str) {
+    cg_user_node_count = cg_user_node_count + 1;
+    cg_user_nodes.push(name);
+}
+
+func cg_is_user_node(name: Str) -> Bool {
+    let mut i: I32 = 1;
+    while i <= cg_user_node_count {
+        if cg_user_nodes[i] == name { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// Returns true if a type should be a pointer in C++
+func cg_is_ptr_type(t: Str) -> Bool {
+    return cg_is_engine_node(t) || cg_is_user_node(t);
+}
+
+// ── Lifecycle method signature map ───────────────────────────────────────
+func cg_lifecycle_sig(method_name: Str) -> Str {
+    if method_name == "Ready"            { return "void Ready() override"; }
+    if method_name == "Update"           { return "void Update(float dt) override"; }
+    if method_name == "Draw"             { return "void Draw() override"; }
+    if method_name == "OnCollisionEnter" { return "void OnCollisionEnter(Collider2D* other) override"; }
+    if method_name == "OnCollisionExit"  { return "void OnCollisionExit(Collider2D* other) override"; }
+    return "";
+}
+
+// ── Engine API function mapping ──────────────────────────────────────────
+// Maps KonScript function names to C++ equivalents
+// Add new engine functions here — one line each
+func cg_engine_func(name: Str) -> Str {
+    // Input - keyboard
+    if name == "KeyDown"       { return "IsKeyDown"; }
+    if name == "KeyPressed"    { return "IsKeyPressed"; }
+    if name == "KeyReleased"   { return "IsKeyReleased"; }
+    // Input - mouse
+    if name == "MouseDown"     { return "IsMouseButtonDown"; }
+    if name == "MousePressed"  { return "IsMouseButtonPressed"; }
+    if name == "MouseReleased" { return "IsMouseButtonReleased"; }
+    // Math
+    if name == "Sqrt"    { return "sqrtf"; }
+    if name == "Abs"     { return "fabsf"; }
+    if name == "Floor"   { return "floorf"; }
+    if name == "Ceil"    { return "ceilf"; }
+    if name == "Round"   { return "roundf"; }
+    if name == "Sin"     { return "sinf"; }
+    if name == "Cos"     { return "cosf"; }
+    if name == "Tan"     { return "tanf"; }
+    if name == "Atan2"   { return "atan2f"; }
+    if name == "Min"     { return "std::min"; }
+    if name == "Max"     { return "std::max"; }
+    // Everything else passes through (InitWindow, SetTargetFPS, etc.)
+    return "";
+}
+
+// ── Scene method mapping ─────────────────────────────────────────────────
+func cg_scene_method(method: Str) -> Str {
+    if method == "update" { return "Update"; }
+    if method == "draw"   { return "Draw"; }
+    if method == "scan"   { return "Scan"; }
+    if method == "remove" { return "Remove"; }
+    if method == "get"    { return "GetNode"; }
+    return "";
+}
+
+// ── Extern declaration codegen ────────────────────────────────────────────
+// Emits: extern "C" { RetType name(params...); }
+// str format: "name|linkage|ret|params|variadic"
+func cg_gen_extern(idx: I32) {
+    let full: Str = node_str[idx];
+    // Parse fields separated by |
+    let mut parts: [Str] = [""];
+    parts.clear();
+    let mut start: I32 = 0;
+    let mut ei: I32 = 0;
+    while ei <= full.len() {
+        if ei == full.len() || full.substr(ei, 1) == "|" {
+            parts.push(full.substr(start, ei - start));
+            start = ei + 1;
+        }
+        ei = ei + 1;
+    }
+    // parts[0]=name, [1]=linkage, [2]=ret, [3]=params, [4]=variadic
+    let mut ename: Str = "";
+    let mut elinkage: Str = "C";
+    let mut eret: Str = "void";
+    let mut eparams: Str = "";
+    let mut evariadic: Str = "";
+    if parts.len() > 0 { ename = parts[0]; }
+    if parts.len() > 1 { elinkage = parts[1]; }
+    if parts.len() > 2 { eret = parts[2]; }
+    if parts.len() > 3 { eparams = parts[3]; }
+    if parts.len() > 4 { evariadic = parts[4]; }
+
+    // Build C++ parameter list — use C types for extern (not std::string)
+    let mut cpp_params: Str = "";
+    if eparams.len() > 0 {
+        let param_parts: [Str] = eparams.split(",");
+        let mut pi: I32 = 0;
+        while pi < param_parts.len() {
+            if pi > 0 { cpp_params = cpp_params + ", "; }
+            let pt: Str = param_parts[pi];
+            // For extern "C", use C-compatible types
+            if pt == "Str" { cpp_params = cpp_params + "const char*"; }
+            else { cpp_params = cpp_params + cg_type(pt); }
+            pi = pi + 1;
+        }
+    }
+    if evariadic == "..." {
+        if cpp_params.len() > 0 { cpp_params = cpp_params + ", ..."; }
+        else { cpp_params = "..."; }
+    }
+
+    // Use C-compatible return type
+    let mut cret: Str = cg_type(eret);
+    if eret == "Str" { cret = "const char*"; }
+    cg_emit_raw("extern \"" + elinkage + "\" " + cret + " " + ename + "(" + cpp_params + ");");
+}
+
+// ── Inline assembly codegen ──────────────────────────────────────────────
+// Emits: __asm__ volatile("template" : outputs : inputs : clobbers);
+// str format: "template|outputs|inputs|clobbers"
+func cg_gen_asm(idx: I32) {
+    let full: Str = node_str[idx];
+    let mut parts: [Str] = [""];
+    parts.clear();
+    let mut start: I32 = 0;
+    let mut ai: I32 = 0;
+    while ai <= full.len() {
+        if ai == full.len() || full.substr(ai, 1) == "|" {
+            parts.push(full.substr(start, ai - start));
+            start = ai + 1;
+        }
+        ai = ai + 1;
+    }
+    let mut tmpl: Str = "";
+    let mut outputs: Str = "";
+    let mut inputs: Str = "";
+    let mut clobbers: Str = "";
+    if parts.len() > 0 { tmpl = parts[0]; }
+    if parts.len() > 1 { outputs = parts[1]; }
+    if parts.len() > 2 { inputs = parts[2]; }
+    if parts.len() > 3 { clobbers = parts[3]; }
+
+    let mut asm_line: Str = "__asm__ volatile(\"" + cg_escape_str(tmpl) + "\"";
+    if outputs.len() > 0 || inputs.len() > 0 || clobbers.len() > 0 {
+        asm_line = asm_line + " : \"" + outputs + "\"";
+        if inputs.len() > 0 || clobbers.len() > 0 {
+            asm_line = asm_line + " : \"" + inputs + "\"";
+            if clobbers.len() > 0 {
+                asm_line = asm_line + " : \"" + clobbers + "\"";
+            }
+        }
+    }
+    asm_line = asm_line + ");";
+    cg_emit(asm_line);
+}
+
+// ── Node codegen ─────────────────────────────────────────────────────────
+func cg_gen_node(idx: I32) {
+    // Parse name|base from node_str
+    let full: Str = node_str[idx];
+    let mut name: Str = "";
+    let mut base: Str = "Node2D";
+    let mut pi: I32 = 0;
+    while pi < full.len() {
+        if full.substr(pi, 1) == "|" {
+            name = full.substr(0, pi);
+            base = full.substr(pi + 1, full.len() - pi - 1);
+            pi = full.len();
+        }
+        pi = pi + 1;
+    }
+    if name.len() == 0 { name = full; }
+
+    // Register as user node type
+    cg_register_node(name);
+
+    // Class declaration
+    cg_emit("class " + name + " : public " + base + " {");
+    cg_emit("public:");
+    cg_indent_inc();
+
+    // Collect fields and methods
+    let mut ctor_inits: [Str] = [""];
+    let mut m: I32 = node_a[idx];
+    while m != 0 {
+        let member: I32 = node_a[m];
+        let mk: I32 = node_kinds[member];
+
+        if mk == NK_LET {
+            // Field declaration
+            let fname: Str = node_str[member];
+            let finit: I32 = node_a[member];
+            if finit != 0 {
+                let fval: Str = cg_gen_expr(finit);
+                let fk: I32 = node_kinds[finit];
+                // Determine field type for class member (auto not allowed)
+                let mut ftype: Str = "int32_t";
+                if fk == NK_INT   { ftype = "int32_t"; }
+                if fk == NK_FLOAT { ftype = "float"; }
+                if fk == NK_BOOL  { ftype = "bool"; }
+                if fk == NK_STR_LIT { ftype = "std::string"; }
+                if fk == NK_NULL_LIT { ftype = "void*"; }
+                let ft: Str = node_types[member];
+                if ft == "F64" || ft == "F32" { ftype = "float"; }
+                if ft == "Str" { ftype = "std::string"; }
+                if ft == "Bool" { ftype = "bool"; }
+                if cg_is_ptr_type(ft) { ftype = ft + "*"; }
+                // Check if init is trivial or needs ctor
+                if fk == NK_INT || fk == NK_FLOAT || fk == NK_BOOL || fk == NK_STR_LIT || fk == NK_NULL_LIT {
+                    cg_emit(ftype + " " + fname + " = " + fval + ";");
+                } else {
+                    // Non-trivial: declare field, defer init to ctor
+                    cg_emit(ftype + " " + fname + " = {};");
+                    ctor_inits.push(fname + " = " + fval + ";");
+                }
+            } else {
+                cg_emit("int32_t " + fname + " = 0;");
+            }
+        }
+
+        if mk == NK_FUNC {
+            // Method
+            let mname: Str = func_name(node_str[member]);
+            let mret: Str = func_ret(node_str[member]);
+            let lifecycle: Str = cg_lifecycle_sig(mname);
+            if lifecycle.len() > 0 {
+                // Lifecycle method with override
+                cg_emit(lifecycle + " {");
+            } else {
+                // Regular method
+                let mut mparams: Str = "";
+                let mut mp: I32 = node_a[member];
+                let mut mfirst: Bool = true;
+                while mp != 0 {
+                    let mpn: I32 = node_a[mp];
+                    let mps: Str = node_str[mpn];
+                    let mut mci: I32 = 0;
+                    let mut mpname: Str = "";
+                    let mut mptype: Str = "";
+                    while mci < mps.len() {
+                        if mps.substr(mci, 1) == ":" {
+                            mpname = mps.substr(0, mci);
+                            mptype = mps.substr(mci + 1, mps.len() - mci - 1);
+                            mci = mps.len();
+                        }
+                        mci = mci + 1;
+                    }
+                    if !mfirst { mparams = mparams + ", "; }
+                    mparams = mparams + cg_type(mptype) + " " + mpname;
+                    mfirst = false;
+                    mp = node_b[mp];
+                }
+                cg_emit(cg_type(mret) + " " + mname + "(" + mparams + ") {");
+            }
+            cg_indent_inc();
+            cg_gen_stmt(node_b[member]);
+            cg_indent_dec();
+            cg_emit("}");
+            cg_emit("");
+        }
+
+        m = node_b[m];
+    }
+
+    // Constructor
+    cg_indent_dec();
+    cg_emit("");
+    cg_emit("    " + name + "(const std::string& _name) : " + base + "(_name) {");
+    let mut ci: I32 = 1;
+    while ci < ctor_inits.len() {
+        cg_emit("        " + ctor_inits[ci]);
+        ci = ci + 1;
+    }
+    cg_emit("    }");
+    cg_emit("};");
+    cg_emit("");
+}
+
+// ── Main codegen entry point ─────────────────────────────────────────────
+func cg_generate(prog_idx: I32) -> Str {
+    cg_reset();
+
+    // Pre-scan: detect #include <engine> and register node types
+    let mut pre: I32 = node_a[prog_idx];
+    while pre != 0 {
+        let pd: I32 = node_a[pre];
+        if node_kinds[pd] == NK_INCLUDE_D {
+            if node_str[pd] == "engine" { cg_is_engine = true; }
+        }
+        if node_kinds[pd] == NK_NODE {
+            // Register user node name for pointer tracking
+            let nstr: Str = node_str[pd];
+            let mut npi: I32 = 0;
+            let mut nname: Str = nstr;
+            while npi < nstr.len() {
+                if nstr.substr(npi, 1) == "|" {
+                    nname = nstr.substr(0, npi);
+                    npi = nstr.len();
+                }
+                npi = npi + 1;
+            }
+            cg_register_node(nname);
+        }
+        pre = node_b[pre];
+    }
+
+    // Headers
+    cg_emit_raw("#include <iostream>");
+    cg_emit_raw("#include <string>");
+    cg_emit_raw("#include <vector>");
+    cg_emit_raw("#include <optional>");
+    cg_emit_raw("#include <unordered_map>");
+    cg_emit_raw("#include <cmath>");
+    cg_emit_raw("#include <cstdio>");
+    cg_emit_raw("#include <fstream>");
+    cg_emit_raw("#include <functional>");
+    if cg_is_engine {
+        cg_emit_raw("#include \"KonEngine.hpp\"");
+    }
+    cg_emit_raw("");
+
+    // Stdlib helpers
+    cg_emit_raw("// KonScript runtime helpers");
+    cg_emit_raw("#include <cstring>");
+    cg_emit_raw("");
+    cg_emit_raw("// Runtime C functions");
+    cg_emit_raw("extern \"C\" {");
+    cg_emit_raw("void* _ks_file_read(const char*);");
+    cg_emit_raw("void* _ks_file_write(const char*, const char*);");
+    cg_emit_raw("void* _ks_file_append(const char*, const char*);");
+    cg_emit_raw("int _ks_file_exists(const char*);");
+    cg_emit_raw("void* _ks_file_delete(const char*);");
+    cg_emit_raw("int _ks_str_len(const char*);");
+    cg_emit_raw("char* _ks_str_substr(const char*, int, int);");
+    cg_emit_raw("char* _ks_str_trim(const char*);");
+    cg_emit_raw("char* _ks_str_upper(const char*);");
+    cg_emit_raw("char* _ks_str_lower(const char*);");
+    cg_emit_raw("char* _ks_str_replace(const char*, const char*, const char*);");
+    cg_emit_raw("int _ks_str_contains(const char*, const char*);");
+    cg_emit_raw("int _ks_str_starts(const char*, const char*);");
+    cg_emit_raw("int _ks_str_ends(const char*, const char*);");
+    cg_emit_raw("char* _ks_str_concat(const char*, const char*);");
+    cg_emit_raw("int _ks_str_compare(const char*, const char*);");
+    cg_emit_raw("char* _ks_str_charAt(const char*, int);");
+    cg_emit_raw("int _ks_str_toInt(const char*);");
+    cg_emit_raw("float _ks_str_toFloat(const char*);");
+    cg_emit_raw("void* _ks_str_split(const char*, const char*);");
+    cg_emit_raw("char* _ks_int_to_str(int);");
+    cg_emit_raw("int _ks_str_isEmpty(const char*);");
+    cg_emit_raw("int _ks_str_isAlpha(const char*);");
+    cg_emit_raw("int _ks_str_isDigit(const char*);");
+    cg_emit_raw("int _ks_str_toCharCode(const char*);");
+    cg_emit_raw("char* _ks_str_fromCharCode(int);");
+    cg_emit_raw("void* _ks_array_new(int);");
+    cg_emit_raw("void _ks_array_push(void*, void*);");
+    cg_emit_raw("void* _ks_array_get(void*, int);");
+    cg_emit_raw("int _ks_array_len(void*);");
+    cg_emit_raw("void _ks_array_clear(void*);");
+    cg_emit_raw("void* _ks_array_pop(void*);");
+    cg_emit_raw("int _ks_array_has(void*, void*);");
+    cg_emit_raw("void _ks_array_set(void*, int, void*);");
+    cg_emit_raw("void* _ks_array_clone(void*);");
+    cg_emit_raw("void _ks_array_free(void*);");
+    cg_emit_raw("void* _ks_hashmap_new();");
+    cg_emit_raw("void _ks_hashmap_set(void*, const char*, void*);");
+    cg_emit_raw("void* _ks_hashmap_get(void*, const char*);");
+    cg_emit_raw("int _ks_hashmap_has(void*, const char*);");
+    cg_emit_raw("int _ks_hashmap_len(void*);");
+    cg_emit_raw("int _ks_result_ok(void*);");
+    cg_emit_raw("char* _ks_result_value(void*);");
+    cg_emit_raw("char* _ks_result_error(void*);");
+    cg_emit_raw("int _ks_system(const char*);");
+    cg_emit_raw("void _ks_init_args(int, char**);");
+    cg_emit_raw("int _ks_argc();");
+    cg_emit_raw("char* _ks_get_argv(int);");
+    cg_emit_raw("}");
+    cg_emit_raw("");
+    // C++ wrappers that accept std::string
+    cg_emit_raw("// C++ wrappers for std::string bridge");
+    cg_emit_raw("inline std::string _S(const char* s) { return s ? s : \"\"; }");
+    cg_emit_raw("inline const char* _C(const std::string& s) { return s.c_str(); }");
+    cg_emit_raw("inline std::string _ks_substr(const std::string& s, int p, int l) { return _S(_ks_str_substr(_C(s), p, l)); }");
+    cg_emit_raw("inline std::string _ks_trim(const std::string& s) { return _S(_ks_str_trim(_C(s))); }");
+    cg_emit_raw("inline std::string _ks_upper(const std::string& s) { return _S(_ks_str_upper(_C(s))); }");
+    cg_emit_raw("inline std::string _ks_lower(const std::string& s) { return _S(_ks_str_lower(_C(s))); }");
+    cg_emit_raw("inline std::string _ks_replace(const std::string& s, const std::string& f, const std::string& t) { return _S(_ks_str_replace(_C(s), _C(f), _C(t))); }");
+    cg_emit_raw("inline bool _ks_contains(const std::string& s, const std::string& sub) { return _ks_str_contains(_C(s), _C(sub)); }");
+    cg_emit_raw("inline bool _ks_starts(const std::string& s, const std::string& p) { return _ks_str_starts(_C(s), _C(p)); }");
+    cg_emit_raw("inline bool _ks_ends(const std::string& s, const std::string& e) { return _ks_str_ends(_C(s), _C(e)); }");
+    cg_emit_raw("inline int _ks_len(const std::string& s) { return (int)s.size(); }");
+    cg_emit_raw("inline bool _ks_isEmpty(const std::string& s) { return s.empty(); }");
+    cg_emit_raw("inline std::string _ks_charAt(const std::string& s, int i) { return _S(_ks_str_charAt(_C(s), i)); }");
+    cg_emit_raw("inline int _ks_toInt(const std::string& s) { return _ks_str_toInt(_C(s)); }");
+    cg_emit_raw("inline float _ks_toFloat(const std::string& s) { return _ks_str_toFloat(_C(s)); }");
+    cg_emit_raw("inline int _ks_compare(const std::string& a, const std::string& b) { return _ks_str_compare(_C(a), _C(b)); }");
+    cg_emit_raw("inline std::vector<std::string> _ks_split(const std::string& s, const std::string& d) { auto* arr = _ks_str_split(_C(s), _C(d)); std::vector<std::string> v; for(int i=0;i<_ks_array_len(arr);i++) v.push_back(_S((const char*)_ks_array_get(arr,i))); return v; }");
+    cg_emit_raw("// Result wrapper");
+    cg_emit_raw("struct _KsResultW { void* _r; bool ok() { return _ks_result_ok(_r); } std::string value() { return _S(_ks_result_value(_r)); } std::string error() { return _S(_ks_result_error(_r)); } };");
+    cg_emit_raw("inline _KsResultW _ks_fread(const std::string& p) { return {_ks_file_read(_C(p))}; }");
+    cg_emit_raw("inline _KsResultW _ks_fwrite(const std::string& p, const std::string& c) { return {_ks_file_write(_C(p), _C(c))}; }");
+    cg_emit_raw("inline _KsResultW _ks_fappend(const std::string& p, const std::string& c) { return {_ks_file_append(_C(p), _C(c))}; }");
+    cg_emit_raw("inline bool _ks_fexists(const std::string& p) { return _ks_file_exists(_C(p)); }");
+    cg_emit_raw("inline int _ks_run(const std::string& cmd) { return _ks_system(_C(cmd)); }");
+    cg_emit_raw("// Print helper");
+    cg_emit_raw("template<typename... Args> void Print(Args... args) { ((std::cout << args), ...); std::cout << std::endl; }");
+    cg_emit_raw("// Universal to-string conversion");
+    cg_emit_raw("inline std::string _ks_tostr(const std::string& s) { return s; }");
+    cg_emit_raw("inline std::string _ks_tostr(const char* s) { return s ? s : \"\"; }");
+    cg_emit_raw("inline std::string _ks_tostr(int v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(long v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(float v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(double v) { return std::to_string(v); }");
+    cg_emit_raw("inline std::string _ks_tostr(bool v) { return v ? \"true\" : \"false\"; }");
+    cg_emit_raw("");
+
+    // Forward declarations for all functions
+    let mut fwd: I32 = node_a[prog_idx];
+    while fwd != 0 {
+        let fd: I32 = node_a[fwd];
+        if node_kinds[fd] == NK_FUNC {
+            let full_fn: Str = node_str[fd];
+            let fn_name: Str = func_name(full_fn);
+            let fn_ret: Str = func_ret(full_fn);
+            let fn_ret_cpp: Str = cg_type(fn_ret);
+            // Build param signature
+            let mut fwd_params: Str = "";
+            let mut fpm: I32 = node_a[fd];
+            let mut fwd_first: Bool = true;
+            while fpm != 0 {
+                let fpn: I32 = node_a[fpm];
+                let fps: Str = node_str[fpn];
+                let mut fci: I32 = 0;
+                let mut fptype: Str = "";
+                while fci < fps.len() {
+                    if fps.substr(fci, 1) == ":" {
+                        fptype = fps.substr(fci + 1, fps.len() - fci - 1);
+                        fci = fps.len();
+                    }
+                    fci = fci + 1;
+                }
+                if !fwd_first { fwd_params = fwd_params + ", "; }
+                fwd_params = fwd_params + cg_type(fptype);
+                fwd_first = false;
+                fpm = node_b[fpm];
+            }
+            if fn_name == "main" {
+                cg_emit("int main(int argc, char** argv);");
+            } else {
+                cg_emit(fn_ret_cpp + " " + fn_name + "(" + fwd_params + ");");
+            }
+        }
+        fwd = node_b[fwd];
+    }
+    cg_emit("");
+
+    // Emit top-level declarations
+    let mut decl: I32 = node_a[prog_idx];
+    while decl != 0 {
+        let d: I32 = node_a[decl];
+        if node_kinds[d] == NK_FUNC {
+            cg_gen_func(d);
+        }
+        if node_kinds[d] == NK_STRUCT_D {
+            cg_gen_struct(d);
+        }
+        if node_kinds[d] == NK_NODE {
+            cg_gen_node(d);
+        }
+        if node_kinds[d] == NK_CONST_D {
+            let val: Str = cg_gen_expr(node_a[d]);
+            cg_emit("constexpr auto " + node_str[d] + " = " + val + ";");
+        }
+        if node_kinds[d] == NK_LET {
+            let ginit: I32 = node_a[d];
+            let val: Str = cg_gen_expr(ginit);
+            // Check if initializer is an array literal
+            if ginit != 0 && node_kinds[ginit] == NK_ARRAY_LIT {
+                // Infer element type from first element
+                let mut elem_type: Str = "int32_t";
+                let first_elem: I32 = node_a[ginit];
+                if first_elem != 0 {
+                    let ek: I32 = node_kinds[node_a[first_elem]];
+                    if ek == NK_STR_LIT { elem_type = "std::string"; }
+                    if ek == NK_BOOL    { elem_type = "bool"; }
+                    if ek == NK_FLOAT   { elem_type = "float"; }
+                }
+                cg_emit("std::vector<" + elem_type + "> " + node_str[d] + " = " + val + ";");
+            } else {
+                // Use std::string for string literal initializers
+                if ginit != 0 && (node_kinds[ginit] == NK_STR_LIT || node_kinds[ginit] == NK_FSTR) {
+                    cg_emit("std::string " + node_str[d] + " = " + val + ";");
+                } else {
+                    cg_emit("auto " + node_str[d] + " = " + val + ";");
+                }
+            }
+        }
+        if node_kinds[d] == NK_INCLUDE_D {
+            let path: Str = node_str[d];
+            if path == "engine" {
+                cg_is_engine = true;
+            } else {
+                // Pass through C/C++ includes: #include "file.h" or #include <header>
+                if path.ends(".h") || path.ends(".hpp") || path.ends(".hh") {
+                    cg_emit_raw("#include \"" + path + "\"");
+                }
+            }
+        }
+        // Extern declarations: extern "C" func name(params) -> ret;
+        if node_kinds[d] == NK_EXTERN {
+            cg_gen_extern(d);
+        }
+        decl = node_b[decl];
+    }
+
+    // Build output string line by line
+    let mut out: Str = "";
+    let mut i: I32 = 1;
+    while i < cg_lines.len() {
+        out = out + cg_lines[i] + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+// ── Write C++ output to file ─────────────────────────────────────────────
+func cg_write_to_file(path: Str) -> Bool {
+    let first_result: Result<Str> = File.write(path, "");
+    if !first_result.ok { return false; }
+    let mut i: I32 = 1;
+    while i < cg_lines.len() {
+        let line: Str = cg_lines[i] + "\n";
+        let r: Result<Str> = File.append(path, line);
+        if !r.ok { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+
+// ===== END CODEGEN =====
+
+// ── Usage help ───────────────────────────────────────────────────────────
+func print_usage() {
+    Print("KonScript compiler v0.1 - self-hosted");
     Print("");
+    Print("Usage: konscript [options] <file.ks>");
+    Print("");
+    Print("Options:");
+    Print("  -o <file>        Output file name (default: input stem)");
+    Print("  -I<dir>          Add include search directory");
+    Print("  -L<dir>          Add library search directory");
+    Print("  -l<lib>          Link library (e.g. -lSDL2)");
+    Print("  --cpp            Output C++ source only (don't compile)");
+    Print("  --no-stdlib      Don't link KonScript runtime (for OS dev)");
+    Print("  --help, -h       Show this help");
+    Print("");
+    Print("Examples:");
+    Print("  konscript game.ks                        Compile to native binary");
+    Print("  konscript game.ks -o mygame              Custom output name");
+    Print("  konscript --cpp game.ks -o game.cpp      Emit C++ only");
+    Print("  konscript app.ks -I/usr/include/SDL2 -lSDL2");
+    Print("  konscript kernel.ks --no-stdlib          Bare-metal (OS dev)");
+    Print("  konscript app.ks -I/usr/include/qt6 -lQt6Widgets -lQt6Core");
+}
 
-    let path_result: Result<Str> = File.read(".ks_input");
-    if !path_result.ok {
-        Print("Usage: echo 'path/to/file.ks' > .ks_input && ./konscript1");
+func main() -> I32 {
+    // ── Parse command-line arguments ─────────────────────────────────────
+    let arg_count: I32 = _ks_argc();
+
+    let mut input_file: Str = "";
+    let mut output_file: Str = "";
+    let mut extra_includes: [Str] = [""];
+    let mut extra_libdirs: [Str] = [""];
+    let mut extra_libs: [Str] = [""];
+    let mut cpp_only: Bool = false;
+    let mut no_stdlib: Bool = false;
+    extra_includes.clear();
+    extra_libdirs.clear();
+    extra_libs.clear();
+
+    // If no args, fall back to .ks_input file (backwards compatible)
+    if arg_count < 2 {
+        let path_result: Result<Str> = File.read(".ks_input");
+        if !path_result.ok {
+            print_usage();
+            return 1;
+        }
+        input_file = path_result.value.trim();
+    } else {
+        // Parse CLI flags
+        let mut i: I32 = 1;
+        while i < arg_count {
+            let arg: Str = _ks_get_argv(i);
+            if arg == "--help" || arg == "-h" { print_usage(); return 0; }
+            if arg == "--cpp" { cpp_only = true; i = i + 1; continue; }
+            if arg == "--no-stdlib" { no_stdlib = true; i = i + 1; continue; }
+            if arg == "-o" && i + 1 < arg_count {
+                i = i + 1;
+                output_file = _ks_get_argv(i);
+                i = i + 1;
+                continue;
+            }
+            // -Idir or -I dir
+            if arg.starts("-I") {
+                if arg.len() > 2 {
+                    extra_includes.push(arg.substr(2, arg.len() - 2));
+                } else {
+                    if i + 1 < arg_count { i = i + 1; extra_includes.push(_ks_get_argv(i)); }
+                }
+                i = i + 1;
+                continue;
+            }
+            // -Ldir or -L dir
+            if arg.starts("-L") {
+                if arg.len() > 2 {
+                    extra_libdirs.push(arg.substr(2, arg.len() - 2));
+                } else {
+                    if i + 1 < arg_count { i = i + 1; extra_libdirs.push(_ks_get_argv(i)); }
+                }
+                i = i + 1;
+                continue;
+            }
+            // -llib or -l lib
+            if arg.starts("-l") {
+                if arg.len() > 2 {
+                    extra_libs.push(arg.substr(2, arg.len() - 2));
+                } else {
+                    if i + 1 < arg_count { i = i + 1; extra_libs.push(_ks_get_argv(i)); }
+                }
+                i = i + 1;
+                continue;
+            }
+            // Positional argument: input file
+            if !arg.starts("-") && input_file.len() == 0 {
+                input_file = arg;
+            }
+            i = i + 1;
+        }
+    }
+
+    if input_file.len() == 0 {
+        Print("error: no input file specified");
+        print_usage();
         return 1;
     }
 
-    let input_path: Str = path_result.value.trim();
-    if input_path.len() == 0 {
-        Print("error: .ks_input is empty");
-        return 1;
+    // Derive output name from input if not specified
+    if output_file.len() == 0 {
+        // Strip .ks extension and path
+        let mut stem: Str = input_file;
+        // Remove directory path
+        let mut last_slash: I32 = -1;
+        let mut si: I32 = 0;
+        while si < stem.len() {
+            if stem.substr(si, 1) == "/" { last_slash = si; }
+            si = si + 1;
+        }
+        if last_slash >= 0 { stem = stem.substr(last_slash + 1, stem.len() - last_slash - 1); }
+        // Remove .ks extension
+        if stem.ends(".ks") { stem = stem.substr(0, stem.len() - 3); }
+        if cpp_only {
+            output_file = stem + ".cpp";
+        } else {
+            output_file = stem;
+        }
     }
 
-    let src_result: Result<Str> = File.read(input_path);
+    // ── Read source file ────────────────────────────────────────────────
+    let src_result: Result<Str> = File.read(input_file);
     if !src_result.ok {
-        Print("error: cannot read '", input_path, "': ", src_result.error);
+        Print("error: cannot read '", input_file, "'");
         return 1;
     }
-
     let src: Str = src_result.value;
 
+    // ── Compile ─────────────────────────────────────────────────────────
     Print("Lexing...");
     let ntoks: I32 = lex(src);
     Print("Tokens:   ", ntoks);
@@ -2929,55 +4495,117 @@ func main() -> I32 {
     typecheck(prog);
     Print("Functions:", fn_count);
 
-    Print("Generating IR...");
-    irgen(prog);
+    Print("Generating C++...");
+    let mut cpp_path: Str = "/tmp/konscript_out.cpp";
+    if cpp_only { cpp_path = output_file; }
 
-    let out_path: Str = "/tmp/konscript_out.ll";
-
-    // Write IR line-by-line to avoid f-string buffer limits
-    let wrote_ok: Bool = ir_write_to_file(out_path);
-    if !wrote_ok {
-        Print("error: cannot write IR to ", out_path);
+    cg_generate(prog);
+    let cg_ok: Bool = cg_write_to_file(cpp_path);
+    if !cg_ok {
+        Print("error: cannot write C++ to ", cpp_path);
         return 1;
     }
 
-    Print("IR lines: ", ir_lines.len());
-    Print("Written:  ", out_path);
+    Print("C++ lines:", cg_lines.len());
+    Print("Written:  ", cpp_path);
 
-    // ── Compile IR to native binary ─────────────────────────────────────
-    let obj_path: Str = "/tmp/konscript_out.o";
-    let rt_obj: Str   = "/tmp/_ks_runtime.o";
-    let bin_path: Str = "/tmp/konscript_output";
-
-    // Step 1: llc — compile .ll to .o
-    Print("Compiling IR...");
-    let llc_cmd: Str = "llc -filetype=obj -relocation-model=pic -o " + obj_path + " " + out_path;
-    let llc_ret: I32 = _ks_system(llc_cmd);
-    if llc_ret != 0 {
-        Print("error: llc failed (exit ", llc_ret, ")");
-        return 1;
+    // If --cpp mode, we're done
+    if cpp_only {
+        Print("");
+        Print("  ok ", output_file);
+        Print("");
+        return 0;
     }
 
-    // Step 2: compile runtime
-    Print("Compiling runtime...");
-    let rt_cmd: Str = "clang -c -fPIC _ks_runtime.c -o " + rt_obj;
-    let rt_ret: I32 = _ks_system(rt_cmd);
-    if rt_ret != 0 {
-        Print("error: runtime compilation failed (exit ", rt_ret, ")");
-        return 1;
+    // ── Compile C++ to native binary ────────────────────────────────────
+    let rt_obj: Str = "/tmp/_ks_runtime.o";
+
+    // Compile runtime (unless --no-stdlib)
+    if !no_stdlib {
+        Print("Compiling runtime...");
+        let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+        let rt_ret: I32 = _ks_system(rt_cmd);
+        if rt_ret != 0 {
+            let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+            _ks_system(rt_cmd2);
+        }
     }
 
-    // Step 3: link
-    Print("Linking...");
-    let link_cmd: Str = "clang " + obj_path + " " + rt_obj + " -o " + bin_path + " -lm";
-    let link_ret: I32 = _ks_system(link_cmd);
-    if link_ret != 0 {
-        Print("error: linking failed (exit ", link_ret, ")");
-        return 1;
+    // Build compilation command
+    let mut cxx_flags: Str = "g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
+    let mut link_flags: Str = "";
+
+    // Add user -I flags
+    let mut ii: I32 = 0;
+    while ii < extra_includes.len() {
+        cxx_flags = cxx_flags + " -I" + extra_includes[ii];
+        ii = ii + 1;
+    }
+
+    // Add user -L flags
+    let mut li: I32 = 0;
+    while li < extra_libdirs.len() {
+        link_flags = link_flags + " -L" + extra_libdirs[li];
+        li = li + 1;
+    }
+
+    // Add user -l flags
+    let mut ki: I32 = 0;
+    while ki < extra_libs.len() {
+        link_flags = link_flags + " -l" + extra_libs[ki];
+        ki = ki + 1;
+    }
+
+    // Engine mode: auto-detect and add engine paths
+    if cg_is_engine {
+        let mut engine_dir: Str = "";
+        if File.exists("toolchain/engine/linux64/libKonEngine.a") {
+            engine_dir = "toolchain/engine/linux64";
+        }
+        if engine_dir.len() == 0 && File.exists("../tools/KonScript/toolchain/engine/linux64/libKonEngine.a") {
+            engine_dir = "../tools/KonScript/toolchain/engine/linux64";
+        }
+        if engine_dir.len() > 0 {
+            let inc: Str = engine_dir + "/include";
+            cxx_flags = cxx_flags + " -I" + inc;
+            cxx_flags = cxx_flags + " -I" + inc + "/glad/include";
+            cxx_flags = cxx_flags + " -I" + inc + "/stb";
+            if File.exists(inc + "/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I" + inc + "/glm"; }
+            if File.exists("../../libs/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I../../libs/glm"; }
+            link_flags = link_flags + " " + engine_dir + "/libKonEngine.a";
+            if File.exists(engine_dir + "/libglfw3.a") {
+                link_flags = link_flags + " " + engine_dir + "/libglfw3.a";
+            } else {
+                link_flags = link_flags + " -lglfw";
+            }
+            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+        } else {
+            Print("warning: engine toolchain not found — run build-engine-lib.sh");
+            link_flags = link_flags + " -lglfw -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+        }
+    }
+
+    // Always add -lm
+    link_flags = link_flags + " -lm";
+
+    // Build final command
+    let mut compile_src: Str = cpp_path;
+    if !no_stdlib { compile_src = compile_src + " " + rt_obj; }
+
+    Print("Compiling...");
+    let cxx_cmd: Str = cxx_flags + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
+    let cxx_ret: I32 = _ks_system(cxx_cmd);
+    if cxx_ret != 0 {
+        let cxx_cmd2: Str = "clang++ -std=c++17 -O2 -DGLM_FORCE_PURE -o " + output_file + " " + compile_src + link_flags + " 2>&1";
+        let cxx_ret2: I32 = _ks_system(cxx_cmd2);
+        if cxx_ret2 != 0 {
+            Print("error: compilation failed");
+            return 1;
+        }
     }
 
     Print("");
-    Print("  ✓ ", bin_path);
+    Print("  ok ", output_file);
     Print("");
     return 0;
 }

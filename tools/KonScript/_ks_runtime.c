@@ -2,6 +2,7 @@
 // Implements the stdlib functions declared in irgen's emitRuntimeDecls().
 // Compiled once: clang -c _ks_runtime.c -o _ks_runtime.o
 // Linked with every native KonScript binary.
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,12 +13,12 @@
 typedef struct { int ok; char* value; char* error; } _KsResult;
 
 static _KsResult* _ks_result_ok_val(char* v) {
-    _KsResult* r = malloc(sizeof(_KsResult));
+    _KsResult* r = calloc(1, sizeof(_KsResult));
     r->ok = 1; r->value = v ? strdup(v) : strdup(""); r->error = strdup("");
     return r;
 }
 static _KsResult* _ks_result_err_val(const char* e) {
-    _KsResult* r = malloc(sizeof(_KsResult));
+    _KsResult* r = calloc(1, sizeof(_KsResult));
     r->ok = 0; r->value = strdup(""); r->error = strdup(e);
     return r;
 }
@@ -59,9 +60,10 @@ void* _ks_file_delete(const char* path) {
 // ── String methods ────────────────────────────────────────────────────────────
 int   _ks_str_len(const char* s)       { return s ? (int)strlen(s) : 0; }
 int   _ks_str_isEmpty(const char* s)   { return !s || *s == '\0'; }
-int   _ks_str_contains(const char* s, const char* sub) { return strstr(s, sub) != NULL; }
-int   _ks_str_starts(const char* s, const char* p)     { return strncmp(s, p, strlen(p)) == 0; }
+int   _ks_str_contains(const char* s, const char* sub) { if (!s || !sub) return 0; return strstr(s, sub) != NULL; }
+int   _ks_str_starts(const char* s, const char* p)     { if (!s || !p) return 0; return strncmp(s, p, strlen(p)) == 0; }
 int   _ks_str_ends(const char* s, const char* e) {
+    if (!s || !e) return 0;
     size_t sl = strlen(s), el = strlen(e);
     return sl >= el && strcmp(s + sl - el, e) == 0;
 }
@@ -94,7 +96,16 @@ char* _ks_str_replace(const char* s, const char* from, const char* to) {
     *w = '\0'; return r;
 }
 char* _ks_str_substr(const char* s, int pos, int len) {
-    char* r = malloc(len + 1); memcpy(r, s + pos, len); r[len] = '\0'; return r;
+    if (!s) return strdup("");
+    int slen = (int)strlen(s);
+    if (pos < 0) pos = 0;
+    if (pos > slen) pos = slen;
+    if (len < 0) len = 0;
+    if (pos + len > slen) len = slen - pos;
+    char* r = malloc(len + 1);
+    if (len > 0) memcpy(r, s + pos, len);
+    r[len] = '\0';
+    return r;
 }
 /* Avoid atoi/strtol/strtod: all redirected to __isoc23_* on glibc 2.38+
    which is not present in the bundled musl sysroot. Hand-roll instead. */
@@ -158,6 +169,12 @@ void* _ks_array_get(void* arr, int idx) {
     _KsArray* a = arr;
     if (idx < 0 || idx >= a->len) return NULL;
     return a->data[idx];
+}
+
+void _ks_array_set(void* arr, int idx, void* val) {
+    _KsArray* a = arr;
+    if (idx >= 0 && idx < a->len)
+        a->data[idx] = val;
 }
 
 void _ks_array_clear(void* arr) {
@@ -241,10 +258,14 @@ int _ks_hashmap_len(void* map)  { return map ? ((_KsMap*)map)->len : 0; }
 char* _ks_str_concat(const char* a, const char* b) {
     if (!a) a = "";
     if (!b) b = "";
-    size_t la = strlen(a), lb = strlen(b);
+    // Validate pointers before strlen (crash guard)
+    size_t la = 0, lb = 0;
+    // Use volatile reads to check for truly invalid pointers
+    la = strlen(a);
+    lb = strlen(b);
     char* r = malloc(la + lb + 1);
-    memcpy(r, a, la);
-    memcpy(r + la, b, lb);
+    if (la > 0) memcpy(r, a, la);
+    if (lb > 0) memcpy(r + la, b, lb);
     r[la + lb] = '\0';
     return r;
 }
@@ -344,4 +365,20 @@ void _ks_closure_free(void* c) {
     _KsClosure* cl = c;
     if (cl->env) free(cl->env);
     free(cl);
+}
+
+// ── Command-line arguments ──────────────────────────────────────────────────
+static int _ks_argc_val = 0;
+static char** _ks_argv_val = NULL;
+
+void _ks_init_args(int argc, char** argv) {
+    _ks_argc_val = argc;
+    _ks_argv_val = argv;
+}
+
+int _ks_argc() { return _ks_argc_val; }
+
+char* _ks_get_argv(int idx) {
+    if (idx < 0 || idx >= _ks_argc_val || !_ks_argv_val) return "";
+    return _ks_argv_val[idx] ? _ks_argv_val[idx] : "";
 }

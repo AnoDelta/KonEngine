@@ -46,9 +46,9 @@ public:
         }
         static Target windows64() {
             return {
-                "x86_64-pc-windows-msvc19.0.0",
+                "x86_64-w64-windows-gnu",
                 "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128",
-                "opengl32.lib gdi32.lib winmm.lib user32.lib kernel32.lib"
+                "-lopengl32 -lgdi32 -lwinmm -luser32 -lkernel32"
             };
         }
         static Target wasm32() {
@@ -516,6 +516,7 @@ private:
         emit("declare i8* @_ks_array_get(i8*, i32)");
         emit("declare i1  @_ks_array_has(i8*, i8*)");
         emit("declare void @_ks_array_clear(i8*)");
+        emit("declare void @_ks_array_set(i8*, i32, i8*)");
         emit("declare i32  @_ks_str_compare(i8*, i8*)");
         emit("declare i8*  @strdup(i8*)");
         emit("declare i8* @_ks_hashmap_new()");
@@ -524,6 +525,9 @@ private:
         emit("declare i1  @_ks_hashmap_has(i8*, i8*)");
         emit("declare i32 @_ks_hashmap_len(i8*)");
         emit("declare i32  @_ks_system(i8*)");
+        emit("declare i32  @_ks_argc()");
+        emit("declare i8*  @_ks_get_argv(i32)");
+        emit("declare void @_ks_init_args(i32, i8**)");
         emit("");
     }
 
@@ -861,12 +865,25 @@ private:
     // -----------------------------------------------------------------------
     // Alloca helper — allocates stack space for a local variable
     // -----------------------------------------------------------------------
+    // Zero-initialize an alloca to prevent uninitialized memory bugs
+    void zeroInitAlloca(const std::string& reg, const std::string& lt) {
+        if (lt == "i8*")         emitI("store i8* null, i8** " + reg);
+        else if (lt == "i32")    emitI("store i32 0, i32* " + reg);
+        else if (lt == "i64")    emitI("store i64 0, i64* " + reg);
+        else if (lt == "i1")     emitI("store i1 0, i1* " + reg);
+        else if (lt == "i8")     emitI("store i8 0, i8* " + reg);
+        else if (lt == "i16")    emitI("store i16 0, i16* " + reg);
+        else if (lt == "float")  emitI("store float 0.0, float* " + reg);
+        else if (lt == "double") emitI("store double 0.0, double* " + reg);
+    }
+
     void allocaParam(const std::string& name, const TypeAnnotation& type) {
         std::string lt  = llvmType(type);
         std::string reg = "%" + name + ".addr";
         if (m_locals.count(name))
             reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
+        zeroInitAlloca(reg, lt);
         std::string ks = type.isArray ? "Array" : type.base;
         m_locals[name] = {reg, lt, ks};
     }
@@ -877,6 +894,7 @@ private:
         if (m_locals.count(name))
             reg = "%" + name + ".addr." + std::to_string(m_tmpCount);
         emitI(reg + " = alloca " + lt);
+        zeroInitAlloca(reg, lt);
         // ksTy: use "Array" for arrays, "HashMap" stays as-is, otherwise base
         std::string ks = type.isArray ? "Array" : type.base;
         m_locals[name] = {reg, lt, ks};
@@ -1816,6 +1834,27 @@ private:
                 }
                 emitI("store " + gepTy + " " + storeVal + ", " + gepTy + "* " + gepPtr);
             }
+            return {val, lt};
+        } else if (e->target->kind == Expr::Kind::Index) {
+            // arr[i] = val  →  _ks_array_set(arr, i, val)
+            auto* idx = static_cast<const IndexExpr*>(e->target.get());
+            auto [arrV, arrT] = genExpr(idx->object.get());
+            auto [idxV, idxT] = genExpr(idx->index.get());
+            // Coerce value to i8* for _ks_array_set
+            std::string valPtr = val;
+            if (lt != "i8*") {
+                std::string cvt = tmp();
+                emitI(cvt + " = inttoptr " + lt + " " + val + " to i8*");
+                valPtr = cvt;
+            }
+            // Coerce index to i32
+            std::string idxI32 = idxV;
+            if (idxT == "i64") {
+                std::string cvt = tmp();
+                emitI(cvt + " = trunc i64 " + idxV + " to i32");
+                idxI32 = cvt;
+            }
+            emitI("call void @_ks_array_set(i8* " + arrV + ", i32 " + idxI32 + ", i8* " + valPtr + ")");
             return {val, lt};
         } else {
             // truly unsupported — downgrade to warning so IR is still emitted
