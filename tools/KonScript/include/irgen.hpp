@@ -523,6 +523,7 @@ private:
         emit("declare i8* @_ks_hashmap_get(i8*, i8*)");
         emit("declare i1  @_ks_hashmap_has(i8*, i8*)");
         emit("declare i32 @_ks_hashmap_len(i8*)");
+        emit("declare i32  @_ks_system(i8*)");
         emit("");
     }
 
@@ -2549,24 +2550,23 @@ private:
             }
         }
 
-        // Stack buffer — 512 bytes (temporary for snprintf)
+        // Heap buffer — 64 KB (handles large f-string concatenations)
+        std::string bufSize = "65536";
         std::string bufReg = tmp();
-        emitI(bufReg + " = alloca [512 x i8]");
-        std::string ptrReg = tmp();
-        emitI(ptrReg + " = getelementptr inbounds [512 x i8], [512 x i8]* "
-              + bufReg + ", i32 0, i32 0");
+        emitI(bufReg + " = call i8* @malloc(i64 " + bufSize + ")");
 
         std::string fmtPtr = globalString(fmtStr);
-        std::string snArgs = "i8* " + ptrReg + ", i64 512, i8* " + fmtPtr;
+        std::string snArgs = "i8* " + bufReg + ", i64 " + bufSize + ", i8* " + fmtPtr;
         for (auto& [v, t] : exprVals)
             snArgs += ", " + t + " " + v;
 
         std::string callReg = tmp();
         emitI(callReg + " = call i32 (i8*, i64, i8*, ...) @snprintf(" + snArgs + ")");
 
-        // Copy to heap so the result survives beyond the current stack frame
+        // strdup the buffer so we can free the 64KB malloc
         std::string heapReg = tmp();
-        emitI(heapReg + " = call i8* @strdup(i8* " + ptrReg + ")");
+        emitI(heapReg + " = call i8* @strdup(i8* " + bufReg + ")");
+        emitI("call void @free(i8* " + bufReg + ")");
 
         return {heapReg, "i8*"};
     }
