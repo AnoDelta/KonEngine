@@ -378,13 +378,6 @@ double _ks_time_ms() {
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
 }
 
-// ── Float to string ─────────────────────────────────────────────────────────
-// Formats a float with 1 decimal place, returns heap-allocated string.
-char* _ks_fmt_float1(double v) {
-    char* buf = malloc(32);
-    snprintf(buf, 32, "%.1f", v);
-    return buf;
-}
 
 // ── Command-line arguments ──────────────────────────────────────────────────
 static int _ks_argc_val = 0;

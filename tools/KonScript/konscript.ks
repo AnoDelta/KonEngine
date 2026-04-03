@@ -1655,7 +1655,6 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
     tc_def_fn("_ks_time_ms", "F64");
-    tc_def_fn("_ks_fmt_float1", "Str");
     tc_def_fn("_ks_argc", "I32");
     tc_def_fn("_ks_get_argv", "Str");
     tc_def_fn("_ks_init_args", "void");
@@ -3462,7 +3461,6 @@ func cg_gen_expr(idx: I32) -> Str {
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
-            if fname == "_ks_fmt_float1"  { return "std::string(_ks_fmt_float1(" + args + "))"; }
             // Check engine function mapping table
             let mapped: Str = cg_engine_func(fname);
             if mapped.len() > 0 {
@@ -4205,7 +4203,6 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("int _ks_argc();");
     cg_emit_raw("char* _ks_get_argv(int);");
     cg_emit_raw("double _ks_time_ms();");
-    cg_emit_raw("char* _ks_fmt_float1(double);");
     cg_emit_raw("}");
     cg_emit_raw("");
     // C++ wrappers that accept std::string
@@ -4385,29 +4382,39 @@ func pad_name(name: Str, width: I32) -> Str {
 }
 
 func format_ms(ms: F64) -> Str {
-    if ms < 1000.0 {
-        return _ks_fmt_float1(ms) + "ms";
+    let ims: I32 = ms as I32;
+    if ims < 1000 {
+        return _ks_int_to_str(ims) + "ms";
     }
-    return _ks_fmt_float1(ms / 1000.0) + "s";
+    let secs: I32 = ims / 1000;
+    let sfrac: I32 = (ims - secs * 1000) / 100;
+    return _ks_int_to_str(secs) + "." + _ks_int_to_str(sfrac) + "s";
 }
 
 func stage_doing(step: I32, total: I32, name: Str) {
-    let s: Str = _ks_int_to_str(step);
-    let t: Str = _ks_int_to_str(total);
+    let hdr: Str = "[" + _ks_int_to_str(step) + "/" + _ks_int_to_str(total) + "]";
     let n: Str = pad_name(name, 16);
-    _ks_system("printf '\\033[2m[" + s + "/" + t + "]\\033[0m \\033[1m" + n + "\\033[0m \\033[33m\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\033[0m  ...\\r'");
+    // Multiple small calls — avoids heap pressure in LLVM-compiled binaries
+    _ks_system("printf '\\033[2m" + hdr + "\\033[0m '");
+    _ks_system("printf '\\033[1m" + n + "\\033[0m '");
+    _ks_system("printf '\\033[33m\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\033[0m'");
+    _ks_system("printf '  ...\\r'");
 }
 
 func stage_ok(step: I32, total: I32, name: Str, ms: F64) {
-    let s: Str = _ks_int_to_str(step);
-    let t: Str = _ks_int_to_str(total);
+    let hdr: Str = "[" + _ks_int_to_str(step) + "/" + _ks_int_to_str(total) + "]";
     let n: Str = pad_name(name, 16);
     let ts: Str = format_ms(ms);
-    _ks_system("printf '\\r\\033[2m[" + s + "/" + t + "]\\033[0m \\033[1m" + n + "\\033[0m \\033[32m\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\033[0m  \\033[2m" + ts + "\\033[0m\\n'");
+    _ks_system("printf '\\r\\033[2m" + hdr + "\\033[0m '");
+    _ks_system("printf '\\033[1m" + n + "\\033[0m '");
+    _ks_system("printf '\\033[32m\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\033[0m'");
+    _ks_system("printf '  \\033[2m" + ts + "\\033[0m\\n'");
 }
 
 func print_success(path: Str) {
-    _ks_system("printf '\\n  \\033[1m\\033[32m\\xe2\\x9c\\x93\\033[0m \\033[1m" + path + "\\033[0m  \\033[2m[linux64]\\033[0m\\n\\n'");
+    _ks_system("printf '\\n  \\033[1m\\033[32m\\xe2\\x9c\\x93\\033[0m '");
+    _ks_system("printf '\\033[1m" + path + "\\033[0m  '");
+    _ks_system("printf '\\033[2m[linux64]\\033[0m\\n\\n'");
 }
 
 func print_usage() {
@@ -4546,28 +4553,22 @@ func main() -> I32 {
     // ── Compile ─────────────────────────────────────────────────────────
     let mut total_steps: I32 = 5;
     if cpp_only { total_steps = 4; }
-    // use_bars: true when invoked with CLI args (Stage 2+)
-    // Stage 1 (LLVM path, reads .ks_input) has arg_count < 2 → simple Print
-    let use_bars: Bool = arg_count >= 2;
+    let has_cli: Bool = arg_count >= 2;
     let mut t0: F64 = 0.0;
 
-    if use_bars { t0 = _ks_time_ms(); stage_doing(1, total_steps, "Lexing"); }
-    if !use_bars { Print("Lexing..."); }
+    if has_cli { stage_doing(1, total_steps, "Lexing"); t0 = _ks_time_ms(); }
     let ntoks: I32 = lex(src);
-    if use_bars { stage_ok(1, total_steps, "Lexing", _ks_time_ms() - t0); }
+    if has_cli { stage_ok(1, total_steps, "Lexing", _ks_time_ms() - t0); }
 
-    if use_bars { t0 = _ks_time_ms(); stage_doing(2, total_steps, "Parsing"); }
-    if !use_bars { Print("Parsing..."); }
+    if has_cli { stage_doing(2, total_steps, "Parsing"); t0 = _ks_time_ms(); }
     let prog: I32 = parse(ntoks);
-    if use_bars { stage_ok(2, total_steps, "Parsing", _ks_time_ms() - t0); }
+    if has_cli { stage_ok(2, total_steps, "Parsing", _ks_time_ms() - t0); }
 
-    if use_bars { t0 = _ks_time_ms(); stage_doing(3, total_steps, "Type checking"); }
-    if !use_bars { Print("Type checking..."); }
+    if has_cli { stage_doing(3, total_steps, "Type checking"); t0 = _ks_time_ms(); }
     typecheck(prog);
-    if use_bars { stage_ok(3, total_steps, "Type checking", _ks_time_ms() - t0); }
+    if has_cli { stage_ok(3, total_steps, "Type checking", _ks_time_ms() - t0); }
 
-    if use_bars { t0 = _ks_time_ms(); stage_doing(4, total_steps, "Transpiling"); }
-    if !use_bars { Print("Transpiling..."); }
+    if has_cli { stage_doing(4, total_steps, "Transpiling"); t0 = _ks_time_ms(); }
     let mut cpp_path: Str = "/tmp/konscript_out.cpp";
     if cpp_only { cpp_path = output_file; }
 
@@ -4577,18 +4578,16 @@ func main() -> I32 {
         Print("error: cannot write C++ to ", cpp_path);
         return 1;
     }
-    if use_bars { stage_ok(4, total_steps, "Transpiling", _ks_time_ms() - t0); }
+    if has_cli { stage_ok(4, total_steps, "Transpiling", _ks_time_ms() - t0); }
 
     // If --cpp mode, we're done
     if cpp_only {
-        if use_bars { print_success(output_file); }
-        if !use_bars { Print("  ok ", output_file); }
+        if has_cli { print_success(output_file); }
         return 0;
     }
 
     // ── Compile C++ to native binary ────────────────────────────────────
-    if use_bars { t0 = _ks_time_ms(); stage_doing(5, total_steps, "Linking"); }
-    if !use_bars { Print("Linking..."); }
+    if has_cli { stage_doing(5, total_steps, "Linking"); t0 = _ks_time_ms(); }
     let rt_obj: Str = "/tmp/_ks_runtime.o";
 
     // Compile runtime (unless --no-stdlib)
@@ -4674,10 +4673,9 @@ func main() -> I32 {
         }
     }
 
-    if use_bars { stage_ok(5, total_steps, "Linking", _ks_time_ms() - t0); }
+    if has_cli { stage_ok(5, total_steps, "Linking", _ks_time_ms() - t0); }
 
-    if use_bars { print_success(output_file); }
-    if !use_bars { Print("  ok ", output_file); }
+    if has_cli { print_success(output_file); }
     return 0;
 }
 
