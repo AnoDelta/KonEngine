@@ -378,38 +378,12 @@ double _ks_time_ms() {
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
 }
 
-// ── Progress bar output ─────────────────────────────────────────────────────
-// step/total: e.g. 1/5
-// name: stage name (e.g. "Lexing")
-// done: 0 = in progress (yellow ░), 1 = completed (green ▓)
-// ms: elapsed time in ms (only shown when done=1)
-void _ks_stage_bar(int step, int total, const char* name, int done, double ms) {
-    char padded[32];
-    snprintf(padded, sizeof(padded), "%-16s", name);
-
-    if (done) {
-        // Format time
-        char timebuf[32];
-        if (ms < 1000.0)
-            snprintf(timebuf, sizeof(timebuf), "%.1fms", ms);
-        else
-            snprintf(timebuf, sizeof(timebuf), "%.1fs", ms / 1000.0);
-
-        fprintf(stderr, "\r\033[2m[%d/%d]\033[0m \033[1m%s\033[0m \033[32m", step, total, padded);
-        for (int i = 0; i < 20; i++) fprintf(stderr, "\xe2\x96\x93");
-        fprintf(stderr, "\033[0m  \033[2m%s\033[0m\n", timebuf);
-    } else {
-        fprintf(stderr, "\033[2m[%d/%d]\033[0m \033[1m%s\033[0m \033[33m", step, total, padded);
-        for (int i = 0; i < 20; i++) fprintf(stderr, "\xe2\x96\x91");
-        fprintf(stderr, "\033[0m  ...\r");
-    }
-    fflush(stderr);
-}
-
-// Print the success checkmark line
-void _ks_print_success(const char* path) {
-    fprintf(stderr, "\n  \033[1m\033[32m\xe2\x9c\x93\033[0m \033[1m%s\033[0m  \033[2m[linux64]\033[0m\n\n", path);
-    fflush(stderr);
+// ── Float to string ─────────────────────────────────────────────────────────
+// Formats a float with 1 decimal place, returns heap-allocated string.
+char* _ks_fmt_float1(double v) {
+    char* buf = malloc(32);
+    snprintf(buf, 32, "%.1f", v);
+    return buf;
 }
 
 // ── Command-line arguments ──────────────────────────────────────────────────

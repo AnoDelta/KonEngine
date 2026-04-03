@@ -1,23 +1,34 @@
 // ---------------------------------------------------------------------------
 // konscript.ks — the KonScript compiler, written in KonScript
 //
-// Stage plan:
-//   Stage 0 — C++ compiler (src/main.cpp)       <- current
-//   Stage 1 — this file compiled by stage 0      <- IN PROGRESS
-//   Stage 2 — this file compiled by stage 1      <- goal (self-hosting)
+// Self-hosting bootstrap:
+//   Stage 0 — C++ bootstrap compiler (src/main.cpp)
+//   Stage 1 — compiled by Stage 0 via LLVM IR (no CLI, uses .ks_input)
+//   Stage 2 — compiled by Stage 1 via C++ codegen (has CLI args)
+//   Stage 3 — compiled by Stage 2 (self-hosted, verified)
+//   Stage 4 — compiled by Stage 3 (byte-identical to Stage 3)
 //
-// Progress:
-//   [x] Token constants
-//   [x] Lexer
-//   [ ] Parser
-//   [ ] Typechecker
-//   [ ] IRGen
+//   The installed binary is Stage 4. Stages 2+ produce identical binaries.
 //
-// Build stage 1:
-//   konscript --cpp konscript.ks -o konscript1.cpp
-//   clang++ -std=c++17 konscript1.cpp -o konscript1
-// Verify:
-//   ./konscript1 hello.ks  (should lex hello.ks and print tokens)
+// Implemented:
+//   [x] Token constants (TK_*)
+//   [x] Lexer (lex)
+//   [x] Parser (parse, parallel arrays)
+//   [x] Typechecker (typecheck, scope-based inference)
+//   [x] C++ Codegen (cg_generate, cg_write_to_file)
+//   [x] CLI flags (-o, -I, -L, -l, --cpp, --no-stdlib, --help)
+//   [x] Engine game compilation (node/scene/lifecycle)
+//   [x] FFI support (extern "C", inline asm)
+//   [x] Self-hosting (4-stage bootstrap, byte-identical)
+//   [x] Progress bars (pure KonScript, ANSI/Unicode)
+//   [x] Timing (_ks_time_ms, format_ms)
+//
+// Build:
+//   ./build.sh          # 5-stage bootstrap
+//   sudo ./install.sh   # install Stage 4 system-wide
+//
+// Self-compile:
+//   konscript konscript.ks -o konscript2   # produces identical binary
 // ---------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------
@@ -1644,11 +1655,15 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("tc_stmt", "void");
     tc_def_fn("_ks_system", "I32");
     tc_def_fn("_ks_time_ms", "F64");
-    tc_def_fn("_ks_stage_bar", "void");
-    tc_def_fn("_ks_print_success", "void");
+    tc_def_fn("_ks_fmt_float1", "Str");
     tc_def_fn("_ks_argc", "I32");
     tc_def_fn("_ks_get_argv", "Str");
     tc_def_fn("_ks_init_args", "void");
+    tc_def_fn("pad_name", "Str");
+    tc_def_fn("format_ms", "Str");
+    tc_def_fn("stage_doing", "void");
+    tc_def_fn("stage_ok", "void");
+    tc_def_fn("print_success", "void");
     tc_def_fn("print_usage", "void");
     tc_def_fn("_ks_int_to_str", "Str");
     // C++ codegen functions
@@ -3447,26 +3462,7 @@ func cg_gen_expr(idx: I32) -> Str {
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
-            if fname == "_ks_print_success" { return "_ks_print_success(_C(" + args + "))"; }
-            if fname == "_ks_stage_bar" {
-                // Args: step, total, name, done, ms
-                // Need to convert name (3rd arg) from std::string to const char*
-                let mut sb_args: Str = "";
-                let mut sb_arg: I32 = node_b[idx];
-                let mut sb_i: I32 = 0;
-                while sb_arg != 0 {
-                    if sb_i > 0 { sb_args = sb_args + ", "; }
-                    let sb_expr: Str = cg_gen_expr(node_a[sb_arg]);
-                    if sb_i == 2 {
-                        sb_args = sb_args + "_C(" + sb_expr + ")";
-                    } else {
-                        sb_args = sb_args + sb_expr;
-                    }
-                    sb_i = sb_i + 1;
-                    sb_arg = node_b[sb_arg];
-                }
-                return "_ks_stage_bar(" + sb_args + ")";
-            }
+            if fname == "_ks_fmt_float1"  { return "std::string(_ks_fmt_float1(" + args + "))"; }
             // Check engine function mapping table
             let mapped: Str = cg_engine_func(fname);
             if mapped.len() > 0 {
@@ -4209,8 +4205,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("int _ks_argc();");
     cg_emit_raw("char* _ks_get_argv(int);");
     cg_emit_raw("double _ks_time_ms();");
-    cg_emit_raw("void _ks_stage_bar(int, int, const char*, int, double);");
-    cg_emit_raw("void _ks_print_success(const char*);");
+    cg_emit_raw("char* _ks_fmt_float1(double);");
     cg_emit_raw("}");
     cg_emit_raw("");
     // C++ wrappers that accept std::string
@@ -4378,7 +4373,42 @@ func cg_write_to_file(path: Str) -> Bool {
 // ===== END CODEGEN =====
 
 // ── Usage help ───────────────────────────────────────────────────────────
-// ── Progress bar helpers (use C runtime for ANSI output) ─────────────────
+// ── Progress bar helpers (pure KonScript) ────────────────────────────────
+// Uses _ks_system("printf ...") for ANSI escape codes and Unicode blocks.
+// Each call is kept small to avoid string concat issues in the LLVM path.
+// Progress bar block characters are inlined in the functions below
+
+func pad_name(name: Str, width: I32) -> Str {
+    let mut s: Str = name;
+    while s.len() < width { s = s + " "; }
+    return s;
+}
+
+func format_ms(ms: F64) -> Str {
+    if ms < 1000.0 {
+        return _ks_fmt_float1(ms) + "ms";
+    }
+    return _ks_fmt_float1(ms / 1000.0) + "s";
+}
+
+func stage_doing(step: I32, total: I32, name: Str) {
+    let s: Str = _ks_int_to_str(step);
+    let t: Str = _ks_int_to_str(total);
+    let n: Str = pad_name(name, 16);
+    _ks_system("printf '\\033[2m[" + s + "/" + t + "]\\033[0m \\033[1m" + n + "\\033[0m \\033[33m\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\xe2\\x96\\x91\\033[0m  ...\\r'");
+}
+
+func stage_ok(step: I32, total: I32, name: Str, ms: F64) {
+    let s: Str = _ks_int_to_str(step);
+    let t: Str = _ks_int_to_str(total);
+    let n: Str = pad_name(name, 16);
+    let ts: Str = format_ms(ms);
+    _ks_system("printf '\\r\\033[2m[" + s + "/" + t + "]\\033[0m \\033[1m" + n + "\\033[0m \\033[32m\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\xe2\\x96\\x93\\033[0m  \\033[2m" + ts + "\\033[0m\\n'");
+}
+
+func print_success(path: Str) {
+    _ks_system("printf '\\n  \\033[1m\\033[32m\\xe2\\x9c\\x93\\033[0m \\033[1m" + path + "\\033[0m  \\033[2m[linux64]\\033[0m\\n\\n'");
+}
 
 func print_usage() {
     Print("KonScript compiler v0.1 - self-hosted");
@@ -4516,24 +4546,28 @@ func main() -> I32 {
     // ── Compile ─────────────────────────────────────────────────────────
     let mut total_steps: I32 = 5;
     if cpp_only { total_steps = 4; }
+    // use_bars: true when invoked with CLI args (Stage 2+)
+    // Stage 1 (LLVM path, reads .ks_input) has arg_count < 2 → simple Print
+    let use_bars: Bool = arg_count >= 2;
+    let mut t0: F64 = 0.0;
 
-    let mut t0: F64 = _ks_time_ms();
-    _ks_stage_bar(1, total_steps, "Lexing", 0, 0.0);
+    if use_bars { t0 = _ks_time_ms(); stage_doing(1, total_steps, "Lexing"); }
+    if !use_bars { Print("Lexing..."); }
     let ntoks: I32 = lex(src);
-    _ks_stage_bar(1, total_steps, "Lexing", 1, _ks_time_ms() - t0);
+    if use_bars { stage_ok(1, total_steps, "Lexing", _ks_time_ms() - t0); }
 
-    t0 = _ks_time_ms();
-    _ks_stage_bar(2, total_steps, "Parsing", 0, 0.0);
+    if use_bars { t0 = _ks_time_ms(); stage_doing(2, total_steps, "Parsing"); }
+    if !use_bars { Print("Parsing..."); }
     let prog: I32 = parse(ntoks);
-    _ks_stage_bar(2, total_steps, "Parsing", 1, _ks_time_ms() - t0);
+    if use_bars { stage_ok(2, total_steps, "Parsing", _ks_time_ms() - t0); }
 
-    t0 = _ks_time_ms();
-    _ks_stage_bar(3, total_steps, "Type checking", 0, 0.0);
+    if use_bars { t0 = _ks_time_ms(); stage_doing(3, total_steps, "Type checking"); }
+    if !use_bars { Print("Type checking..."); }
     typecheck(prog);
-    _ks_stage_bar(3, total_steps, "Type checking", 1, _ks_time_ms() - t0);
+    if use_bars { stage_ok(3, total_steps, "Type checking", _ks_time_ms() - t0); }
 
-    t0 = _ks_time_ms();
-    _ks_stage_bar(4, total_steps, "Transpiling", 0, 0.0);
+    if use_bars { t0 = _ks_time_ms(); stage_doing(4, total_steps, "Transpiling"); }
+    if !use_bars { Print("Transpiling..."); }
     let mut cpp_path: Str = "/tmp/konscript_out.cpp";
     if cpp_only { cpp_path = output_file; }
 
@@ -4543,17 +4577,18 @@ func main() -> I32 {
         Print("error: cannot write C++ to ", cpp_path);
         return 1;
     }
-    _ks_stage_bar(4, total_steps, "Transpiling", 1, _ks_time_ms() - t0);
+    if use_bars { stage_ok(4, total_steps, "Transpiling", _ks_time_ms() - t0); }
 
     // If --cpp mode, we're done
     if cpp_only {
-        _ks_print_success(output_file);
+        if use_bars { print_success(output_file); }
+        if !use_bars { Print("  ok ", output_file); }
         return 0;
     }
 
     // ── Compile C++ to native binary ────────────────────────────────────
-    t0 = _ks_time_ms();
-    _ks_stage_bar(5, total_steps, "Linking", 0, 0.0);
+    if use_bars { t0 = _ks_time_ms(); stage_doing(5, total_steps, "Linking"); }
+    if !use_bars { Print("Linking..."); }
     let rt_obj: Str = "/tmp/_ks_runtime.o";
 
     // Compile runtime (unless --no-stdlib)
@@ -4639,9 +4674,10 @@ func main() -> I32 {
         }
     }
 
-    _ks_stage_bar(5, total_steps, "Linking", 1, _ks_time_ms() - t0);
+    if use_bars { stage_ok(5, total_steps, "Linking", _ks_time_ms() - t0); }
 
-    _ks_print_success(output_file);
+    if use_bars { print_success(output_file); }
+    if !use_bars { Print("  ok ", output_file); }
     return 0;
 }
 
