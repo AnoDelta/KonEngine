@@ -1663,6 +1663,9 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("stage_doing", "void");
     tc_def_fn("stage_ok", "void");
     tc_def_fn("print_success", "void");
+    tc_def_fn("binary_dir", "Str");
+    tc_def_fn("cg_emit_fwd_decls", "void");
+    tc_def_fn("cg_emit_toplevel", "void");
     tc_def_fn("print_usage", "void");
     tc_def_fn("_ks_int_to_str", "Str");
     // C++ codegen functions
@@ -3291,6 +3294,7 @@ let mut cg_indent: I32 = 0;
 let mut cg_ptr_vars: [Str] = [""];      // variables that are pointers
 let mut cg_ptr_count: I32 = 0;
 let mut cg_is_engine: Bool = false;     // true if #include <engine> found
+let mut included_progs: [I32] = [0];   // AST indices of included .ks programs
 
 func cg_reset() {
     cg_lines.clear(); cg_lines.push("");
@@ -4106,6 +4110,64 @@ func cg_gen_node(idx: I32) {
 }
 
 // ── Main codegen entry point ─────────────────────────────────────────────
+func cg_emit_fwd_decls(pidx: I32) {
+    let mut fwd: I32 = node_a[pidx];
+    while fwd != 0 {
+        let fd: I32 = node_a[fwd];
+        if node_kinds[fd] == NK_FUNC {
+            let full_fn: Str = node_str[fd];
+            let fn_name: Str = func_name(full_fn);
+            let fn_ret: Str = func_ret(full_fn);
+            let fn_ret_cpp: Str = cg_type(fn_ret);
+            let mut fwd_params: Str = "";
+            let mut fpm: I32 = node_a[fd];
+            let mut fwd_first: Bool = true;
+            while fpm != 0 {
+                let fpn: I32 = node_a[fpm];
+                let fps: Str = node_str[fpn];
+                let mut fci: I32 = 0;
+                let mut fptype: Str = "";
+                while fci < fps.len() {
+                    if fps.substr(fci, 1) == ":" {
+                        fptype = fps.substr(fci + 1, fps.len() - fci - 1);
+                        fci = fps.len();
+                    }
+                    fci = fci + 1;
+                }
+                if !fwd_first { fwd_params = fwd_params + ", "; }
+                fwd_params = fwd_params + cg_type(fptype);
+                fwd_first = false;
+                fpm = node_b[fpm];
+            }
+            if fn_name == "main" {
+                cg_emit("int main(int argc, char** argv);");
+            } else {
+                cg_emit(fn_ret_cpp + " " + fn_name + "(" + fwd_params + ");");
+            }
+        }
+        fwd = node_b[fwd];
+    }
+}
+
+func cg_emit_toplevel(pidx: I32) {
+    let mut decl: I32 = node_a[pidx];
+    while decl != 0 {
+        let d: I32 = node_a[decl];
+        if node_kinds[d] == NK_FUNC {
+            let fn_name: Str = func_name(node_str[d]);
+            if fn_name != "main" { cg_gen_func(d); }
+        }
+        if node_kinds[d] == NK_STRUCT_D { cg_gen_struct(d); }
+        if node_kinds[d] == NK_NODE { cg_gen_node(d); }
+        if node_kinds[d] == NK_CONST_D {
+            let val: Str = cg_gen_expr(node_a[d]);
+            cg_emit("constexpr auto " + node_str[d] + " = " + val + ";");
+        }
+        if node_kinds[d] == NK_EXTERN { cg_gen_extern(d); }
+        decl = node_b[decl];
+    }
+}
+
 func cg_generate(prog_idx: I32) -> Str {
     cg_reset();
 
@@ -4244,43 +4306,7 @@ func cg_generate(prog_idx: I32) -> Str {
     cg_emit_raw("");
 
     // Forward declarations for all functions
-    let mut fwd: I32 = node_a[prog_idx];
-    while fwd != 0 {
-        let fd: I32 = node_a[fwd];
-        if node_kinds[fd] == NK_FUNC {
-            let full_fn: Str = node_str[fd];
-            let fn_name: Str = func_name(full_fn);
-            let fn_ret: Str = func_ret(full_fn);
-            let fn_ret_cpp: Str = cg_type(fn_ret);
-            // Build param signature
-            let mut fwd_params: Str = "";
-            let mut fpm: I32 = node_a[fd];
-            let mut fwd_first: Bool = true;
-            while fpm != 0 {
-                let fpn: I32 = node_a[fpm];
-                let fps: Str = node_str[fpn];
-                let mut fci: I32 = 0;
-                let mut fptype: Str = "";
-                while fci < fps.len() {
-                    if fps.substr(fci, 1) == ":" {
-                        fptype = fps.substr(fci + 1, fps.len() - fci - 1);
-                        fci = fps.len();
-                    }
-                    fci = fci + 1;
-                }
-                if !fwd_first { fwd_params = fwd_params + ", "; }
-                fwd_params = fwd_params + cg_type(fptype);
-                fwd_first = false;
-                fpm = node_b[fpm];
-            }
-            if fn_name == "main" {
-                cg_emit("int main(int argc, char** argv);");
-            } else {
-                cg_emit(fn_ret_cpp + " " + fn_name + "(" + fwd_params + ");");
-            }
-        }
-        fwd = node_b[fwd];
-    }
+    cg_emit_fwd_decls(prog_idx);
     cg_emit("");
 
     // Emit top-level declarations
@@ -4424,6 +4450,18 @@ func print_success(path: Str) {
     _ks_system("printf '\\033[2m[linux64]\\033[0m\\n\\n'");
 }
 
+func binary_dir() -> Str {
+    let exe: Str = _ks_get_argv(0);
+    let mut last_slash: I32 = -1;
+    let mut i: I32 = 0;
+    while i < exe.len() {
+        if exe.substr(i, 1) == "/" { last_slash = i; }
+        i = i + 1;
+    }
+    if last_slash >= 0 { return exe.substr(0, last_slash); }
+    return ".";
+}
+
 func print_usage() {
     Print("KonScript compiler v0.1 - self-hosted");
     Print("");
@@ -4563,12 +4601,48 @@ func main() -> I32 {
     let has_cli: Bool = arg_count >= 2;
     let mut t0: F64 = 0.0;
 
+    // Pre-process #include "file.ks" — inline included source before lexing
+    // Scan source for #include directives and prepend included file contents
+    let mut full_src: Str = "";
+    let mut si: I32 = 0;
+    let slen: I32 = src.len();
+    while si < slen {
+        // Skip comment lines
+        if src.substr(si, 2) == "//" {
+            while si < slen && src.substr(si, 1) != "\n" { si = si + 1; }
+            si = si + 1;
+            continue;
+        }
+        if src.substr(si, 8) == "#include" {
+            // Find the quoted path
+            let mut qi: I32 = si + 8;
+            while qi < slen && src.substr(qi, 1) != "\"" { qi = qi + 1; }
+            qi = qi + 1; // skip opening quote
+            let mut qe: I32 = qi;
+            while qe < slen && src.substr(qe, 1) != "\"" { qe = qe + 1; }
+            let inc_path: Str = src.substr(qi, qe - qi);
+            if inc_path.ends(".ks") {
+                let inc_result: Result<Str> = File.read(inc_path);
+                if inc_result.ok {
+                    full_src = full_src + inc_result.value + "\n";
+                } else {
+                    Print("warning: cannot read include '", inc_path, "'");
+                }
+            }
+            // Skip to end of line
+            while si < slen && src.substr(si, 1) != "\n" { si = si + 1; }
+        }
+        si = si + 1;
+    }
+    full_src = full_src + src;
+
     if has_cli { stage_doing(1, total_steps, "Lexing"); t0 = _ks_time_ms(); }
-    let ntoks: I32 = lex(src);
+    let ntoks: I32 = lex(full_src);
     if has_cli { stage_ok(1, total_steps, "Lexing", _ks_time_ms() - t0); }
 
     if has_cli { stage_doing(2, total_steps, "Parsing"); t0 = _ks_time_ms(); }
     let prog: I32 = parse(ntoks);
+    included_progs.clear();
     if has_cli { stage_ok(2, total_steps, "Parsing", _ks_time_ms() - t0); }
 
     if has_cli { stage_doing(3, total_steps, "Type checking"); t0 = _ks_time_ms(); }
@@ -4599,10 +4673,13 @@ func main() -> I32 {
 
     // Compile runtime (unless --no-stdlib)
     if !no_stdlib {
-        let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+        // Look for _ks_runtime.c next to the binary first, then CWD
+        let mut rt_src: Str = binary_dir() + "/_ks_runtime.c";
+        if !File.exists(rt_src) { rt_src = "_ks_runtime.c"; }
+        let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
         if rt_ret != 0 {
-            let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c _ks_runtime.c -o " + rt_obj + " 2>&1";
+            let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
             _ks_system(rt_cmd2);
         }
     }
