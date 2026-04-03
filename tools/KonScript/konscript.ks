@@ -602,6 +602,7 @@ const NK_REF:       I32 = 35;
 const NK_REF_MUT:   I32 = 36;
 const NK_DEREF:     I32 = 37;
 const NK_FUNC_EXPR: I32 = 38;
+const NK_NODE:      I32 = 39;  // str="Name|Base", a=fields/methods list, b=body
 
 // ── AST storage — parallel arrays, index 0 is the null node ─────────────
 let mut node_kinds: [I32] = [0];
@@ -1063,11 +1064,50 @@ func parse_struct() -> I32 {
     return alloc_node(NK_STRUCT_D, fhead, fcnt, 0, name);
 }
 
+// node Name : Base { fields, methods }
+func parse_node() -> I32 {
+    eat(TK_NODE, "'node'");
+    let name: Str = eat(TK_IDENT, "node name");
+    // Optional base type
+    let mut base: Str = "Node2D";
+    if mat(TK_COLON) {
+        base = eat(TK_IDENT, "base type");
+    }
+    eat(TK_LBRACE, "'{'");
+    // Parse members: fields (let) and methods (func)
+    let mut mhead: I32 = 0;
+    let mut mtail: I32 = 0;
+    let mut mcnt: I32 = 0;
+    while !chk(TK_RBRACE) && pk() != TK_EOF {
+        let mut is_pub: Bool = false;
+        if chk(TK_PUB) { adv(); is_pub = true; }
+        let mut member: I32 = 0;
+        if chk(TK_FUNC) {
+            member = parse_func();
+        }
+        if chk(TK_LET) {
+            member = parse_stmt();
+        }
+        if chk(TK_CONST) {
+            member = parse_stmt();
+        }
+        if member != 0 {
+            let ln: I32 = list_node(member, 0);
+            if mhead == 0 { mhead = ln; mtail = ln; }
+            else { node_b[mtail] = ln; mtail = ln; }
+            mcnt = mcnt + 1;
+        }
+    }
+    eat(TK_RBRACE, "'}'");
+    return alloc_node(NK_NODE, mhead, mcnt, 0, name + "|" + base);
+}
+
 func parse_top_level() -> I32 {
     // Skip pub
     if chk(TK_PUB) { adv(); }
     if chk(TK_FUNC)   { return parse_func(); }
     if chk(TK_STRUCT) { return parse_struct(); }
+    if chk(TK_NODE)   { return parse_node(); }
     if chk(TK_CONST)  { return parse_stmt(); }
     if chk(TK_LET)    { return parse_stmt(); }
     if chk(TK_INCLUDE) {
@@ -1460,6 +1500,7 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("parse_top_level", "I32");
     tc_def_fn("parse_func", "I32");
     tc_def_fn("parse_struct", "I32");
+    tc_def_fn("parse_node", "I32");
     tc_def_fn("parse_stmt", "I32");
     tc_def_fn("parse_block", "I32");
     tc_def_fn("parse_expr", "I32");
@@ -1543,6 +1584,13 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("cg_gen_func", "void");
     tc_def_fn("cg_gen_struct", "void");
     tc_def_fn("cg_gen_node", "void");
+    tc_def_fn("cg_register_node", "void");
+    tc_def_fn("cg_is_engine_node", "Bool");
+    tc_def_fn("cg_is_user_node", "Bool");
+    tc_def_fn("cg_is_ptr_type", "Bool");
+    tc_def_fn("cg_lifecycle_sig", "Str");
+    tc_def_fn("cg_engine_func", "Str");
+    tc_def_fn("cg_scene_method", "Str");
     tc_def_fn("gvar_set_init", "void");
     tc_def_fn("ir_write_to_file", "Bool");
     tc_def_fn("ir_str_len", "I32");
@@ -3296,16 +3344,12 @@ func cg_gen_expr(idx: I32) -> Str {
             }
             // ToString
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
-            // Math
-            if fname == "Sqrt" { return "sqrtf(" + args + ")"; }
-            if fname == "Abs"  { return "fabsf(" + args + ")"; }
-            // Engine API mappings
-            if fname == "KeyDown"     { return "IsKeyDown(" + args + ")"; }
-            if fname == "KeyPressed"  { return "IsKeyPressed(" + args + ")"; }
-            if fname == "KeyReleased" { return "IsKeyReleased(" + args + ")"; }
-            if fname == "MouseDown"    { return "IsMouseButtonDown(" + args + ")"; }
-            if fname == "MousePressed" { return "IsMouseButtonPressed(" + args + ")"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
+            // Check engine function mapping table
+            let mapped: Str = cg_engine_func(fname);
+            if mapped.len() > 0 {
+                return mapped + "(" + args + ")";
+            }
             return fname + "(" + args + ")";
         }
         if node_kinds[callee] == NK_MEMBER {
@@ -3338,22 +3382,33 @@ func cg_gen_expr(idx: I32) -> Str {
             if method == "get"    { return obj + ".count(" + args + ") ? std::make_optional(" + obj + "[" + args + "]) : std::nullopt"; }
             if method == "has"    { return obj + ".count(" + args + ") > 0"; }
             if method == "remove" { return obj + ".erase(" + args + ")"; }
-            // Scene methods (engine)
-            if method == "update" { return obj + ".Update(" + args + ")"; }
-            if method == "draw"   { return obj + ".Draw()"; }
-            if method == "scan"   { return obj + ".Scan()"; }
-            // File methods
+            // Scene methods (modular mapping)
+            let scene_mapped: Str = cg_scene_method(method);
+            if scene_mapped.len() > 0 {
+                return obj + "." + scene_mapped + "(" + args + ")";
+            }
+            // File namespace methods
             if method == "read"   { return "_ks_fread(" + args + ")"; }
             if method == "write"  { return "_ks_fwrite(" + args + ")"; }
             if method == "exists" { return "_ks_fexists(" + args + ")"; }
             if method == "delete" { return "_ks_fwrite(" + args + ")"; }
             if method == "append" { return "_ks_fappend(" + args + ")"; }
-            // Scene.add<T>("name")
+            if method == "lines"  { return "_ks_file_lines(_C(" + args + "))"; }
+            // Node/Scene factory: .add(Type, "name") → .Add<Type>("name") or ->AddChild<Type>("name")
             if method == "add" {
+                // Check if obj is 'this' (inside node) → use ->AddChild
+                if obj == "this" {
+                    return "this->AddChild<" + args + ">()";
+                }
                 return obj + ".Add<" + args + ">()";
             }
-            // Default: method call
-            return obj + accessor + method + "(" + args + ")";
+            // Node methods: use -> for pointer types, . for values
+            // Check if obj is a known pointer type
+            if cg_is_ptr(obj) {
+                return obj + "->" + method + "(" + args + ")";
+            }
+            // Default: method call with . accessor
+            return obj + "." + method + "(" + args + ")";
         }
         return "/* unknown call */";
     }
@@ -3630,16 +3685,224 @@ func cg_gen_struct(idx: I32) {
 }
 
 // ── Node codegen (engine) ────────────────────────────────────────────────
+// ── Engine node type check ───────────────────────────────────────────────
+// Returns true if a type name is a built-in engine node (always a pointer)
+func cg_is_engine_node(t: Str) -> Bool {
+    if t == "Node2D" || t == "Sprite2D" || t == "Collider2D" { return true; }
+    if t == "AnimatedSprite2D" || t == "AnimationPlayer" { return true; }
+    if t == "CameraNode2D" || t == "Camera2D" { return true; }
+    if t == "Node" { return true; }
+    return false;
+}
+
+// Check if a type is a user-defined node (tracked during codegen)
+let mut cg_user_nodes: [Str] = [""];
+let mut cg_user_node_count: I32 = 0;
+
+func cg_register_node(name: Str) {
+    cg_user_node_count = cg_user_node_count + 1;
+    cg_user_nodes.push(name);
+}
+
+func cg_is_user_node(name: Str) -> Bool {
+    let mut i: I32 = 1;
+    while i <= cg_user_node_count {
+        if cg_user_nodes[i] == name { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// Returns true if a type should be a pointer in C++
+func cg_is_ptr_type(t: Str) -> Bool {
+    return cg_is_engine_node(t) || cg_is_user_node(t);
+}
+
+// ── Lifecycle method signature map ───────────────────────────────────────
+func cg_lifecycle_sig(method_name: Str) -> Str {
+    if method_name == "Ready"            { return "void Ready() override"; }
+    if method_name == "Update"           { return "void Update(float dt) override"; }
+    if method_name == "Draw"             { return "void Draw() override"; }
+    if method_name == "OnCollisionEnter" { return "void OnCollisionEnter(Collider2D* other) override"; }
+    if method_name == "OnCollisionExit"  { return "void OnCollisionExit(Collider2D* other) override"; }
+    return "";
+}
+
+// ── Engine API function mapping ──────────────────────────────────────────
+// Maps KonScript function names to C++ equivalents
+// Add new engine functions here — one line each
+func cg_engine_func(name: Str) -> Str {
+    // Input - keyboard
+    if name == "KeyDown"       { return "IsKeyDown"; }
+    if name == "KeyPressed"    { return "IsKeyPressed"; }
+    if name == "KeyReleased"   { return "IsKeyReleased"; }
+    // Input - mouse
+    if name == "MouseDown"     { return "IsMouseButtonDown"; }
+    if name == "MousePressed"  { return "IsMouseButtonPressed"; }
+    if name == "MouseReleased" { return "IsMouseButtonReleased"; }
+    // Math
+    if name == "Sqrt"    { return "sqrtf"; }
+    if name == "Abs"     { return "fabsf"; }
+    if name == "Floor"   { return "floorf"; }
+    if name == "Ceil"    { return "ceilf"; }
+    if name == "Round"   { return "roundf"; }
+    if name == "Sin"     { return "sinf"; }
+    if name == "Cos"     { return "cosf"; }
+    if name == "Tan"     { return "tanf"; }
+    if name == "Atan2"   { return "atan2f"; }
+    if name == "Min"     { return "std::min"; }
+    if name == "Max"     { return "std::max"; }
+    // Everything else passes through (InitWindow, SetTargetFPS, etc.)
+    return "";
+}
+
+// ── Scene method mapping ─────────────────────────────────────────────────
+func cg_scene_method(method: Str) -> Str {
+    if method == "update" { return "Update"; }
+    if method == "draw"   { return "Draw"; }
+    if method == "scan"   { return "Scan"; }
+    if method == "remove" { return "Remove"; }
+    if method == "get"    { return "GetNode"; }
+    return "";
+}
+
+// ── Node codegen ─────────────────────────────────────────────────────────
 func cg_gen_node(idx: I32) {
-    // Nodes are parsed as NK_FUNC with node-specific handling
-    // For now, emit as a class inheriting from Node2D
-    // This would need the parser to produce NK_NODE nodes
-    cg_emit("// node codegen placeholder");
+    // Parse name|base from node_str
+    let full: Str = node_str[idx];
+    let mut name: Str = "";
+    let mut base: Str = "Node2D";
+    let mut pi: I32 = 0;
+    while pi < full.len() {
+        if full.substr(pi, 1) == "|" {
+            name = full.substr(0, pi);
+            base = full.substr(pi + 1, full.len() - pi - 1);
+            pi = full.len();
+        }
+        pi = pi + 1;
+    }
+    if name.len() == 0 { name = full; }
+
+    // Register as user node type
+    cg_register_node(name);
+
+    // Class declaration
+    cg_emit("class " + name + " : public " + base + " {");
+    cg_emit("public:");
+    cg_indent_inc();
+
+    // Collect fields and methods
+    let mut ctor_inits: [Str] = [""];
+    let mut m: I32 = node_a[idx];
+    while m != 0 {
+        let member: I32 = node_a[m];
+        let mk: I32 = node_kinds[member];
+
+        if mk == NK_LET {
+            // Field declaration
+            let fname: Str = node_str[member];
+            let finit: I32 = node_a[member];
+            if finit != 0 {
+                let fval: Str = cg_gen_expr(finit);
+                let fk: I32 = node_kinds[finit];
+                // Check if init is trivial (literal) or needs ctor
+                if fk == NK_INT || fk == NK_FLOAT || fk == NK_BOOL || fk == NK_STR_LIT || fk == NK_NULL_LIT {
+                    cg_emit("auto " + fname + " = " + fval + ";");
+                } else {
+                    // Non-trivial: declare field, defer init to ctor
+                    cg_emit("auto " + fname + " = decltype(" + fval + ")();");
+                    ctor_inits.push(fname + " = " + fval + ";");
+                }
+            } else {
+                cg_emit("auto " + fname + " = 0;");
+            }
+        }
+
+        if mk == NK_FUNC {
+            // Method
+            let mname: Str = func_name(node_str[member]);
+            let mret: Str = func_ret(node_str[member]);
+            let lifecycle: Str = cg_lifecycle_sig(mname);
+            if lifecycle.len() > 0 {
+                // Lifecycle method with override
+                cg_emit(lifecycle + " {");
+            } else {
+                // Regular method
+                let mut mparams: Str = "";
+                let mut mp: I32 = node_a[member];
+                let mut mfirst: Bool = true;
+                while mp != 0 {
+                    let mpn: I32 = node_a[mp];
+                    let mps: Str = node_str[mpn];
+                    let mut mci: I32 = 0;
+                    let mut mpname: Str = "";
+                    let mut mptype: Str = "";
+                    while mci < mps.len() {
+                        if mps.substr(mci, 1) == ":" {
+                            mpname = mps.substr(0, mci);
+                            mptype = mps.substr(mci + 1, mps.len() - mci - 1);
+                            mci = mps.len();
+                        }
+                        mci = mci + 1;
+                    }
+                    if !mfirst { mparams = mparams + ", "; }
+                    mparams = mparams + cg_type(mptype) + " " + mpname;
+                    mfirst = false;
+                    mp = node_b[mp];
+                }
+                cg_emit(cg_type(mret) + " " + mname + "(" + mparams + ") {");
+            }
+            cg_indent_inc();
+            cg_gen_stmt(node_b[member]);
+            cg_indent_dec();
+            cg_emit("}");
+            cg_emit("");
+        }
+
+        m = node_b[m];
+    }
+
+    // Constructor
+    cg_indent_dec();
+    cg_emit("");
+    cg_emit("    " + name + "(const std::string& _name) : " + base + "(_name) {");
+    let mut ci: I32 = 1;
+    while ci < ctor_inits.len() {
+        cg_emit("        " + ctor_inits[ci]);
+        ci = ci + 1;
+    }
+    cg_emit("    }");
+    cg_emit("};");
+    cg_emit("");
 }
 
 // ── Main codegen entry point ─────────────────────────────────────────────
 func cg_generate(prog_idx: I32) -> Str {
     cg_reset();
+
+    // Pre-scan: detect #include <engine> and register node types
+    let mut pre: I32 = node_a[prog_idx];
+    while pre != 0 {
+        let pd: I32 = node_a[pre];
+        if node_kinds[pd] == NK_INCLUDE_D {
+            if node_str[pd] == "engine" { cg_is_engine = true; }
+        }
+        if node_kinds[pd] == NK_NODE {
+            // Register user node name for pointer tracking
+            let nstr: Str = node_str[pd];
+            let mut npi: I32 = 0;
+            let mut nname: Str = nstr;
+            while npi < nstr.len() {
+                if nstr.substr(npi, 1) == "|" {
+                    nname = nstr.substr(0, npi);
+                    npi = nstr.len();
+                }
+                npi = npi + 1;
+            }
+            cg_register_node(nname);
+        }
+        pre = node_b[pre];
+    }
 
     // Headers
     cg_emit_raw("#include <iostream>");
@@ -3791,6 +4054,9 @@ func cg_generate(prog_idx: I32) -> Str {
         }
         if node_kinds[d] == NK_STRUCT_D {
             cg_gen_struct(d);
+        }
+        if node_kinds[d] == NK_NODE {
+            cg_gen_node(d);
         }
         if node_kinds[d] == NK_CONST_D {
             let val: Str = cg_gen_expr(node_a[d]);
