@@ -4907,8 +4907,8 @@ func main() -> I32 {
         }
     }
 
-    // Compile runtime (unless --no-stdlib)
-    if !no_stdlib {
+    // Compile runtime (unless --no-stdlib or Windows — CMake handles Windows)
+    if !no_stdlib && !is_windows {
         let mut rt_src: Str = _ks_self_dir() + "/_ks_runtime.c";
         if !File.exists(rt_src) { rt_src = "_ks_runtime.c"; }
         let mut rt_cc: Str = "cc";
@@ -4978,13 +4978,14 @@ func main() -> I32 {
     }
 
     // Engine mode: auto-detect and add engine paths
+    let mut engine_dir: Str = "";
     if cg_is_engine {
         if is_windows {
             // Cross-compiling engine games requires the Windows engine toolchain
             // built by: cd tools/KonScript && ./build-engine-lib.sh --windows
             Print("note: cross-compiling engine game for windows64");
         }
-        let mut engine_dir: Str = "";
+        engine_dir = "";
         let self_dir: Str = _ks_self_dir();
         let mut eng_plat: Str = "linux64";
         if is_windows { eng_plat = "windows64"; }
@@ -5072,10 +5073,16 @@ func main() -> I32 {
         cm = cm + "project(KsGame CXX C)\n";
         cm = cm + "set(CMAKE_CXX_STANDARD 17)\n";
         cm = cm + "add_definitions(-DGLM_FORCE_PURE -D_WIN32)\n";
-        // Source files
+        // Source files — include runtime .c source directly (CMake compiles it)
+        let mut rt_src_path: Str = _ks_self_dir() + "/_ks_runtime.c";
+        if !File.exists(rt_src_path) { rt_src_path = "_ks_runtime.c"; }
         cm = cm + "add_executable(game " + cpp_path;
-        if !no_stdlib { cm = cm + " " + rt_obj; }
+        if !no_stdlib { cm = cm + " " + rt_src_path; }
         cm = cm + ")\n";
+        if !no_stdlib {
+            cm = cm + "set_source_files_properties(" + rt_src_path + " PROPERTIES LANGUAGE C)\n";
+            cm = cm + "target_compile_definitions(game PRIVATE $<$<COMPILE_LANGUAGE:C>:_WIN32>)\n";
+        }
         // Engine includes and libs
         if cg_is_engine {
             let mut eng: Str = engine_dir;
