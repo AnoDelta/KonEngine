@@ -125,11 +125,21 @@ endif()
 
 # Install
 install(TARGETS KonEngine ARCHIVE DESTINATION lib)
-install(FILES src/KonEngine.hpp DESTINATION include)
-install(DIRECTORY src/window src/renderer src/time src/camera src/collision
-                  src/input src/font src/audio src/animation src/node
-    DESTINATION include/KonEngine
+install(FILES src/KonEngine.hpp src/asset_manager.hpp src/kon_script_api.hpp
+    DESTINATION include
+)
+install(DIRECTORY src/color src/window src/renderer src/time src/camera
+                  src/collision src/input src/font src/audio src/animation
+                  src/node src/math src/tilemap
+    DESTINATION include
     FILES_MATCHING PATTERN "*.hpp"
+)
+# glad and stb headers needed by renderer
+install(DIRECTORY src/glad/include/glad src/glad/include/KHR
+    DESTINATION include
+)
+install(FILES src/stb/stb_image.h src/stb/stb_truetype.h
+    DESTINATION include/stb
 )
 
 # -----------------------------------------------------------------------

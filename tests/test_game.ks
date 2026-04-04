@@ -1,24 +1,24 @@
 #include <engine>
 
-# -----------------------------------------------------------------------
-# KonScript test game — tests the full KonScript + engine integration.
-# This covers things the C++ test suite can't: codegen correctness,
-# KonScript node lifecycle, collision bubbling, animation, scene scan.
-#
-# Run with:  ksc test_game.ks
-# Or build into a project and run the executable.
-#
-# Expected output in terminal (with DebugMode on):
-#   [TestGame] All nodes Ready
-#   [Collision] Player hit wall (enter)
-#   [Collision] Player left wall (exit)
-#   [Anim] Switched to walk
-#   [Anim] Switched to idle
-# -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
+// KonScript test game — tests the full KonScript + engine integration.
+// This covers things the C++ test suite can't: codegen correctness,
+// KonScript node lifecycle, collision bubbling, animation, scene scan.
+//
+// Run with:  ksc test_game.ks
+// Or build into a project and run the executable.
+//
+// Expected output in terminal (with DebugMode on):
+//   [TestGame] All nodes Ready
+//   [Collision] Player hit wall (enter)
+//   [Collision] Player left wall (exit)
+//   [Anim] Switched to walk
+//   [Anim] Switched to idle
+// -----------------------------------------------------------------------
 
-# -----------------------------------------------------------------------
-# Test: OnCollisionEnter bubbles to parent node
-# -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
+// Test: OnCollisionEnter bubbles to parent node
+// -----------------------------------------------------------------------
 node Player : Sprite2D {
     let mut velX:      F64  = 0.0;
     let mut velY:      F64  = 0.0;
@@ -78,7 +78,7 @@ node Player : Sprite2D {
         if x < 0.0   { x = 0.0; }
         if x > 800.0 { x = 800.0; }
 
-        # Animation state machine
+        // Animation state machine
         if grounded {
             if velX != 0.0 {
                 anim.Play("walk");
@@ -102,9 +102,9 @@ node Player : Sprite2D {
     }
 }
 
-# -----------------------------------------------------------------------
-# Test: Node field collider with correct default size
-# -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
+// Test: Node field collider with correct default size
+// -----------------------------------------------------------------------
 node Wall : Node2D {
     let mut w: F64 = 80.0;
     let mut h: F64 = 300.0;
@@ -122,9 +122,9 @@ node Wall : Node2D {
     }
 }
 
-# -----------------------------------------------------------------------
-# Test: Spawning dynamic boxes and scanning
-# -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
+// Test: Spawning dynamic boxes and scanning
+// -----------------------------------------------------------------------
 node Box : Node2D {
     let mut size: F64 = 40.0;
     let mut col:  Collider2D = this.add(Collider2D, "boxCol");
@@ -166,7 +166,7 @@ func main() {
 
         if KeyPressed(Key.Escape) { break; }
 
-        # Spawn box on left click
+        // Spawn box on left click
         if MousePressed(Mouse.Left) {
             boxCount += 1;
             let box: Box = scene.add(Box, "box");
@@ -175,7 +175,7 @@ func main() {
             scene.scan();
         }
 
-        # Remove all boxes on right click
+        // Remove all boxes on right click
         if MousePressed(Mouse.Right) {
             for i: I32 in 0..boxCount {
                 scene.remove("box");

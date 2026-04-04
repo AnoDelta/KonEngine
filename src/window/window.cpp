@@ -92,6 +92,9 @@ bool WindowShouldClose() { return window && window->shouldClose(); }
 void Present() {
 	if (!window) return;
 
+	// Flush any batched rectangles before debug overlay or swap
+	window->present();
+
 	if (s_debugMode) {
 		static float dbgTimer=0; static int dbgFPS=0, dbgFrames=0;
 		static float dbgDt=0;
@@ -189,6 +192,9 @@ void Present() {
 		if (sc != 0.0f) std::cout << "[KonEngine DEBUG] Mouse: SCROLL " << sc << std::endl;
 	}
 
+	// Final flush: push any remaining batched geometry (debug overlay, etc.)
+	window->present();
+
 	window->swapBuffers();
 }
 
@@ -212,8 +218,12 @@ void Window::drawTextureRec(Texture& t,float x,float y,float w,float h,float sx,
 void Window::drawTexture(Texture& t,float x,float y,float w,float h,Color c){renderer->DrawTexture(t,x,y,w,h,c);}
 void Window::drawTextureRec(Texture& t,float x,float y,float w,float h,float sx,float sy,float sw,float sh,Color c){renderer->DrawTextureRec(t,x,y,w,h,sx,sy,sw,sh,c);}
 Texture LoadTexture(const char* p){
+    if (!window) {
+        std::cerr << "[KonEngine] warning: LoadTexture(\"" << p << "\") called before InitWindow — texture will be blank\n";
+        return Texture{0,0,0};
+    }
     std::string r=AssetManager::resolvePath(p);
-    return window?window->loadTexture(r.c_str()):Texture{0,0,0};
+    return window->loadTexture(r.c_str());
 }
 void    UnloadTexture(Texture& t){if(window)window->unloadTexture(t);}
 void DrawTexture(Texture& t,float x,float y,float w,float h){if(window)window->drawTexture(t,x,y,w,h);}
@@ -233,6 +243,7 @@ void DrawGlyph(unsigned int id,float x,float y,float w,float h,float u0,float v0
 
 void Window::beginCamera2D(const Camera2D& cam){renderer->BeginCamera2D(cam);}
 void Window::endCamera2D(){renderer->EndCamera2D();}
+void Window::present(){renderer->Present();}
 
 void BeginCamera2D(const Camera2D& cam) {
 	if (!window) return;

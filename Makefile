@@ -1,36 +1,22 @@
-LINUX_CC=g++
+# KonEngine — use CMake for the real build
+# This Makefile is a convenience wrapper.
 
-LINUX_LIBS=-lglfw -lGL -ldl -lpthread -lX11 -lXrandr -lXi
+.PHONY: all install clean test tools
 
-SRC_DIR=src
-BUILD_DIR=build
+all:
+	cmake -B build -DCMAKE_BUILD_TYPE=Release
+	cmake --build build -j$$(nproc)
 
-ENGINE_DIR=$(SRC_DIR)/engine
-RENDERER_DIR=$(SRC_DIR)/renderer
+install: all
+	sudo cmake --install build
 
-SRCS=$(shell find $(SRC_DIR) -name "*.cpp")
-OBJS=$(SRCS:%.cpp=$(BUILD_DIR)/%.o)
+tools:
+	cmake -B build -DCMAKE_BUILD_TYPE=Release -DKON_BUILD_TOOLS=ON
+	cmake --build build -j$$(nproc)
 
-ENGINE_NAME=KonEngine
+test:
+	cmake --build build --target KonTest
+	./build/KonTest
 
-.PHONY: all clean engine
-
-all: run
-
-engine: $(BUILD_DIR)/$(ENGINE_NAME)
-
-#
-# ENGINE
-#
-
-$(BUILD_DIR)/$(ENGINE_NAME): $(OBJS)
-	$(LINUX_CC) -o $(BUILD_DIR)/$(ENGINE_NAME) $(LINUX_LIBS) $(OBJS)
-
-$(BUILD_DIR)/%.o : %.cpp
-	mkdir -p $(dir $@)
-	$(LINUX_CC) -c $< -o $@
 clean:
-	rm -rf $(BUILD_DIR)
-
-run: engine
-	./$(BUILD_DIR)/$(ENGINE_NAME)
+	rm -rf build

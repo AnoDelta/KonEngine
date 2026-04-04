@@ -62,6 +62,7 @@ if(KONSCRIPT_COMPILER)
 
     set_target_properties(KonScriptTest PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+        EXCLUDE_FROM_ALL TRUE
     )
 
     add_custom_target(run_ks_test

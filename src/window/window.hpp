@@ -39,6 +39,7 @@ public:
 
 	void beginCamera2D(const Camera2D& cam);
 	void endCamera2D();
+	void present();
 
 private:
 	struct Impl;
