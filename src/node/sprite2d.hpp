@@ -10,6 +10,10 @@ public:
     float   width    = 64, height = 64;
     Color   tint     = WHITE;
 
+    // When true, SetTexture resizes the sprite to match the texture's native size.
+    // When false (default), the sprite keeps its current width/height.
+    bool autoResize = false;
+
     // Source rect in PIXEL coords — set by AnimationPlayer each frame
     bool  useSourceRect = false;
     float srcX = 0, srcY = 0, srcWidth = 64, srcHeight = 64;
@@ -18,12 +22,11 @@ public:
 
     void SetTexture(Texture& tex) {
         texture = tex;
-        // Only set display size from texture if not already controlled by animation
-        if (!useSourceRect) {
-            width     = (float)tex.width;
-            height    = (float)tex.height;
-            srcWidth  = (float)tex.width;
-            srcHeight = (float)tex.height;
+        srcWidth  = (float)tex.width;
+        srcHeight = (float)tex.height;
+        if (autoResize && !useSourceRect) {
+            width  = (float)tex.width;
+            height = (float)tex.height;
         }
     }
 
