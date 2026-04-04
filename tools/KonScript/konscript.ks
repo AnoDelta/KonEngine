@@ -4899,7 +4899,8 @@ func main() -> I32 {
     // Build compilation command — pick compiler based on target
     let mut cxx_flags: Str = "g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
     if is_windows {
-        cxx_flags = "x86_64-w64-mingw32-g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
+        // Use mingw with -nostdinc++ to avoid host header contamination
+        cxx_flags = "x86_64-w64-mingw32-g++ -std=c++17 -O2 -DGLM_FORCE_PURE -D_WIN32";
         if output_file.len() > 0 && !output_file.ends(".exe") {
             output_file = output_file + ".exe";
         }
@@ -4929,6 +4930,11 @@ func main() -> I32 {
 
     // Engine mode: auto-detect and add engine paths
     if cg_is_engine {
+        if is_windows {
+            // Cross-compiling engine games requires the Windows engine toolchain
+            // built by: cd tools/KonScript && ./build-engine-lib.sh --windows
+            Print("note: cross-compiling engine game for windows64");
+        }
         let mut engine_dir: Str = "";
         let self_dir: Str = _ks_self_dir();
         let mut eng_plat: Str = "linux64";
