@@ -560,16 +560,15 @@ Texture OpenGLRenderer::LoadTexture(const char* path) {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	int w, h, channels;
-	unsigned char* data = stbi_load(path, &w, &h, &channels, 0);
+	// Force 4 channels (RGBA) to avoid GL_RGB row alignment issues
+	unsigned char* data = stbi_load(path, &w, &h, &channels, 4);
 	if (!data) {
 		std::cerr << "Failed to load texture: " << path << "\n";
 		glDeleteTextures(1, &id);
 		return {0, 0, 0};
 	}
 
-	GLenum fmt = (channels == 4) ? GL_RGBA : GL_RGB;
-	glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, data);
-	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 	stbi_image_free(data);
 	return {id, w, h};
 }

@@ -92,6 +92,9 @@ bool WindowShouldClose() { return window && window->shouldClose(); }
 void Present() {
 	if (!window) return;
 
+	// Flush any batched rectangles before debug overlay or swap
+	window->renderer->Present();
+
 	if (s_debugMode) {
 		static float dbgTimer=0; static int dbgFPS=0, dbgFrames=0;
 		static float dbgDt=0;
