@@ -3348,6 +3348,7 @@ func cg_type(t: Str) -> Str {
     if t == "Bool" { return "bool"; }
     if t == "Str"  { return "std::string"; }
     if t == "void" { return "void"; }
+    if t == "Vec2" { return "Vector2"; }
     // Array type [T] -> std::vector<T>
     if t.len() > 2 && t.starts("[") {
         let inner: Str = t.substr(1, t.len() - 2);
@@ -3469,6 +3470,8 @@ func cg_gen_expr(idx: I32) -> Str {
             }
             // ToString
             if fname == "ToString" { return "std::to_string(" + args + ")"; }
+            if fname == "Vec2" { return "Vector2{" + args + "}"; }
+            if fname == "Camera2D" { return "Camera2D{" + args + "}"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
             if fname == "_ks_self_dir"   { return "std::string(_ks_self_dir())"; }
@@ -3523,11 +3526,24 @@ func cg_gen_expr(idx: I32) -> Str {
             if method == "lines"  { return "_ks_file_lines(_C(" + args + "))"; }
             // Node/Scene factory: .add(Type, "name") → .Add<Type>("name") or ->AddChild<Type>("name")
             if method == "add" {
-                // Check if obj is 'this' (inside node) → use ->AddChild
-                if obj == "this" {
-                    return "this->AddChild<" + args + ">()";
+                // Split args: first arg is the type, rest are function args
+                // args looks like: "Collider2D, \"col\""
+                // Need: AddChild<Collider2D>("col")
+                let mut add_type: Str = args;
+                let mut add_args: Str = "";
+                let mut ci: I32 = 0;
+                while ci < args.len() {
+                    if args.substr(ci, 1) == "," {
+                        add_type = args.substr(0, ci);
+                        add_args = args.substr(ci + 2, args.len() - ci - 2);
+                        ci = args.len();
+                    }
+                    ci = ci + 1;
                 }
-                return obj + ".Add<" + args + ">()";
+                if obj == "this" {
+                    return "this->AddChild<" + add_type + ">(" + add_args + ")";
+                }
+                return obj + ".Add<" + add_type + ">(" + add_args + ")";
             }
             // Node methods: use -> for pointer types, . for values
             // Check if obj is a known pointer type
@@ -4030,31 +4046,60 @@ func cg_gen_node(idx: I32) {
             // Field declaration
             let fname: Str = node_str[member];
             let finit: I32 = node_a[member];
+            // Resolve type from annotation or init expression
+            let ft: Str = node_types[member];
+            let mut ftype: Str = "int32_t";
+            if ft == "F64" || ft == "F32" || ft == "Float" { ftype = "float"; }
+            if ft == "Str" { ftype = "std::string"; }
+            if ft == "Bool" { ftype = "bool"; }
+            if ft == "I32" || ft == "I64" { ftype = cg_type(ft); }
+            if ft == "Vec2" || ft == "Vector2" { ftype = "Vector2"; }
+            if ft == "Scene" { ftype = "Scene"; }
+            if cg_is_ptr_type(ft) { ftype = ft + "*"; }
             if finit != 0 {
                 let fval: Str = cg_gen_expr(finit);
                 let fk: I32 = node_kinds[finit];
-                // Determine field type for class member (auto not allowed)
-                let mut ftype: Str = "int32_t";
-                if fk == NK_INT   { ftype = "int32_t"; }
-                if fk == NK_FLOAT { ftype = "float"; }
-                if fk == NK_BOOL  { ftype = "bool"; }
-                if fk == NK_STR_LIT { ftype = "std::string"; }
-                if fk == NK_NULL_LIT { ftype = "void*"; }
-                let ft: Str = node_types[member];
-                if ft == "F64" || ft == "F32" { ftype = "float"; }
-                if ft == "Str" { ftype = "std::string"; }
-                if ft == "Bool" { ftype = "bool"; }
-                if cg_is_ptr_type(ft) { ftype = ft + "*"; }
+                // If type still default, infer from init expression
+                if ftype == "int32_t" {
+                    if fk == NK_FLOAT { ftype = "float"; }
+                    if fk == NK_BOOL  { ftype = "bool"; }
+                    if fk == NK_STR_LIT { ftype = "std::string"; }
+                    if fk == NK_NULL_LIT { ftype = "void*"; }
+                }
                 // Check if init is trivial or needs ctor
                 if fk == NK_INT || fk == NK_FLOAT || fk == NK_BOOL || fk == NK_STR_LIT || fk == NK_NULL_LIT {
                     cg_emit(ftype + " " + fname + " = " + fval + ";");
                 } else {
                     // Non-trivial: declare field, defer init to ctor
-                    cg_emit(ftype + " " + fname + " = {};");
+                    if ftype.ends("*") {
+                        cg_emit(ftype + " " + fname + " = nullptr;");
+                    } else {
+                        cg_emit(ftype + " " + fname + " = {};");
+                    }
                     ctor_inits.push(fname + " = " + fval + ";");
                 }
             } else {
-                cg_emit("int32_t " + fname + " = 0;");
+                if ftype.ends("*") {
+                    cg_emit(ftype + " " + fname + " = nullptr;");
+                } else {
+                    cg_emit(ftype + " " + fname + " = {};");
+                }
+            }
+        }
+
+        if mk == NK_CONST_D {
+            // Const field inside node
+            let fname: Str = node_str[member];
+            let finit: I32 = node_a[member];
+            if finit != 0 {
+                let fval: Str = cg_gen_expr(finit);
+                let ft: Str = node_types[member];
+                let mut ftype: Str = "auto";
+                if ft == "F64" || ft == "F32" { ftype = "float"; }
+                if ft == "I32" { ftype = "int32_t"; }
+                if ft == "Str" { ftype = "std::string"; }
+                if ft == "Bool" { ftype = "bool"; }
+                cg_emit("static constexpr " + ftype + " " + fname + " = " + fval + ";");
             }
         }
 
