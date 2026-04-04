@@ -218,8 +218,12 @@ void Window::drawTextureRec(Texture& t,float x,float y,float w,float h,float sx,
 void Window::drawTexture(Texture& t,float x,float y,float w,float h,Color c){renderer->DrawTexture(t,x,y,w,h,c);}
 void Window::drawTextureRec(Texture& t,float x,float y,float w,float h,float sx,float sy,float sw,float sh,Color c){renderer->DrawTextureRec(t,x,y,w,h,sx,sy,sw,sh,c);}
 Texture LoadTexture(const char* p){
+    if (!window) {
+        std::cerr << "[KonEngine] warning: LoadTexture(\"" << p << "\") called before InitWindow — texture will be blank\n";
+        return Texture{0,0,0};
+    }
     std::string r=AssetManager::resolvePath(p);
-    return window?window->loadTexture(r.c_str()):Texture{0,0,0};
+    return window->loadTexture(r.c_str());
 }
 void    UnloadTexture(Texture& t){if(window)window->unloadTexture(t);}
 void DrawTexture(Texture& t,float x,float y,float w,float h){if(window)window->drawTexture(t,x,y,w,h);}
