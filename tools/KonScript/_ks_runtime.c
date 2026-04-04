@@ -380,14 +380,27 @@ double _ks_time_ms() {
 }
 
 // ── Self-directory (for finding _ks_runtime.c next to the binary) ───────────
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 char* _ks_self_dir() {
     static char buf[4096];
+#ifdef _WIN32
+    // Windows: use GetModuleFileName
+    extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
+    unsigned long len = GetModuleFileNameA(0, buf, sizeof(buf));
+    if (len > 0) {
+        char* last = strrchr(buf, '\\');
+        if (last) { *last = '\0'; return buf; }
+    }
+#else
     ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (len > 0) {
         buf[len] = '\0';
         char* last = strrchr(buf, '/');
         if (last) { *last = '\0'; return buf; }
     }
+#endif
     return ".";
 }
 

@@ -118,15 +118,24 @@ public:
 private:
     std::vector<std::unique_ptr<Node>> nodes;
 
-    void drawDebug(Node* node) {
+    void drawDebug(Node* node, float parentX = 0, float parentY = 0) {
+        float wx = parentX, wy = parentY;
+        if (auto* n2d = dynamic_cast<Node2D*>(node)) {
+            wx += n2d->x;
+            wy += n2d->y;
+        }
         if (auto* col = dynamic_cast<Collider2D*>(node)) {
+            // Temporarily set world-space position for drawing
+            float savedX = col->x, savedY = col->y;
+            col->x = wx; col->y = wy;
             bool was = col->debugDraw;
             col->debugDraw = true;
             col->Draw();
             col->debugDraw = was;
+            col->x = savedX; col->y = savedY;
         }
         for (auto& child : node->getChildren())
             if (child->active)
-                drawDebug(child.get());
+                drawDebug(child.get(), wx, wy);
     }
 };

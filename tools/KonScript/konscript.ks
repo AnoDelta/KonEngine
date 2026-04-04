@@ -4886,11 +4886,12 @@ func main() -> I32 {
         let mut rt_src: Str = _ks_self_dir() + "/_ks_runtime.c";
         if !File.exists(rt_src) { rt_src = "_ks_runtime.c"; }
         let mut rt_cc: Str = "cc";
-        if is_windows { rt_cc = "x86_64-w64-mingw32-gcc"; }
-        let rt_cmd: Str = rt_cc + " -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
+        let mut rt_defs: Str = " -D_POSIX_C_SOURCE=200809L";
+        if is_windows { rt_cc = "x86_64-w64-mingw32-gcc"; rt_defs = " -D_WIN32"; }
+        let rt_cmd: Str = rt_cc + " -std=c11 -O2" + rt_defs + " -c " + rt_src + " -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
         if rt_ret != 0 {
-            let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
+            let rt_cmd2: Str = rt_cc + " -std=c11 -O2" + rt_defs + " -c " + rt_src + " -o " + rt_obj + " 2>&1";
             _ks_system(rt_cmd2);
         }
     }
@@ -4965,6 +4966,9 @@ func main() -> I32 {
             // System-wide fallback: check /usr/local for engine install
             if File.exists("/usr/local/lib/libKonEngine.a") {
                 cxx_flags = cxx_flags + " -I/usr/local/include";
+                // GLM might be in a subdirectory or system path
+                if File.exists("/usr/local/include/glm/glm/glm.hpp") { cxx_flags = cxx_flags + " -I/usr/local/include/glm"; }
+                if File.exists("/usr/include/glm/glm.hpp") { cxx_flags = cxx_flags + " -I/usr/include"; }
                 link_flags = link_flags + " /usr/local/lib/libKonEngine.a";
                 if File.exists("/usr/local/lib/libglfw3.a") {
                     link_flags = link_flags + " /usr/local/lib/libglfw3.a";
