@@ -4088,7 +4088,7 @@ func cg_gen_node(idx: I32) {
             if ft == "I32" || ft == "I64" { ftype = cg_type(ft); }
             if ft == "Vec2" || ft == "Vector2" { ftype = "Vector2"; }
             if ft == "Scene" { ftype = "Scene"; }
-            if cg_is_ptr_type(ft) { ftype = ft + "*"; }
+            if cg_is_ptr_type(ft) { ftype = ft + "*"; cg_mark_ptr(fname); }
             if finit != 0 {
                 let fval: Str = cg_gen_expr(finit);
                 let fk: I32 = node_kinds[finit];
