@@ -93,7 +93,7 @@ void Present() {
 	if (!window) return;
 
 	// Flush any batched rectangles before debug overlay or swap
-	window->renderer->Present();
+	window->present();
 
 	if (s_debugMode) {
 		static float dbgTimer=0; static int dbgFPS=0, dbgFrames=0;
@@ -236,6 +236,7 @@ void DrawGlyph(unsigned int id,float x,float y,float w,float h,float u0,float v0
 
 void Window::beginCamera2D(const Camera2D& cam){renderer->BeginCamera2D(cam);}
 void Window::endCamera2D(){renderer->EndCamera2D();}
+void Window::present(){renderer->Present();}
 
 void BeginCamera2D(const Camera2D& cam) {
 	if (!window) return;
