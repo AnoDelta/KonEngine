@@ -4900,6 +4900,11 @@ func main() -> I32 {
             }
             mi = mi + 1;
         }
+        if mingw_sysroot.len() == 0 {
+            Print("warning: MXE not found. Searched: /usr/lib/mxe, /opt/mxe, ", home_mxe);
+            Print("  Install MXE: git clone https://github.com/mxe/mxe.git ~/mxe");
+            Print("  Build:       cd ~/mxe && make MXE_TARGETS=x86_64-w64-mingw32.static cc");
+        }
     }
 
     // Compile runtime (unless --no-stdlib)
