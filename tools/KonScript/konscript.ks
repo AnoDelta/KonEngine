@@ -4881,6 +4881,27 @@ func main() -> I32 {
     let mut is_windows: Bool = target_platform.starts("windows") || target_platform == "win64";
     let rt_obj: Str = "/tmp/_ks_runtime.o";
 
+    // Detect MXE cross-compiler for Windows targets
+    let mut mingw_prefix: Str = "x86_64-w64-mingw32";
+    let mut mingw_sysroot: Str = "";
+    if is_windows {
+        _ks_system("echo $HOME/mxe > /tmp/_ks_mxe_home.txt");
+        let home_mxe_result: Result<Str> = File.read("/tmp/_ks_mxe_home.txt");
+        let mut home_mxe: Str = "";
+        if home_mxe_result.ok { home_mxe = home_mxe_result.value.trim(); }
+        let mut mxe_paths: [Str] = ["/usr/lib/mxe", "/opt/mxe"];
+        if home_mxe.len() > 0 { mxe_paths.push(home_mxe); }
+        let mut mi: I32 = 0;
+        while mi < mxe_paths.len() {
+            let mxe: Str = mxe_paths[mi];
+            if File.exists(mxe + "/usr/bin/x86_64-w64-mingw32.static-g++") {
+                mingw_prefix = mxe + "/usr/bin/x86_64-w64-mingw32.static";
+                mingw_sysroot = mxe + "/usr/x86_64-w64-mingw32.static";
+            }
+            mi = mi + 1;
+        }
+    }
+
     // Compile runtime (unless --no-stdlib)
     if !no_stdlib {
         let mut rt_src: Str = _ks_self_dir() + "/_ks_runtime.c";
@@ -4888,14 +4909,9 @@ func main() -> I32 {
         let mut rt_cc: Str = "cc";
         let mut rt_defs: Str = " -D_POSIX_C_SOURCE=200809L";
         if is_windows {
-            rt_cc = "x86_64-w64-mingw32-gcc";
-            if File.exists("/usr/lib/mxe/usr/bin/x86_64-w64-mingw32.static-gcc") {
-                rt_cc = "/usr/lib/mxe/usr/bin/x86_64-w64-mingw32.static-gcc";
-            }
-            if File.exists("/opt/mxe/usr/bin/x86_64-w64-mingw32.static-gcc") {
-                rt_cc = "/opt/mxe/usr/bin/x86_64-w64-mingw32.static-gcc";
-            }
+            rt_cc = mingw_prefix + "-gcc";
             rt_defs = " -D_WIN32";
+            if mingw_sysroot.len() > 0 { rt_defs = rt_defs + " --sysroot=" + mingw_sysroot; }
         }
         let rt_cmd: Str = rt_cc + " -std=c11 -O2" + rt_defs + " -c " + rt_src + " -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
@@ -4908,16 +4924,10 @@ func main() -> I32 {
     // Build compilation command — pick compiler based on target
     let mut cxx_flags: Str = "g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
     if is_windows {
-        // Cross-compile for Windows — prefer MXE (proper sysroot isolation)
-        // Bare mingw from distro packages often leaks host headers
-        let mut mingw_prefix: Str = "x86_64-w64-mingw32";
-        if File.exists("/usr/lib/mxe/usr/bin/x86_64-w64-mingw32.static-g++") {
-            mingw_prefix = "/usr/lib/mxe/usr/bin/x86_64-w64-mingw32.static";
-        }
-        if File.exists("/opt/mxe/usr/bin/x86_64-w64-mingw32.static-g++") {
-            mingw_prefix = "/opt/mxe/usr/bin/x86_64-w64-mingw32.static";
-        }
         cxx_flags = mingw_prefix + "-g++ -std=c++17 -O2 -DGLM_FORCE_PURE -D_WIN32";
+        if mingw_sysroot.len() > 0 {
+            cxx_flags = cxx_flags + " --sysroot=" + mingw_sysroot;
+        }
         if output_file.len() > 0 && !output_file.ends(".exe") {
             output_file = output_file + ".exe";
         }
