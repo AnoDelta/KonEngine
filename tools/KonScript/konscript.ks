@@ -5001,7 +5001,10 @@ func main() -> I32 {
     let cxx_cmd: Str = cxx_flags + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
     let cxx_ret: I32 = _ks_system(cxx_cmd);
     if cxx_ret != 0 {
-        let cxx_cmd2: Str = "clang++ -std=c++17 -O2 -DGLM_FORCE_PURE -o " + output_file + " " + compile_src + link_flags + " 2>&1";
+        // Fallback: try clang (but use cross-compiler for windows)
+        let mut fallback_cxx: Str = "clang++ -std=c++17 -O2 -DGLM_FORCE_PURE";
+        if is_windows { fallback_cxx = "x86_64-w64-mingw32-g++ -std=c++17 -O2 -DGLM_FORCE_PURE"; }
+        let cxx_cmd2: Str = fallback_cxx + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
         let cxx_ret2: I32 = _ks_system(cxx_cmd2);
         if cxx_ret2 != 0 {
             Print("error: compilation failed");
