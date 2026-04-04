@@ -5052,7 +5052,59 @@ func main() -> I32 {
     let mut compile_src: Str = cpp_path;
     if !no_stdlib { compile_src = compile_src + " " + rt_obj; }
 
-    // Compile C++ + link
+    // Windows cross-compile: use CMake with MXE toolchain (only way to isolate headers)
+    if is_windows && mingw_sysroot.len() > 0 {
+        if !output_file.ends(".exe") { output_file = output_file + ".exe"; }
+        let bdir: Str = "/tmp/_ks_win_build";
+        _ks_system("rm -rf " + bdir + " && mkdir -p " + bdir);
+        // Write toolchain file
+        let mut tc: Str = "set(CMAKE_SYSTEM_NAME Windows)\n";
+        tc = tc + "set(CMAKE_C_COMPILER " + mingw_prefix + "-gcc)\n";
+        tc = tc + "set(CMAKE_CXX_COMPILER " + mingw_prefix + "-g++)\n";
+        tc = tc + "set(CMAKE_RC_COMPILER " + mingw_prefix + "-windres)\n";
+        tc = tc + "set(CMAKE_FIND_ROOT_PATH " + mingw_sysroot + ")\n";
+        tc = tc + "set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n";
+        tc = tc + "set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\n";
+        tc = tc + "set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)\n";
+        File.write(bdir + "/toolchain.cmake", tc);
+        // Write CMakeLists.txt
+        let mut cm: Str = "cmake_minimum_required(VERSION 3.10)\n";
+        cm = cm + "project(KsGame CXX C)\n";
+        cm = cm + "set(CMAKE_CXX_STANDARD 17)\n";
+        cm = cm + "add_definitions(-DGLM_FORCE_PURE -D_WIN32)\n";
+        // Source files
+        cm = cm + "add_executable(game " + cpp_path;
+        if !no_stdlib { cm = cm + " " + rt_obj; }
+        cm = cm + ")\n";
+        // Engine includes and libs
+        if cg_is_engine {
+            let mut eng: Str = engine_dir;
+            if eng.len() > 0 {
+                let einc: Str = eng + "/include";
+                cm = cm + "target_include_directories(game PRIVATE " + einc + " " + einc + "/glad/include " + einc + "/stb";
+                if File.exists(einc + "/glm/glm/glm.hpp") { cm = cm + " " + einc + "/glm"; }
+                cm = cm + ")\n";
+                cm = cm + "target_link_libraries(game PRIVATE " + eng + "/libKonEngine.a";
+                if File.exists(eng + "/libglfw3.a") { cm = cm + " " + eng + "/libglfw3.a"; }
+                cm = cm + " opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+            }
+        }
+        File.write(bdir + "/CMakeLists.txt", cm);
+        // Build
+        let cmake_cmd: Str = "cd " + bdir + " && cmake -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_BUILD_TYPE=Release . 2>&1 && cmake --build . 2>&1";
+        let cmake_ret: I32 = _ks_system(cmake_cmd);
+        if cmake_ret == 0 {
+            _ks_system("cp " + bdir + "/game.exe " + output_file);
+            if has_cli { stage_ok(5, total_steps, "Linking", _ks_time_ms() - t0); }
+            if has_cli { print_success(output_file); }
+        } else {
+            Print("error: Windows cross-compilation failed");
+        }
+        _ks_system("rm -rf " + bdir);
+        return 0;
+    }
+
+    // Compile C++ + link (Linux / native)
     let cxx_cmd: Str = cxx_flags + " -o " + output_file + " " + compile_src + link_flags + " 2>&1";
     let cxx_ret: I32 = _ks_system(cxx_cmd);
     if cxx_ret != 0 {
