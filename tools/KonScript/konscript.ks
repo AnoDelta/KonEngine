@@ -943,12 +943,16 @@ func parse_stmt() -> I32 {
         let mut is_mut: I32 = 0;
         if mat(TK_MUT) { is_mut = 1; }
         let name: Str = eat(TK_IDENT, "variable name");
-        // Optional type annotation
-        if mat(TK_COLON) { parse_type(); } // consume and discard for now
+        // Optional type annotation — store as "name:Type" in node_str
+        let mut full_name: Str = name;
+        if mat(TK_COLON) {
+            let type_ann: Str = parse_type();
+            full_name = name + ":" + type_ann;
+        }
         let mut init: I32 = 0;
         if mat(TK_EQ) { init = parse_expr(); }
         mat(TK_SEMICOLON);
-        return alloc_node(NK_LET, init, is_mut, 0, name);
+        return alloc_node(NK_LET, init, is_mut, 0, full_name);
     }
 
     // const
@@ -1502,7 +1506,7 @@ func tc_stmt(idx: I32) {
     let k: I32 = node_kinds[idx];
     if k == NK_LET {
         let t: Str = tc_expr(node_a[idx]);
-        tc_define(node_str[idx], t);
+        tc_define(strip_type_ann(node_str[idx]), t);
         node_types[idx] = t; return;
     }
     if k == NK_CONST_D {
@@ -1551,8 +1555,8 @@ func typecheck(prog_idx: I32) {
     while decl != 0 {
         let d: I32 = node_a[decl];
         if node_kinds[d] == NK_FUNC    { tc_def_fn(func_name(node_str[d]), func_ret(node_str[d])); }
-        if node_kinds[d] == NK_CONST_D { let t: Str = tc_expr(node_a[d]); tc_define(node_str[d], t); }
-        if node_kinds[d] == NK_LET     { let t: Str = tc_expr(node_a[d]); tc_define(node_str[d], t); }
+        if node_kinds[d] == NK_CONST_D { let t: Str = tc_expr(node_a[d]); tc_define(strip_type_ann(node_str[d]), t); }
+        if node_kinds[d] == NK_LET     { let t: Str = tc_expr(node_a[d]); tc_define(strip_type_ann(node_str[d]), t); }
         decl = node_b[decl];
     }
     // Pre-register known return types for IRGen functions
@@ -1664,6 +1668,8 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("stage_doing", "void");
     tc_def_fn("stage_ok", "void");
     tc_def_fn("print_success", "void");
+    tc_def_fn("strip_type_ann", "Str");
+    tc_def_fn("get_type_ann", "Str");
     tc_def_fn("binary_dir", "Str");
     tc_def_fn("cg_emit_fwd_decls", "void");
     tc_def_fn("cg_emit_toplevel", "void");
@@ -3319,6 +3325,26 @@ func cg_emit_raw(line: Str) {
 func cg_indent_inc() { cg_indent = cg_indent + 1; }
 func cg_indent_dec() { if cg_indent > 0 { cg_indent = cg_indent - 1; } }
 
+// Strip type annotation from "name:Type" → returns just "name"
+func strip_type_ann(s: Str) -> Str {
+    let mut i: I32 = 0;
+    while i < s.len() {
+        if s.substr(i, 1) == ":" { return s.substr(0, i); }
+        i = i + 1;
+    }
+    return s;
+}
+
+// Extract type annotation from "name:Type" → returns "Type" or ""
+func get_type_ann(s: Str) -> Str {
+    let mut i: I32 = 0;
+    while i < s.len() {
+        if s.substr(i, 1) == ":" { return s.substr(i + 1, s.len() - i - 1); }
+        i = i + 1;
+    }
+    return "";
+}
+
 func cg_is_ptr(name: Str) -> Bool {
     let mut i: I32 = 1;
     while i <= cg_ptr_count {
@@ -3563,6 +3589,7 @@ func cg_gen_expr(idx: I32) -> Str {
         if member == "ok"    { return obj + ".ok()"; }
         if member == "value" { return obj + ".value()"; }
         if member == "error" { return obj + ".error()"; }
+        if cg_is_ptr(obj) { return obj + "->" + member; }
         return obj + "." + member;
     }
 
@@ -3638,7 +3665,7 @@ func cg_gen_stmt(idx: I32) {
     let k: I32 = node_kinds[idx];
 
     if k == NK_LET {
-        let name: Str = node_str[idx];
+        let name: Str = strip_type_ann(node_str[idx]);
         let init: I32 = node_a[idx];
         if init != 0 {
             let val: Str = cg_gen_expr(init);
@@ -3660,6 +3687,10 @@ func cg_gen_stmt(idx: I32) {
                     cg_emit("std::string " + name + " = " + val + ";");
                 } else {
                     cg_emit("auto " + name + " = " + val + ";");
+                    // Track pointer vars (scene.Add, AddChild return pointers)
+                    if val.contains(".Add<") || val.contains("->AddChild<") {
+                        cg_mark_ptr(name);
+                    }
                 }
             }
         } else {
@@ -4043,11 +4074,13 @@ func cg_gen_node(idx: I32) {
         let mk: I32 = node_kinds[member];
 
         if mk == NK_LET {
-            // Field declaration
-            let fname: Str = node_str[member];
+            // Field declaration — node_str may be "name" or "name:Type"
+            let fname: Str = strip_type_ann(node_str[member]);
+            let type_ann: Str = get_type_ann(node_str[member]);
             let finit: I32 = node_a[member];
-            // Resolve type from annotation or init expression
-            let ft: Str = node_types[member];
+            // Resolve type: prefer explicit annotation, then node_types, then infer
+            let mut ft: Str = node_types[member];
+            if type_ann.len() > 0 { ft = type_ann; }
             let mut ftype: Str = "int32_t";
             if ft == "F64" || ft == "F32" || ft == "Float" { ftype = "float"; }
             if ft == "Str" { ftype = "std::string"; }
@@ -4377,10 +4410,12 @@ func cg_generate(prog_idx: I32) -> Str {
             cg_gen_node(d);
         }
         if node_kinds[d] == NK_CONST_D {
+            let gname: Str = strip_type_ann(node_str[d]);
             let val: Str = cg_gen_expr(node_a[d]);
-            cg_emit("constexpr auto " + node_str[d] + " = " + val + ";");
+            cg_emit("constexpr auto " + gname + " = " + val + ";");
         }
         if node_kinds[d] == NK_LET {
+            let gname: Str = strip_type_ann(node_str[d]);
             let ginit: I32 = node_a[d];
             let val: Str = cg_gen_expr(ginit);
             // Check if initializer is an array literal
@@ -4394,13 +4429,13 @@ func cg_generate(prog_idx: I32) -> Str {
                     if ek == NK_BOOL    { elem_type = "bool"; }
                     if ek == NK_FLOAT   { elem_type = "float"; }
                 }
-                cg_emit("std::vector<" + elem_type + "> " + node_str[d] + " = " + val + ";");
+                cg_emit("std::vector<" + elem_type + "> " + gname + " = " + val + ";");
             } else {
                 // Use std::string for string literal initializers
                 if ginit != 0 && (node_kinds[ginit] == NK_STR_LIT || node_kinds[ginit] == NK_FSTR) {
-                    cg_emit("std::string " + node_str[d] + " = " + val + ";");
+                    cg_emit("std::string " + gname + " = " + val + ";");
                 } else {
-                    cg_emit("auto " + node_str[d] + " = " + val + ";");
+                    cg_emit("auto " + gname + " = " + val + ";");
                 }
             }
         }
