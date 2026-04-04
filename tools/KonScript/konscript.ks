@@ -4900,6 +4900,11 @@ func main() -> I32 {
             }
             mi = mi + 1;
         }
+        if mingw_sysroot.len() == 0 {
+            Print("warning: MXE not found. Searched: /usr/lib/mxe, /opt/mxe, ", home_mxe);
+            Print("  Install MXE: git clone https://github.com/mxe/mxe.git ~/mxe");
+            Print("  Build:       cd ~/mxe && make MXE_TARGETS=x86_64-w64-mingw32.static cc");
+        }
     }
 
     // Compile runtime (unless --no-stdlib)
@@ -4911,7 +4916,9 @@ func main() -> I32 {
         if is_windows {
             rt_cc = mingw_prefix + "-gcc";
             rt_defs = " -D_WIN32";
-            if mingw_sysroot.len() > 0 { rt_defs = rt_defs + " --sysroot=" + mingw_sysroot; }
+            if mingw_sysroot.len() > 0 {
+                rt_defs = rt_defs + " -nostdinc -isystem " + mingw_sysroot + "/include";
+            }
         }
         let rt_cmd: Str = rt_cc + " -std=c11 -O2" + rt_defs + " -c " + rt_src + " -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
@@ -4926,7 +4933,22 @@ func main() -> I32 {
     if is_windows {
         cxx_flags = mingw_prefix + "-g++ -std=c++17 -O2 -DGLM_FORCE_PURE -D_WIN32";
         if mingw_sysroot.len() > 0 {
-            cxx_flags = cxx_flags + " --sysroot=" + mingw_sysroot;
+            // Suppress ALL default include paths to prevent host header contamination,
+            // then explicitly add back MXE's own C and C++ include directories.
+            // Auto-detect GCC version from the lib/gcc directory.
+            _ks_system("ls " + mingw_sysroot + "/../lib/gcc/x86_64-w64-mingw32.static/ 2>/dev/null | head -1 > /tmp/_ks_gcc_ver.txt");
+            let gcc_ver_result: Result<Str> = File.read("/tmp/_ks_gcc_ver.txt");
+            let mut gcc_ver: Str = "";
+            if gcc_ver_result.ok { gcc_ver = gcc_ver_result.value.trim(); }
+            if gcc_ver.len() > 0 {
+                let gcc_base: Str = mingw_sysroot + "/../lib/gcc/x86_64-w64-mingw32.static/" + gcc_ver;
+                cxx_flags = cxx_flags + " -nostdinc -nostdinc++";
+                cxx_flags = cxx_flags + " -isystem " + gcc_base + "/include/c++";
+                cxx_flags = cxx_flags + " -isystem " + gcc_base + "/include/c++/x86_64-w64-mingw32.static";
+                cxx_flags = cxx_flags + " -isystem " + gcc_base + "/include";
+                cxx_flags = cxx_flags + " -isystem " + gcc_base + "/include-fixed";
+                cxx_flags = cxx_flags + " -isystem " + mingw_sysroot + "/include";
+            }
         }
         if output_file.len() > 0 && !output_file.ends(".exe") {
             output_file = output_file + ".exe";
