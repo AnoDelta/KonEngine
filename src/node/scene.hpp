@@ -17,14 +17,26 @@ public:
         auto node = std::make_unique<T>(nodeName, std::forward<Args>(args)...);
         node->name = nodeName;
         T* ptr = node.get();
+        // Set up child-added callback so colliders added in Ready() get registered
+        ptr->_onChildAdded = [this](Node* n) {
+            if (auto* col = dynamic_cast<Collider2D*>(n))
+                collisionWorld.Add(col);
+        };
         nodes.push_back(std::move(node));
+        // Register any colliders that exist before Ready
         if (auto* col = dynamic_cast<Collider2D*>(ptr))
             collisionWorld.Add(col);
         ptr->ForEachDescendant([this](Node* n) {
             if (auto* col = dynamic_cast<Collider2D*>(n))
                 collisionWorld.Add(col);
         });
+        // Ready() may add child colliders — _onChildAdded handles registration
         ptr->Ready();
+        // Also catch anything Ready() added that the callback missed
+        ptr->ForEachDescendant([this](Node* n) {
+            if (auto* col = dynamic_cast<Collider2D*>(n))
+                collisionWorld.Add(col);
+        });
         return ptr;
     }
 

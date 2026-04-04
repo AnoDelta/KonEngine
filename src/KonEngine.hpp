@@ -15,6 +15,7 @@
 #include "node/sprite2d.hpp"
 #include "node/scene.hpp"
 #include "math/vector2.hpp"
+#include "math/random.hpp"
 #include "animation/curves.hpp"
 #include "animation/animation.hpp"
 #include "animation/animation_player.hpp"

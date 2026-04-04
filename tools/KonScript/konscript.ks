@@ -3565,8 +3565,9 @@ func cg_gen_expr(idx: I32) -> Str {
             let obj_type: Str = cg_last_type;
             let method: Str = node_str[callee];
             let accessor: Str = ".";
-            // Static class methods: AssetManager.init → AssetManager::init
+            // Static class methods: Namespace.method → Namespace::method
             if obj == "AssetManager" { return "AssetManager::" + method + "(" + args + ")"; }
+            if obj == "Random" { return "Random::" + method + "(" + args + ")"; }
             // Collection methods — use .size() for vectors, _ks_len for strings
             if method == "len"     { return "(int)" + obj + ".size()"; }
             if method == "isEmpty" { return obj + ".empty()"; }
@@ -4638,10 +4639,12 @@ func stage_ok(step: I32, total: I32, name: Str, ms: F64) {
     _ks_system("printf '  \\033[2m" + ts + "\\033[0m\\n'");
 }
 
+let mut cg_target_label: Str = "linux64";
+
 func print_success(path: Str) {
     _ks_system("printf '\\n  \\033[1m\\033[32m\\xe2\\x9c\\x93\\033[0m '");
     _ks_system("printf '\\033[1m" + path + "\\033[0m  '");
-    _ks_system("printf '\\033[2m[linux64]\\033[0m\\n\\n'");
+    _ks_system("printf '\\033[2m[" + cg_target_label + "]\\033[0m\\n\\n'");
 }
 
 func binary_dir() -> Str {
@@ -4690,6 +4693,7 @@ func main() -> I32 {
     let mut extra_libs: [Str] = [""];
     let mut cpp_only: Bool = false;
     let mut no_stdlib: Bool = false;
+    let mut target_platform: Str = "linux64";
     extra_includes.clear();
     extra_libdirs.clear();
     extra_libs.clear();
@@ -4710,6 +4714,16 @@ func main() -> I32 {
             if arg == "--help" || arg == "-h" { print_usage(); return 0; }
             if arg == "--cpp" { cpp_only = true; i = i + 1; continue; }
             if arg == "--no-stdlib" { no_stdlib = true; i = i + 1; continue; }
+            // --target=windows64 or --target windows64
+            if arg.starts("--target=") {
+                target_platform = arg.substr(9, arg.len() - 9);
+                i = i + 1; continue;
+            }
+            if arg == "--target" && i + 1 < arg_count {
+                i = i + 1;
+                target_platform = _ks_get_argv(i);
+                i = i + 1; continue;
+            }
             if arg == "-o" && i + 1 < arg_count {
                 i = i + 1;
                 output_file = _ks_get_argv(i);
@@ -4793,6 +4807,7 @@ func main() -> I32 {
     let mut total_steps: I32 = 5;
     if cpp_only { total_steps = 4; }
     let has_cli: Bool = arg_count >= 2;
+    cg_target_label = target_platform;
     let mut t0: F64 = 0.0;
 
     // Pre-process #include "file.ks" — inline included source before lexing
@@ -4863,14 +4878,16 @@ func main() -> I32 {
 
     // ── Compile C++ to native binary ────────────────────────────────────
     if has_cli { stage_doing(5, total_steps, "Linking"); t0 = _ks_time_ms(); }
+    let mut is_windows: Bool = target_platform.starts("windows") || target_platform == "win64";
     let rt_obj: Str = "/tmp/_ks_runtime.o";
 
     // Compile runtime (unless --no-stdlib)
     if !no_stdlib {
-        // Look for _ks_runtime.c next to the binary first, then CWD
         let mut rt_src: Str = _ks_self_dir() + "/_ks_runtime.c";
         if !File.exists(rt_src) { rt_src = "_ks_runtime.c"; }
-        let rt_cmd: Str = "cc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
+        let mut rt_cc: Str = "cc";
+        if is_windows { rt_cc = "x86_64-w64-mingw32-gcc"; }
+        let rt_cmd: Str = rt_cc + " -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
         let rt_ret: I32 = _ks_system(rt_cmd);
         if rt_ret != 0 {
             let rt_cmd2: Str = "clang -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -c " + rt_src + " -o " + rt_obj + " 2>&1";
@@ -4878,8 +4895,14 @@ func main() -> I32 {
         }
     }
 
-    // Build compilation command
+    // Build compilation command — pick compiler based on target
     let mut cxx_flags: Str = "g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
+    if is_windows {
+        cxx_flags = "x86_64-w64-mingw32-g++ -std=c++17 -O2 -DGLM_FORCE_PURE";
+        if output_file.len() > 0 && !output_file.ends(".exe") {
+            output_file = output_file + ".exe";
+        }
+    }
     let mut link_flags: Str = "";
 
     // Add user -I flags
@@ -4907,15 +4930,17 @@ func main() -> I32 {
     if cg_is_engine {
         let mut engine_dir: Str = "";
         let self_dir: Str = _ks_self_dir();
+        let mut eng_plat: Str = "linux64";
+        if is_windows { eng_plat = "windows64"; }
         // Search order: next to binary, CWD toolchain, repo layout, system-wide
-        if File.exists(self_dir + "/toolchain/engine/linux64/libKonEngine.a") {
-            engine_dir = self_dir + "/toolchain/engine/linux64";
+        if File.exists(self_dir + "/toolchain/engine/" + eng_plat + "/libKonEngine.a") {
+            engine_dir = self_dir + "/toolchain/engine/" + eng_plat;
         }
-        if engine_dir.len() == 0 && File.exists("toolchain/engine/linux64/libKonEngine.a") {
-            engine_dir = "toolchain/engine/linux64";
+        if engine_dir.len() == 0 && File.exists("toolchain/engine/" + eng_plat + "/libKonEngine.a") {
+            engine_dir = "toolchain/engine/" + eng_plat;
         }
-        if engine_dir.len() == 0 && File.exists("../tools/KonScript/toolchain/engine/linux64/libKonEngine.a") {
-            engine_dir = "../tools/KonScript/toolchain/engine/linux64";
+        if engine_dir.len() == 0 && File.exists("../tools/KonScript/toolchain/engine/" + eng_plat + "/libKonEngine.a") {
+            engine_dir = "../tools/KonScript/toolchain/engine/" + eng_plat;
         }
         if engine_dir.len() > 0 {
             let inc: Str = engine_dir + "/include";
@@ -4931,7 +4956,11 @@ func main() -> I32 {
             } else {
                 link_flags = link_flags + " -lglfw";
             }
-            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+            if is_windows {
+                link_flags = link_flags + " -lopengl32 -lgdi32 -lwinmm -lws2_32 -static-libstdc++ -static-libgcc";
+            } else {
+                link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+            }
         } else {
             // System-wide fallback: check /usr/local for engine install
             if File.exists("/usr/local/lib/libKonEngine.a") {
@@ -4949,12 +4978,16 @@ func main() -> I32 {
             } else {
                 Print("warning: engine toolchain not found — run build-engine-lib.sh");
             }
-            link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+            if is_windows {
+                link_flags = link_flags + " -lopengl32 -lgdi32 -lwinmm -lws2_32 -static-libstdc++ -static-libgcc";
+            } else {
+                link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+            }
         }
     }
 
     // Always add -lm
-    link_flags = link_flags + " -lm";
+    if !is_windows { link_flags = link_flags + " -lm"; }
 
     // Build final command
     let mut compile_src: Str = cpp_path;
