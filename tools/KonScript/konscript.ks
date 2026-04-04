@@ -4978,13 +4978,14 @@ func main() -> I32 {
     }
 
     // Engine mode: auto-detect and add engine paths
+    let mut engine_dir: Str = "";
     if cg_is_engine {
         if is_windows {
             // Cross-compiling engine games requires the Windows engine toolchain
             // built by: cd tools/KonScript && ./build-engine-lib.sh --windows
             Print("note: cross-compiling engine game for windows64");
         }
-        let mut engine_dir: Str = "";
+        engine_dir = "";
         let self_dir: Str = _ks_self_dir();
         let mut eng_plat: Str = "linux64";
         if is_windows { eng_plat = "windows64"; }
