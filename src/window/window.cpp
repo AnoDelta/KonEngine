@@ -143,19 +143,19 @@ void Present() {
 		window->drawLine(mx-cs, my,    mx+cs, my,    1,0,0,1);
 		window->drawLine(mx,    my-cs, mx,    my+cs, 1,0,0,1);
 
-		// Debug grid -- strict pixel density check to prevent lag
-		if (s_hasCameraThisFrame) {
-			window->beginCamera2D(s_lastCamera);
+		// Debug grid — draw even without a camera (use default identity)
+		{
+			Camera2D gridCam = s_hasCameraThisFrame
+				? s_lastCamera
+				: Camera2D{(float)W * 0.5f, (float)H * 0.5f, 1.0f, 0.0f};
+			window->beginCamera2D(gridCam);
 
-			float zoom  = s_lastCamera.zoom;
-			float camX  = s_lastCamera.x, camY = s_lastCamera.y;
+			float zoom  = gridCam.zoom;
+			float camX  = gridCam.x, camY = gridCam.y;
 			float halfW = (W*0.5f)/zoom,  halfH = (H*0.5f)/zoom;
 			float left  = camX-halfW, right  = camX+halfW;
 			float top   = camY-halfH, bottom = camY+halfH;
 
-			// Only draw a grid tier if each line would be at least 4 pixels apart on screen.
-			// gridStep * zoom >= 4  =>  gridStep >= 4/zoom
-			// This naturally hides fine grid when zoomed out without needing a line count.
 			float minPixelGap = 4.0f;
 
 			// Fine grid (32px world units)
@@ -174,7 +174,7 @@ void Present() {
 				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.38f,0.38f,0.50f,1);
 			}
 
-			// World origin axes -- always 2 lines, no condition
+			// World origin axes
 			window->drawLine(left,0, right,0,  0.55f,0.55f,0.75f,1);
 			window->drawLine(0,top,  0,bottom,  0.55f,0.55f,0.75f,1);
 

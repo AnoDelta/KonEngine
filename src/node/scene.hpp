@@ -17,14 +17,21 @@ public:
         auto node = std::make_unique<T>(nodeName, std::forward<Args>(args)...);
         node->name = nodeName;
         T* ptr = node.get();
+        // Set up child-added callback so colliders added in Ready() get registered
+        ptr->_onChildAdded = [this](Node* n) {
+            if (auto* col = dynamic_cast<Collider2D*>(n))
+                collisionWorld.Add(col);
+        };
         nodes.push_back(std::move(node));
+        // Call Ready() first — sets positions, adds children
+        ptr->Ready();
+        // THEN register colliders — positions are correct, no false overlaps
         if (auto* col = dynamic_cast<Collider2D*>(ptr))
             collisionWorld.Add(col);
         ptr->ForEachDescendant([this](Node* n) {
             if (auto* col = dynamic_cast<Collider2D*>(n))
                 collisionWorld.Add(col);
         });
-        ptr->Ready();
         return ptr;
     }
 
@@ -106,15 +113,24 @@ public:
 private:
     std::vector<std::unique_ptr<Node>> nodes;
 
-    void drawDebug(Node* node) {
+    void drawDebug(Node* node, float parentX = 0, float parentY = 0) {
+        float wx = parentX, wy = parentY;
+        if (auto* n2d = dynamic_cast<Node2D*>(node)) {
+            wx += n2d->x;
+            wy += n2d->y;
+        }
         if (auto* col = dynamic_cast<Collider2D*>(node)) {
+            // Temporarily set world-space position for drawing
+            float savedX = col->x, savedY = col->y;
+            col->x = wx; col->y = wy;
             bool was = col->debugDraw;
             col->debugDraw = true;
             col->Draw();
             col->debugDraw = was;
+            col->x = savedX; col->y = savedY;
         }
         for (auto& child : node->getChildren())
             if (child->active)
-                drawDebug(child.get());
+                drawDebug(child.get(), wx, wy);
     }
 };
