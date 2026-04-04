@@ -3565,6 +3565,8 @@ func cg_gen_expr(idx: I32) -> Str {
             let obj_type: Str = cg_last_type;
             let method: Str = node_str[callee];
             let accessor: Str = ".";
+            // Static class methods: AssetManager.init → AssetManager::init
+            if obj == "AssetManager" { return "AssetManager::" + method + "(" + args + ")"; }
             // Collection methods — use .size() for vectors, _ks_len for strings
             if method == "len"     { return "(int)" + obj + ".size()"; }
             if method == "isEmpty" { return obj + ".empty()"; }
@@ -3638,6 +3640,28 @@ func cg_gen_expr(idx: I32) -> Str {
         let obj: Str = cg_gen_expr(node_a[idx]);
         let obj_type: Str = cg_last_type;
         let member: Str = node_str[idx];
+
+        // Namespace mappings: Key.A → Key::Code::A, Mouse.Left → Mouse::Button::Left
+        // AssetManager.method → AssetManager::method (static calls handled in NK_CALL too)
+        if obj == "Key" { cg_last_type = "I32"; return "Key::Code::" + member; }
+        if obj == "Mouse" { cg_last_type = "I32"; return "Mouse::Button::" + member; }
+        if obj == "Gamepad" { cg_last_type = "I32"; return "Gamepad::" + member; }
+        if obj == "Color" {
+            cg_last_type = "Color";
+            // Map Color::Red → RED etc
+            if member == "Red" { return "RED"; }
+            if member == "Green" { return "GREEN"; }
+            if member == "Blue" { return "BLUE"; }
+            if member == "White" { return "WHITE"; }
+            if member == "Black" { return "BLACK"; }
+            if member == "Yellow" { return "YELLOW"; }
+            if member == "Cyan" { return "CYAN"; }
+            if member == "Magenta" { return "MAGENTA"; }
+            if member == "Orange" { return "ORANGE"; }
+            if member == "Gray" { return "GRAY"; }
+            return member;
+        }
+
         // Determine accessor: -> for pointers, . for values
         let mut is_ptr: Bool = cg_is_ptr(obj) || cg_type_is_ptr(obj_type);
         let mut acc: Str = ".";

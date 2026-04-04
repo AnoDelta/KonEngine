@@ -192,6 +192,9 @@ void Present() {
 		if (sc != 0.0f) std::cout << "[KonEngine DEBUG] Mouse: SCROLL " << sc << std::endl;
 	}
 
+	// Final flush: push any remaining batched geometry (debug overlay, etc.)
+	window->present();
+
 	window->swapBuffers();
 }
 
