@@ -263,12 +263,15 @@ void Viewport::paintEvent(QPaintEvent*) {
 
     // Grid
     drawGrid(p);
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: grid done\n");
 
     // Origin cross (world 0,0)
     drawOriginCross(p);
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: origin done\n");
 
     // Game / camera bounds + dim
     drawGameBounds(p);
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: bounds done\n");
 
     // In scene view: draw camera frustum rects behind nodes
     if (!m_cameraPreview) {
@@ -276,11 +279,18 @@ void Viewport::paintEvent(QPaintEvent*) {
             if (n.type == "Camera2D" || n.type == "CameraNode2D")
                 drawCameraFrame(p, n);
     }
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: cameraFrames done\n");
 
     // Draw all non-camera nodes
-    for (auto& n : m_nodes)
-        if (n.type != "Camera2D" && n.type != "CameraNode2D")
+    for (int ni = 0; ni < m_nodes.size(); ni++) {
+        auto& n = m_nodes[ni];
+        if (n.type != "Camera2D" && n.type != "CameraNode2D") {
+            if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: drawNode[%d] '%s' type='%s' sel=%d\n",
+                    ni, n.name.toUtf8().constData(), n.type.toUtf8().constData(), n.selected);
             drawNode(p, n);
+        }
+    }
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: nodes done\n");
 
     // Camera nodes on top (as icons) in scene view
     if (!m_cameraPreview) {
