@@ -36,6 +36,11 @@ sudo install -m 755 ksc "$BIN_DIR/ksc"
 if [ -f "_ks_runtime.c" ]; then
     sudo install -m 644 _ks_runtime.c "$BIN_DIR/_ks_runtime.c"
 fi
+# Install engine toolchain (pre-built libs + headers) if available
+if [ -d "toolchain/engine" ]; then
+    sudo mkdir -p "$BIN_DIR/toolchain/engine"
+    sudo cp -r toolchain/engine/* "$BIN_DIR/toolchain/engine/"
+fi
 
 echo ""
 echo "==================================================="
@@ -43,6 +48,9 @@ echo " Installed!"
 echo "   $BIN_DIR/konscript  (self-hosted compiler, Stage 4)"
 echo "   $BIN_DIR/ksc        (compile-and-run frontend)"
 echo "   $BIN_DIR/_ks_runtime.c"
+if [ -d "toolchain/engine" ]; then
+echo "   $BIN_DIR/toolchain/engine/"
+fi
 echo ""
 echo " Usage:"
 echo "   konscript hello.ks                    -- compile to native binary"
