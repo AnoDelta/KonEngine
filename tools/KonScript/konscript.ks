@@ -4811,37 +4811,64 @@ func main() -> I32 {
     let mut t0: F64 = 0.0;
 
     // Pre-process #include "file.ks" — inline included source before lexing
-    // Scan source for #include directives and prepend included file contents
+    // Multi-pass: each pass scans for #include "*.ks", prepends file content,
+    // and strips the directive. Handles nested includes up to 8 levels deep.
+    // Tracks already-included files to prevent duplicates/circular includes.
+    let mut included_files: [Str] = [""];
+    let mut included_file_count: I32 = 0;
     let mut full_src: Str = "";
-    let mut si: I32 = 0;
-    let slen: I32 = src.len();
-    while si < slen {
-        // Skip comment lines
-        if src.substr(si, 2) == "//" {
-            while si < slen && src.substr(si, 1) != "\n" { si = si + 1; }
-            si = si + 1;
-            continue;
-        }
-        if src.substr(si, 8) == "#include" {
-            // Find the quoted path
-            let mut qi: I32 = si + 8;
-            while qi < slen && src.substr(qi, 1) != "\"" { qi = qi + 1; }
-            qi = qi + 1; // skip opening quote
-            let mut qe: I32 = qi;
-            while qe < slen && src.substr(qe, 1) != "\"" { qe = qe + 1; }
-            let inc_path: Str = src.substr(qi, qe - qi);
-            if inc_path.ends(".ks") {
-                let inc_result: Result<Str> = File.read(inc_path);
-                if inc_result.ok {
-                    full_src = full_src + inc_result.value + "\n";
-                } else {
-                    Print("warning: cannot read include '", inc_path, "'");
-                }
+    let mut remaining: Str = src;
+    let mut inc_pass: I32 = 0;
+    while inc_pass < 8 {
+        let mut prepend: Str = "";
+        let mut found_include: Bool = false;
+        let mut si: I32 = 0;
+        let slen: I32 = remaining.len();
+        while si < slen {
+            // Skip comment lines
+            if remaining.substr(si, 2) == "//" {
+                while si < slen && remaining.substr(si, 1) != "\n" { si = si + 1; }
+                si = si + 1;
+                continue;
             }
-            // Skip to end of line
-            while si < slen && src.substr(si, 1) != "\n" { si = si + 1; }
+            if remaining.substr(si, 8) == "#include" {
+                // Find the quoted path
+                let mut qi: I32 = si + 8;
+                while qi < slen && remaining.substr(qi, 1) != "\"" { qi = qi + 1; }
+                qi = qi + 1; // skip opening quote
+                let mut qe: I32 = qi;
+                while qe < slen && remaining.substr(qe, 1) != "\"" { qe = qe + 1; }
+                let inc_path: Str = remaining.substr(qi, qe - qi);
+                if inc_path.ends(".ks") {
+                    // Check if already included
+                    let mut already: Bool = false;
+                    let mut ai: I32 = 1;
+                    while ai <= included_file_count {
+                        if included_files[ai] == inc_path { already = true; }
+                        ai = ai + 1;
+                    }
+                    if !already {
+                        included_file_count = included_file_count + 1;
+                        included_files.push(inc_path);
+                        let inc_result: Result<Str> = File.read(inc_path);
+                        if inc_result.ok {
+                            prepend = prepend + inc_result.value + "\n";
+                            found_include = true;
+                        } else {
+                            Print("warning: cannot read include '", inc_path, "'");
+                        }
+                    }
+                }
+                // Skip to end of line
+                while si < slen && remaining.substr(si, 1) != "\n" { si = si + 1; }
+            }
+            si = si + 1;
         }
-        si = si + 1;
+        if !found_include { inc_pass = 8; } // done — no new includes
+        // Next pass scans the newly prepended content for ITS includes
+        remaining = prepend;
+        full_src = prepend + full_src;
+        inc_pass = inc_pass + 1;
     }
     full_src = full_src + src;
 
