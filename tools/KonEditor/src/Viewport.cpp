@@ -105,6 +105,12 @@ void Viewport::updatePreviewButton() {
 }
 
 void Viewport::setNodes(const QList<ViewportNode>& nodes) {
+    // Invalidate drag pointer — m_dragNode pointed into the old list
+    if (m_dragging) {
+        m_dragging = false;
+        m_dragNode = nullptr;
+        setCursor(Qt::ArrowCursor);
+    }
     m_nodes = nodes;
     syncCameraFromNodes();
     update();
@@ -162,10 +168,12 @@ QPointF Viewport::screenToWorld(float x, float y) const {
 
     if (m_cameraPreview && m_hasCamera) {
         float ez = m_zoom * m_camZoom;
+        if (std::fabs(ez) < 0.0001f) ez = 0.0001f;
         return { (x - cx) / ez + m_camX, (y - cy) / ez + m_camY };
     }
 
-    return { (x - cx) / m_zoom, (y - cy) / m_zoom };
+    float z = (std::fabs(m_zoom) < 0.0001f) ? 0.0001f : m_zoom;
+    return { (x - cx) / z, (y - cy) / z };
 }
 
 // ── Hit testing ───────────────────────────────────────────────────────────
@@ -193,8 +201,9 @@ void Viewport::drawGameBounds(QPainter& p) {
     if (m_cameraPreview && m_hasCamera) {
         // In camera preview the game frame is always centered on screen,
         // sized to exactly the camera's view (gameRes / camZoom) * editorZoom.
-        float vw = (m_gameW / m_camZoom) * m_zoom;
-        float vh = (m_gameH / m_camZoom) * m_zoom;
+        float cz = (std::fabs(m_camZoom) < 0.0001f) ? 0.0001f : m_camZoom;
+        float vw = (m_gameW / cz) * m_zoom;
+        float vh = (m_gameH / cz) * m_zoom;
         float cx = width()  * 0.5f + m_panX;
         float cy = height() * 0.5f + m_panY;
         QRectF frame(cx - vw * 0.5f, cy - vh * 0.5f, vw, vh);
@@ -286,10 +295,11 @@ void Viewport::paintEvent(QPaintEvent*) {
             .arg((int)m_camX).arg((int)m_camY)
             .arg(m_camZoom, 0, 'f', 2);
     } else {
+        float iz = (std::fabs(m_zoom) < 0.0001f) ? 0.0001f : m_zoom;
         info = QString("zoom: %1x  pan: (%2, %3)  nodes: %4")
             .arg(m_zoom, 0, 'f', 2)
-            .arg((int)(-m_panX / m_zoom))
-            .arg((int)(-m_panY / m_zoom))
+            .arg((int)(-m_panX / iz))
+            .arg((int)(-m_panY / iz))
             .arg(m_nodes.size());
     }
     p.drawText(8, height() - 8, info);
@@ -436,6 +446,7 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
         float scale = (m_cameraPreview && m_hasCamera)
             ? m_zoom * m_camZoom
             : m_zoom;
+        if (std::fabs(scale) < 0.0001f) scale = 0.0001f;
         m_dragNode->x = m_dragNodeOrigin.x() + delta.x() / scale;
         m_dragNode->y = m_dragNodeOrigin.y() + delta.y() / scale;
         emit nodeMoved(m_dragNode->name, m_dragNode->x, m_dragNode->y);
@@ -463,8 +474,9 @@ void Viewport::wheelEvent(QWheelEvent* e) {
 
     // Zoom towards cursor
     QPointF c = e->position();
-    m_panX = c.x() - (c.x() - m_panX) * (newZoom / m_zoom);
-    m_panY = c.y() - (c.y() - m_panY) * (newZoom / m_zoom);
+    float wz = (std::fabs(m_zoom) < 0.0001f) ? 0.0001f : m_zoom;
+    m_panX = c.x() - (c.x() - m_panX) * (newZoom / wz);
+    m_panY = c.y() - (c.y() - m_panY) * (newZoom / wz);
     m_zoom = newZoom;
     update();
 }
