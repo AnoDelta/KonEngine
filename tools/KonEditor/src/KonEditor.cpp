@@ -710,12 +710,15 @@ void KonEditor::onProjectSettings() {
         if (mf.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QString src = QTextStream(&mf).readAll();
             mf.close();
-            // Parse InitWindow(w, h, "title")
-            QRegularExpression reInit(R"RE(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)")RE");            auto mi = reInit.match(src);
+            // Parse InitWindow(w, h, "title") or InitWindow(w, h, "title", resizable)
+            QRegularExpression reInit(R"RE(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)"(?:\s*,\s*(true|false))?\s*\))RE");
+            auto mi = reInit.match(src);
             if (mi.hasMatch()) {
                 widthSpin->setValue(mi.captured(1).toInt());
                 heightSpin->setValue(mi.captured(2).toInt());
                 titleEdit->setText(mi.captured(3));
+                if (!mi.captured(4).isEmpty())
+                    resizableCheck->setChecked(mi.captured(4) == "true");
             }
             // Parse SetTargetFPS(n)
             QRegularExpression reFps(R"(SetTargetFPS\s*\(\s*(\d+)\s*\))");
@@ -723,8 +726,7 @@ void KonEditor::onProjectSettings() {
             if (mfps.hasMatch()) {
                 fpsSpin->setValue(mfps.captured(1).toInt());
             } else {
-                // No SetTargetFPS call means uncapped
-                fpsSpin->setValue(0);
+                fpsSpin->setValue(0); // no SetTargetFPS = uncapped
             }
             // Parse SetVsync(true/false)
             QRegularExpression reVs(R"(SetVsync\s*\(\s*(true|false)\s*\))");
@@ -732,11 +734,11 @@ void KonEditor::onProjectSettings() {
             if (mvs.hasMatch()) {
                 vsyncCheck->setChecked(mvs.captured(1) == "true");
             }
-            // Parse SetWindowResizable(true/false)
-            QRegularExpression reResize(R"(SetWindowResizable\s*\(\s*(true|false)\s*\))");
-            auto mres = reResize.match(src);
-            if (mres.hasMatch()) {
-                resizableCheck->setChecked(mres.captured(1) == "true");
+            // Parse DebugMode(true/false)
+            QRegularExpression reDbg(R"(DebugMode\s*\(\s*(true|false)\s*\))");
+            auto mdbg = reDbg.match(src);
+            if (mdbg.hasMatch()) {
+                debugCheck->setChecked(mdbg.captured(1) == "true");
             }
         }
     }
@@ -775,14 +777,14 @@ void KonEditor::onProjectSettings() {
             f.close();
             fprintf(stderr, "[Settings] Read %d chars\n", src.size());
 
-            // Replace InitWindow args
+            // Replace InitWindow args (including resizable 4th param)
             QRegularExpression re(R"(InitWindow\s*\([^)]+\))");
-            bool hadInit = re.match(src).hasMatch();
-            fprintf(stderr, "[Settings] InitWindow match: %d\n", hadInit);
-            QString newCall = QString("InitWindow(%1, %2, \"%3\")")
+            QString resArg = resizableCheck->isChecked() ? ", true" : "";
+            QString newCall = QString("InitWindow(%1, %2, \"%3\"%4)")
                 .arg(widthSpin->value())
                 .arg(heightSpin->value())
-                .arg(titleEdit->text());
+                .arg(titleEdit->text())
+                .arg(resArg);
             src.replace(re, newCall);
 
             // Handle SetTargetFPS: if fps=0 (uncapped), remove the line; otherwise update/add
@@ -827,19 +829,24 @@ void KonEditor::onProjectSettings() {
                 }
             }
 
-            // Handle SetWindowResizable: update if exists, insert if missing
-            QString resizableVal = resizableCheck->isChecked() ? "true" : "false";
-            QRegularExpression re4(R"(SetWindowResizable\s*\([^)]+\))");
-            if (re4.match(src).hasMatch()) {
-                src.replace(re4, QString("SetWindowResizable(%1)").arg(resizableVal));
-            } else if (resizableCheck->isChecked()) {
-                // Insert after InitWindow line
-                QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
-                auto mInit = reAfterInit.match(src);
-                if (mInit.hasMatch()) {
-                    int insertPos = mInit.capturedEnd();
-                    src.insert(insertPos, QString("\n    SetWindowResizable(%1)").arg(resizableVal));
+            // Handle DebugMode: update if exists, insert if enabled, remove if disabled
+            QRegularExpression re4(R"(\n?[ \t]*DebugMode\s*\([^)]+\)\s*;?[^\n]*)");
+            QRegularExpression re4match(R"(DebugMode\s*\([^)]+\))");
+            if (debugCheck->isChecked()) {
+                if (re4match.match(src).hasMatch()) {
+                    src.replace(re4match, "DebugMode(true)");
+                } else {
+                    // Insert after InitWindow line
+                    QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                    auto mInit = reAfterInit.match(src);
+                    if (mInit.hasMatch()) {
+                        int insertPos = mInit.capturedEnd();
+                        src.insert(insertPos, "\n    DebugMode(true)");
+                    }
                 }
+            } else {
+                // Remove DebugMode line if present
+                src.remove(re4);
             }
 
             if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
