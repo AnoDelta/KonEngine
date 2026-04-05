@@ -5094,6 +5094,48 @@ func main() -> I32 {
                 cm = cm + "target_link_libraries(game PRIVATE " + eng + "/libKonEngine.a";
                 if File.exists(eng + "/libglfw3.a") { cm = cm + " " + eng + "/libglfw3.a"; }
                 cm = cm + " opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+            } else {
+                // No pre-built windows64 toolchain — try building engine from repo source
+                let mut engine_root: Str = _ks_self_dir() + "/../..";
+                if !File.exists(engine_root + "/src/KonEngine.hpp") {
+                    if File.exists("../../src/KonEngine.hpp") { engine_root = "../.."; }
+                    else if File.exists("../src/KonEngine.hpp") { engine_root = ".."; }
+                }
+                if File.exists(engine_root + "/src/KonEngine.hpp") {
+                    Print("note: no pre-built windows64 toolchain — building engine from source");
+                    cm = cm + "file(GLOB_RECURSE ENGINE_SRCS\n";
+                    cm = cm + "  \"" + engine_root + "/src/window/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/renderer/opengl/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/time/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/input/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/font/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/audio/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/collision/*.cpp\"\n";
+                    cm = cm + "  \"" + engine_root + "/src/animation/*.cpp\"\n";
+                    cm = cm + ")\n";
+                    cm = cm + "list(APPEND ENGINE_SRCS \"" + engine_root + "/src/asset_manager.cpp\")\n";
+                    cm = cm + "list(APPEND ENGINE_SRCS \"" + engine_root + "/src/glad/src/glad.c\")\n";
+                    cm = cm + "list(FILTER ENGINE_SRCS EXCLUDE REGEX \"anim_compiler|imgui\")\n";
+                    cm = cm + "target_sources(game PRIVATE ${ENGINE_SRCS})\n";
+                    cm = cm + "target_include_directories(game PRIVATE";
+                    cm = cm + " \"" + engine_root + "/src\"";
+                    cm = cm + " \"" + engine_root + "/src/glad/include\"";
+                    cm = cm + " \"" + engine_root + "/src/stb\"";
+                    cm = cm + " \"" + engine_root + "/libs/glfw/include\"";
+                    cm = cm + " \"" + engine_root + "/libs/glm\"";
+                    cm = cm + ")\n";
+                    // Build GLFW from source via add_subdirectory
+                    cm = cm + "set(GLFW_BUILD_DOCS OFF CACHE BOOL \"\" FORCE)\n";
+                    cm = cm + "set(GLFW_BUILD_TESTS OFF CACHE BOOL \"\" FORCE)\n";
+                    cm = cm + "set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL \"\" FORCE)\n";
+                    cm = cm + "add_subdirectory(\"" + engine_root + "/libs/glfw\" \"${CMAKE_BINARY_DIR}/glfw_build\")\n";
+                    cm = cm + "target_link_libraries(game PRIVATE glfw opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+                } else {
+                    Print("error: Windows engine toolchain not found.");
+                    Print("  Option 1: cd tools/KonScript && ./build-engine-lib.sh --windows");
+                    Print("  Option 2: run from the KonEngine repo directory.");
+                    return 1;
+                }
             }
         }
         File.write(bdir + "/CMakeLists.txt", cm);
