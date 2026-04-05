@@ -156,6 +156,8 @@ void BuildPanel::startBuild() {
     m_proc = new QProcess(this);
     // Separate channels so we can colour stdout/stderr differently
     m_proc->setProcessChannelMode(QProcess::SeparateChannels);
+    // Set working directory to the entry file's parent so relative includes resolve
+    m_proc->setWorkingDirectory(QFileInfo(m_entryFile).absolutePath());
 
     connect(m_proc, &QProcess::readyReadStandardOutput, this, &BuildPanel::onProcessOutput);
     connect(m_proc, &QProcess::readyReadStandardError,  this, &BuildPanel::onProcessError);
