@@ -403,6 +403,7 @@ void Viewport::drawCameraFrame(QPainter& p, const ViewportNode& cam) {
 
 // ── Input ─────────────────────────────────────────────────────────────────
 void Viewport::mousePressEvent(QMouseEvent* e) {
+    fprintf(stderr, "[Viewport] mousePress btn=%d nodes=%d\n", (int)e->button(), m_nodes.size());
     if (e->button() == Qt::MiddleButton ||
         e->button() == Qt::RightButton  ||
         (e->button() == Qt::LeftButton && e->modifiers() & Qt::AltModifier)) {

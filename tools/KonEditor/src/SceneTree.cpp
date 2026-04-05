@@ -574,9 +574,11 @@ void SceneTree::onAttachScript() {
 }
 
 void SceneTree::loadScene(const QString& path) {
+    fprintf(stderr, "[SceneTree] loadScene: %s\n", path.toUtf8().constData());
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) return;
+    if (!f.open(QIODevice::ReadOnly)) { fprintf(stderr, "[SceneTree] loadScene: cannot open file\n"); return; }
     QByteArray data = f.readAll(); f.close();
+    fprintf(stderr, "[SceneTree] loadScene: read %d bytes\n", (int)data.size());
 
     m_loading = true;
     m_tree->clear();
@@ -670,7 +672,9 @@ void SceneTree::loadScene(const QString& path) {
     };
 
     // First parse the scene file itself
+    fprintf(stderr, "[SceneTree] parsing source...\n");
     parseSource(src, path, rootItem);
+    fprintf(stderr, "[SceneTree] parse done, %d children\n", rootItem->childCount());
 
     rootItem->setExpanded(true);
     m_sceneLoaded = true;
@@ -681,9 +685,10 @@ void SceneTree::loadScene(const QString& path) {
 }
 
 void SceneTree::saveScene(const QString& path) {
+    fprintf(stderr, "[SceneTree] saveScene: path=%s\n", path.toUtf8().constData());
     auto* root = m_tree->topLevelItem(0);
-    if (!root) return;
-    if (m_projectRoot.isEmpty()) return; // can't save without a project root
+    if (!root) { fprintf(stderr, "[SceneTree] saveScene: no root, abort\n"); return; }
+    if (m_projectRoot.isEmpty()) { fprintf(stderr, "[SceneTree] saveScene: no projectRoot, abort\n"); return; }
 
     QString sceneName = root->data(0,Qt::UserRole+1).toString();
     if (sceneName.isEmpty()) sceneName = "Main";

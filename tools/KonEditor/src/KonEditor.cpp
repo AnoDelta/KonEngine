@@ -316,8 +316,12 @@ void KonEditor::setupLayout() {
 
     connect(m_viewport, &Viewport::nodeMoved,
             this, [this](const QString& name, float x, float y) {
+                fprintf(stderr, "[Editor] nodeMoved: %s (%.1f, %.1f)\n",
+                        name.toUtf8().constData(), x, y);
                 m_inspector->updatePosition(name, x, y);
+                fprintf(stderr, "[Editor] nodeMoved: inspector done\n");
                 m_sceneTree->updateNodePosition(name, x, y);
+                fprintf(stderr, "[Editor] nodeMoved: tree done\n");
                 // Update child world positions in the viewport without full rebuild
                 // (full rebuild would kill the drag pointer)
                 // Find this node's children in the tree and offset them
@@ -352,16 +356,19 @@ void KonEditor::setupLayout() {
                 };
                 updateChildren(movedItem, x, y);
                 m_viewport->updateNodePositions(nodes);
+                fprintf(stderr, "[Editor] nodeMoved: complete\n");
             });
 
     // Write to script only when drag ends (not every frame)
     connect(m_viewport, &Viewport::nodeMovedFinal,
             this, [this](const QString& name, float x, float y) {
-                // Write position to SCENE file with instance variable name
-                // e.g. spri.x = 100.0; in Main.ks Ready() block
+                fprintf(stderr, "[Editor] nodeMovedFinal: %s (%.1f, %.1f)\n",
+                        name.toUtf8().constData(), x, y);
                 QString scenePath = m_sceneTree->scenePath();
-                if (scenePath.isEmpty()) return;
+                if (scenePath.isEmpty()) { fprintf(stderr, "[Editor] nodeMovedFinal: no scenePath\n"); return; }
+                fprintf(stderr, "[Editor] writeInstancePosition: %s\n", scenePath.toUtf8().constData());
                 writeInstancePosition(scenePath, name.toLower(), x, y);
+                fprintf(stderr, "[Editor] writeInstancePosition done\n");
             });
 
     connect(m_viewport, &Viewport::nodeSelected,
@@ -478,8 +485,14 @@ if (!lastScene.isEmpty() && QFile::exists(lastScene)) {
     m_sceneTree->setScenePath(lastScene);
     fprintf(stderr, "[Editor] Loading scene: %s\n", lastScene.toUtf8().constData());
     QTimer::singleShot(200, this, [this, lastScene]{
+        fprintf(stderr, "[Editor] loadScene start\n");
         m_sceneTree->loadScene(lastScene);
-        QTimer::singleShot(100, this, [this]{ rebuildViewport(); });
+        fprintf(stderr, "[Editor] loadScene done, scheduling rebuildViewport\n");
+        QTimer::singleShot(100, this, [this]{
+            fprintf(stderr, "[Editor] rebuildViewport start\n");
+            rebuildViewport();
+            fprintf(stderr, "[Editor] rebuildViewport done\n");
+        });
     });
 } else {
     fprintf(stderr, "[Editor] No scene found, creating default Main.ks\n");
@@ -691,6 +704,7 @@ void KonEditor::syncInspectorPosition(const QString& name) {
 }
 
 void KonEditor::rebuildViewport() {
+    fprintf(stderr, "[Editor] rebuildViewport() called\n");
     QList<ViewportNode> nodes;
 
     // Resolve the engine base type for a node.
@@ -781,23 +795,31 @@ void KonEditor::rebuildViewport() {
     };
 
     auto* sceneTree = m_sceneTree->treeWidget();
+    fprintf(stderr, "[Editor] rebuildViewport: tree=%p items=%d\n",
+            (void*)sceneTree, sceneTree ? sceneTree->topLevelItemCount() : -1);
     if (sceneTree && sceneTree->topLevelItemCount() > 0)
         walk(sceneTree->topLevelItem(0), 0.0f, 0.0f);
+    fprintf(stderr, "[Editor] rebuildViewport: built %d viewport nodes\n", nodes.size());
 
     m_viewport->setNodes(nodes);
+    fprintf(stderr, "[Editor] rebuildViewport: setNodes done\n");
     m_viewport->setGameResolution(
         m_project->isOpen() ? m_project->json().value("width").toInt(800) : 800,
         m_project->isOpen() ? m_project->json().value("height").toInt(600) : 600);
+    fprintf(stderr, "[Editor] rebuildViewport: complete\n");
     // Re-select the previously selected node so inspector edits don't lose selection
     if (!m_selectedNode.isEmpty())
         m_viewport->selectNode(m_selectedNode);
 }
 
 void KonEditor::writeInstancePosition(const QString& scenePath, const QString& varName, float x, float y) {
+    fprintf(stderr, "[Editor] writeInstancePosition: scene=%s var=%s\n",
+            scenePath.toUtf8().constData(), varName.toUtf8().constData());
     QFile f(scenePath);
-    if (!f.open(QIODevice::ReadOnly)) return;
+    if (!f.open(QIODevice::ReadOnly)) { fprintf(stderr, "[Editor] writeInstancePosition: cannot open\n"); return; }
     QString src = QTextStream(&f).readAll();
     f.close();
+    fprintf(stderr, "[Editor] writeInstancePosition: read %d chars\n", src.size());
 
     // Resolve actual var name from scene source — display name may differ from var name.
     // e.g. display "cam" → var "cam_node" when name==type
