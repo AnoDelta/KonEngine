@@ -20,16 +20,16 @@ static float applyEaseForCurve(Ease e, float t) {
     case E::EaseInOutCubic: return t<0.5f ? 4*t*t*t : 1-std::pow(-2*t+2,3)/2;
     case E::EaseInElastic:
         if (t==0||t==1) return t;
-        return -std::pow(2,10*t-10)*std::sin((t*10-10.75f)*(2*3.14159265f)/3);
+        return -std::pow(2,8*t-8)*std::sin((t*8-8.75f)*(2*3.14159265f)/3);
     case E::EaseOutElastic:
         if (t==0||t==1) return t;
-        return std::pow(2,-10*t)*std::sin((t*10-0.75f)*(2*3.14159265f)/3)+1;
+        return std::pow(2,-8*t)*std::sin((t*8-0.75f)*(2*3.14159265f)/3)+1;
     case E::EaseInOutElastic:
         if (t==0||t==1) return t;
         { const float c=(2*3.14159265f)/4.5f;
           return t<0.5f
-            ? -(std::pow(2, 20*t-10)*std::sin((20*t-11.125f)*c))/2
-            :  (std::pow(2,-20*t+10)*std::sin((20*t-11.125f)*c))/2+1; }
+            ? -(std::pow(2, 16*t-8)*std::sin((16*t-9.125f)*c))/2
+            :  (std::pow(2,-16*t+8)*std::sin((16*t-9.125f)*c))/2+1; }
     case E::EaseOutBounce: {
         float n=7.5625f,d=2.75f;
         if (t<1/d)    return n*t*t;
@@ -43,11 +43,11 @@ static float applyEaseForCurve(Ease e, float t) {
             ? (1-applyEaseForCurve(E::EaseOutBounce,1-2*t))/2
             : (1+applyEaseForCurve(E::EaseOutBounce,2*t-1))/2;
     case E::EaseInBack:
-        { float c=1.70158f; return (c+1)*t*t*t-c*t*t; }
+        { float c=1.2f; return (c+1)*t*t*t-c*t*t; }
     case E::EaseOutBack:
-        { float c=1.70158f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
+        { float c=1.2f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
     case E::EaseInOutBack:
-        { float c=1.70158f*1.525f;
+        { float c=1.2f*1.525f;
           return t<0.5f
             ? (std::pow(2*t,2)*((c+1)*2*t-c))/2
             : (std::pow(2*t-2,2)*((c+1)*(2*t-2)+c)+2)/2; }

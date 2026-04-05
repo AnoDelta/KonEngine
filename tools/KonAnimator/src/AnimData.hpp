@@ -41,7 +41,7 @@ struct AnimFrame {
 
 struct Keyframe {
     float time=0, value=0;
-    Ease  curve = Ease::EaseInOut;
+    Ease  curve = Ease::Linear;
 };
 
 struct KFTrack {

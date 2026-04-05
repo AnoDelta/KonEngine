@@ -698,7 +698,7 @@ void MainWindow::onAddKeyframe() {
     const std::string& tn=c->tracks[m_trackIdx].name;
     float defVal=(tn=="scaleX"||tn=="scaleY"||tn=="alpha")?1.0f:0.0f;
     // Copy curve from previous keyframe so the user's chosen curve propagates
-    Ease curve = Ease::EaseInOut;
+    Ease curve = Ease::Linear;
     auto& keys = c->tracks[m_trackIdx].keys;
     if (!keys.empty()) {
         // Find the keyframe just before the playhead (or the last one)
