@@ -1,6 +1,7 @@
 #include "Viewport.hpp"
 #include <QPainter>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QWheelEvent>
 #include <QPen>
 #include <QFont>
@@ -411,6 +412,29 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
 
     if (e->button() == Qt::LeftButton) {
         int hitIdx = nodeIdxAt(e->pos());
+
+        // Prefer the already-selected node if the click is within its bounds
+        int selIdx = -1;
+        for (int i = 0; i < m_nodes.size(); ++i) {
+            if (m_nodes[i].selected) { selIdx = i; break; }
+        }
+        if (selIdx >= 0 && selIdx != hitIdx) {
+            auto& sn = m_nodes[selIdx];
+            QPointF s = worldToScreen(sn.x, sn.y);
+            float hw, hh;
+            if (sn.type == "Camera2D" || sn.type == "CameraNode2D") {
+                hw = 24.0f; hh = 24.0f;
+            } else {
+                hw = (sn.w * 0.5f) * m_zoom;
+                hh = (sn.h * 0.5f) * m_zoom;
+            }
+            QPointF ep = e->pos();
+            if (ep.x() >= s.x()-hw && ep.x() <= s.x()+hw &&
+                ep.y() >= s.y()-hh && ep.y() <= s.y()+hh) {
+                hitIdx = selIdx;
+            }
+        }
+
         for (auto& n : m_nodes) n.selected = false;
 
         if (hitIdx >= 0) {
@@ -464,12 +488,49 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void Viewport::mouseReleaseEvent(QMouseEvent*) {
-    if (m_dragging && m_dragIdx >= 0 && m_dragIdx < m_nodes.size())
+    if (m_dragging && m_dragIdx >= 0 && m_dragIdx < m_nodes.size()) {
+        // Push undo entry: old position (from drag start) and new position
+        UndoEntry ue;
+        ue.name = m_nodes[m_dragIdx].name;
+        ue.oldX = m_dragNodeOrigin.x();
+        ue.oldY = m_dragNodeOrigin.y();
+        ue.newX = m_nodes[m_dragIdx].x;
+        ue.newY = m_nodes[m_dragIdx].y;
+        // Only push if the position actually changed
+        if (ue.oldX != ue.newX || ue.oldY != ue.newY)
+            m_undoStack.push(ue);
         emit nodeMovedFinal(m_nodes[m_dragIdx].name, m_nodes[m_dragIdx].x, m_nodes[m_dragIdx].y);
+    }
     m_dragging = false;
     m_panning  = false;
     m_dragIdx  = -1;
     setCursor(Qt::ArrowCursor);
+}
+
+void Viewport::keyPressEvent(QKeyEvent* e) {
+    if (e->key() == Qt::Key_Z && (e->modifiers() & Qt::ControlModifier)) {
+        if (!m_undoStack.isEmpty()) {
+            UndoEntry ue = m_undoStack.pop();
+            // Restore the old position
+            for (auto& n : m_nodes) {
+                if (n.name == ue.name) {
+                    n.x = ue.oldX;
+                    n.y = ue.oldY;
+                    // Keep camera state in sync
+                    if (n.type == "Camera2D" || n.type == "CameraNode2D") {
+                        m_camX = ue.oldX;
+                        m_camY = ue.oldY;
+                    }
+                    emit nodeMoved(ue.name, ue.oldX, ue.oldY);
+                    emit nodeMovedFinal(ue.name, ue.oldX, ue.oldY);
+                    break;
+                }
+            }
+            update();
+        }
+        return;
+    }
+    QWidget::keyPressEvent(e);
 }
 
 void Viewport::wheelEvent(QWheelEvent* e) {

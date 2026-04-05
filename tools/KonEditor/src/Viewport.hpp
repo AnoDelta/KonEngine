@@ -3,6 +3,7 @@
 #include <QPointF>
 #include <QColor>
 #include <QList>
+#include <QStack>
 #include <QPushButton>
 
 struct ViewportNode {
@@ -44,6 +45,7 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void wheelEvent(QWheelEvent*) override;
+    void keyPressEvent(QKeyEvent*) override;
     void resizeEvent(QResizeEvent*) override;
 
 private:
@@ -80,6 +82,14 @@ private:
 
     // Overlay toggle button (top-right corner)
     QPushButton* m_previewBtn = nullptr;
+
+    // Undo stack for node position changes
+    struct UndoEntry {
+        QString name;
+        float oldX, oldY;
+        float newX, newY;
+    };
+    QStack<UndoEntry> m_undoStack;
 
     static constexpr float GRID_STEP = 32.0f;
 };

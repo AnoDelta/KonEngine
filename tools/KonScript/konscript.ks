@@ -3770,6 +3770,7 @@ func cg_gen_stmt(idx: I32) {
 
     if k == NK_LET {
         let name: Str = strip_type_ann(node_str[idx]);
+        let type_ann: Str = get_type_ann(node_str[idx]);
         let init: I32 = node_a[idx];
         if init != 0 {
             let val: Str = cg_gen_expr(init);
@@ -3789,6 +3790,10 @@ func cg_gen_stmt(idx: I32) {
                 let vtype: Str = node_types[idx];
                 if vtype == "Str" || init_k == NK_STR_LIT || init_k == NK_FSTR {
                     cg_emit("std::string " + name + " = " + val + ";");
+                } else if cg_is_ptr_type(type_ann) {
+                    // User/engine node type annotation → emit pointer declaration
+                    cg_emit(type_ann + "* " + name + " = " + val + ";");
+                    cg_mark_ptr(name);
                 } else {
                     cg_emit("auto " + name + " = " + val + ";");
                     // Track pointer vars (scene.Add, AddChild return pointers)
@@ -3799,8 +3804,12 @@ func cg_gen_stmt(idx: I32) {
             }
         } else {
             let vtype: Str = node_types[idx];
-            if vtype == "Str" {
+            if vtype == "Str" || type_ann == "Str" {
                 cg_emit("std::string " + name + " = \"\";");
+            } else if cg_is_ptr_type(type_ann) {
+                // User/engine node type annotation → emit pointer declaration
+                cg_emit(type_ann + "* " + name + " = nullptr;");
+                cg_mark_ptr(name);
             } else {
                 cg_emit("auto " + name + " = 0;");
             }
