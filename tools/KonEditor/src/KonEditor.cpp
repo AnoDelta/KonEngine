@@ -766,14 +766,19 @@ void KonEditor::onProjectSettings() {
 
     // Patch main.ks
     QString mainKsPath = m_project->rootDir() + "/" + entryEdit->text();
+    fprintf(stderr, "[Settings] Patching main.ks: %s\n", mainKsPath.toUtf8().constData());
+    fprintf(stderr, "[Settings] exists=%d\n", QFile::exists(mainKsPath));
     if (QFile::exists(mainKsPath)) {
         QFile f(mainKsPath);
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QString src = f.readAll();
             f.close();
+            fprintf(stderr, "[Settings] Read %d chars\n", src.size());
 
             // Replace InitWindow args
             QRegularExpression re(R"(InitWindow\s*\([^)]+\))");
+            bool hadInit = re.match(src).hasMatch();
+            fprintf(stderr, "[Settings] InitWindow match: %d\n", hadInit);
             QString newCall = QString("InitWindow(%1, %2, \"%3\")")
                 .arg(widthSpin->value())
                 .arg(heightSpin->value())
@@ -837,11 +842,22 @@ void KonEditor::onProjectSettings() {
                 }
             }
 
-            if (f.open(QIODevice::WriteOnly | QIODevice::Text))
-                QTextStream(&f) << src;
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream ts(&f);
+                ts << src;
+                ts.flush();
+                f.close();
+                fprintf(stderr, "[Settings] Wrote %d chars to %s\n", src.size(), mainKsPath.toUtf8().constData());
+            } else {
+                fprintf(stderr, "[Settings] FAILED to open for writing: %s\n", mainKsPath.toUtf8().constData());
+            }
+        } else {
+            fprintf(stderr, "[Settings] FAILED to open for reading: %s\n", mainKsPath.toUtf8().constData());
         }
-        m_scriptEditor->openFile(mainKsPath);
+        m_scriptEditor->reloadFile(mainKsPath);
         m_centerTabs->setCurrentWidget(m_scriptEditor);
+    } else {
+        fprintf(stderr, "[Settings] main.ks not found at: %s\n", mainKsPath.toUtf8().constData());
     }
 }
 
