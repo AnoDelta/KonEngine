@@ -123,6 +123,10 @@ void KonEditor::setupMenuBar() {
     file->addAction("&Open Project",  this, &KonEditor::onOpenProject,  QKeySequence::Open);
     file->addAction("&Save",          this, &KonEditor::onSaveProject,  QKeySequence::Save);
     file->addSeparator();
+    file->addAction("New Animation File...", this, &KonEditor::onNewAnimFile);
+    file->addAction("New Asset Pack...",     this, &KonEditor::onNewAssetPack);
+    file->addAction("Open .konpak...",       this, &KonEditor::onOpenKonpak);
+    file->addSeparator();
     file->addAction("&Quit", qApp, &QApplication::quit, QKeySequence::Quit);
 
     // Project
@@ -163,6 +167,17 @@ void KonEditor::setupToolBar() {
     m_stopAction = tb->addAction("■  Stop");
     m_stopAction->setEnabled(false);
     connect(m_stopAction, &QAction::triggered, this, &KonEditor::onStop);
+
+    tb->addSeparator();
+
+    // Mode selector
+    tb->addWidget(new QLabel("  Mode: "));
+    m_modeSelector = new QComboBox();
+    m_modeSelector->addItems({"Scene", "Animation"});
+    m_modeSelector->setFixedWidth(110);
+    tb->addWidget(m_modeSelector);
+    connect(m_modeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &KonEditor::onModeChanged);
 }
 
 void KonEditor::setupLayout() {
@@ -210,18 +225,12 @@ void KonEditor::setupLayout() {
 
     m_rootSplitter->addWidget(m_leftPanel);
 
-    // ── Center: Script / Viewport / Animation ───────────────────────────
+    // ── Center: Script / Viewport ─────────────────────────────────────
     m_centerTabs = new QTabWidget();
     m_viewport     = new Viewport();
     m_scriptEditor = new ScriptEditor();
     m_centerTabs->addTab(m_viewport,     "Viewport");
     m_centerTabs->addTab(m_scriptEditor, "Script");
-
-    // Animation tab — placeholder until user opens an .anim file
-    m_animPlaceholder = new QLabel("Open an .anim file from the file browser to edit animations");
-    m_animPlaceholder->setAlignment(Qt::AlignCenter);
-    m_animPlaceholder->setStyleSheet("QLabel { color: #666; font-size: 13px; }");
-    m_centerTabs->addTab(m_animPlaceholder, "Animation");
 
     m_rootSplitter->addWidget(m_centerTabs);
 
@@ -564,7 +573,19 @@ void KonEditor::setupLayout() {
     m_mainSplitter->setStretchFactor(1, 0);
     m_mainSplitter->setSizes({680, 180});
 
-    rootLayout->addWidget(m_mainSplitter);
+    // ── Animation mode panels ─────────────────────────────────────────
+    m_animatorPanel  = new AnimatorPanel();
+    m_assetPackPanel = new AssetPackPanel();
+
+    // ── Mode stacked widgets ──────────────────────────────────────────
+    // We use a single top-level QStackedWidget that swaps between
+    // the scene layout (m_mainSplitter) and the animation layout (m_animatorPanel).
+    m_centerModeStack = new QStackedWidget();
+    m_centerModeStack->addWidget(m_mainSplitter);    // index 0 = Scene mode
+    m_centerModeStack->addWidget(m_animatorPanel);   // index 1 = Animation mode
+    m_centerModeStack->setCurrentIndex(0);
+
+    rootLayout->addWidget(m_centerModeStack);
 
     // Wire asset browser → open file in script editor
     connect(m_assetBrowser, &AssetBrowser::fileDoubleClicked,
@@ -576,8 +597,12 @@ void KonEditor::setupLayout() {
                     m_leftTabs->setCurrentIndex(0);
                     m_statusLabel->setText("  Scene: " + QFileInfo(path).fileName());
                 } else if (path.endsWith(".anim") || path.endsWith(".konani")) {
-                    // Open animation file in Animation tab
+                    // Open animation file — auto-switch to Animation mode
                     onOpenAnimFile(path);
+                } else if (path.endsWith(".konpak")) {
+                    // Open asset pack
+                    m_assetPackPanel->openPack(path);
+                    m_bottomTabs->setCurrentWidget(m_assetsTab);
                 } else if (path.endsWith(".ks")) {
                     m_scriptEditor->openFile(path);
                     m_centerTabs->setCurrentWidget(m_scriptEditor);
@@ -596,6 +621,14 @@ void KonEditor::setupLayout() {
                 }
             });
 
+    // Wire asset browser new animation / asset pack signals
+    connect(m_assetBrowser, &AssetBrowser::newAssetPackRequested,
+            [this](const QString& dir) {
+                m_assetPackPanel->setProjectRoot(m_project->isOpen() ? m_project->rootDir() : "");
+                m_assetPackPanel->newPack(dir);
+                m_bottomTabs->setCurrentWidget(m_assetsTab);
+            });
+
     // Wire build panel game started
     connect(m_buildPanel, &BuildPanel::gameStarted,
             [this](QProcess* proc){
@@ -610,6 +643,12 @@ void KonEditor::setupLayout() {
                 connect(proc,
                     static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
                     this, [this](int code){ onGameProcessFinished(code); });
+            });
+
+    // Wire animator panel title changes
+    connect(m_animatorPanel, &AnimatorPanel::titleChanged,
+            [this](const QString& title) {
+                m_statusLabel->setText("  Animation: " + title);
             });
 }
 
@@ -654,6 +693,7 @@ void KonEditor::openProject(const QString& path) {
     m_assetBrowser->setRoot(dir);
     m_scriptEditor->setProjectRoot(dir);
     m_sceneTree->setProjectRoot(dir);
+    m_assetPackPanel->setProjectRoot(dir);
     m_statusLabel->setText("  " + m_project->name() + "  |  " + dir);
     QSettings("AnoDelta","KonEditor").setValue("lastProject", path);
 
@@ -711,6 +751,9 @@ void KonEditor::onSaveProject() {
     m_project->save();
     // Also save scene
     m_sceneTree->saveCurrentScene();
+    // Save animation if in animation mode with unsaved changes
+    if (m_animatorPanel->hasUnsavedChanges())
+        m_animatorPanel->saveFile();
     m_statusLabel->setText("  Saved  |  " + m_project->name());
     updateTitle();  // clear dirty marker
 }
@@ -1161,60 +1204,12 @@ void KonEditor::onGameProcessFinished(int code) {
     m_gameProcess = nullptr;
 }
 
-// ── Animation tab — launch KonAnimator as external process ───────────
+// ── Animation tab — open in embedded AnimatorPanel ───────────────────
 void KonEditor::onOpenAnimFile(const QString& path) {
-    m_animPlaceholder->setText(QString("Opening: %1\n\nLaunching KonAnimator...")
-                               .arg(QFileInfo(path).fileName()));
-    m_centerTabs->setCurrentWidget(m_animPlaceholder);
-
-    // Try to find KonAnimator binary relative to this executable
-    QString animatorPath;
-    QStringList candidates = {
-        QApplication::applicationDirPath() + "/KonAnimator",
-        QApplication::applicationDirPath() + "/../KonAnimator/build/KonAnimator",
-        QApplication::applicationDirPath() + "/../../KonAnimator/build/KonAnimator",
-    };
-    for (const auto& c : candidates) {
-        if (QFile::exists(c)) { animatorPath = c; break; }
-    }
-
-    if (animatorPath.isEmpty()) {
-        m_animPlaceholder->setText(
-            QString("Animation file: %1\n\n"
-                    "KonAnimator not found.\n"
-                    "Build KonAnimator and place it alongside KonEditor,\n"
-                    "or open this file directly with KonAnimator.")
-            .arg(QFileInfo(path).fileName()));
-        m_statusLabel->setText("  KonAnimator not found");
-        return;
-    }
-
-    auto* proc = new QProcess(this);
-    proc->setProgram(animatorPath);
-    proc->setArguments({path});
-    connect(proc, static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
-            this, [this, proc, path](int code, QProcess::ExitStatus) {
-                m_animPlaceholder->setText(
-                    QString("KonAnimator closed (exit %1).\n\n"
-                            "Open an .anim file from the file browser to edit animations.")
-                    .arg(code));
-                m_statusLabel->setText(QString("  KonAnimator exited (%1)").arg(code));
-                proc->deleteLater();
-            });
-    proc->start();
-    if (!proc->waitForStarted(3000)) {
-        m_animPlaceholder->setText(
-            QString("Failed to launch KonAnimator.\n\n"
-                    "Path: %1\nFile: %2")
-            .arg(animatorPath, path));
-        proc->deleteLater();
-    } else {
-        m_animPlaceholder->setText(
-            QString("Editing: %1\n\nKonAnimator is running in a separate window.\n"
-                    "Close it to return here.")
-            .arg(QFileInfo(path).fileName()));
-        m_statusLabel->setText("  KonAnimator running — " + QFileInfo(path).fileName());
-    }
+    // Switch to Animation mode and open the file in the embedded panel
+    m_modeSelector->setCurrentIndex(AnimationMode);
+    m_animatorPanel->openFile(path);
+    m_statusLabel->setText("  Animation: " + QFileInfo(path).fileName());
 }
 
 // ── Assets tab — run konpak to create .konpak ────────────────────────
@@ -1280,4 +1275,68 @@ void KonEditor::onPackAssets() {
             m_packProcess = nullptr;
         });
     m_packProcess->start();
+}
+
+// ── Mode switching ───────────────────────────────────────────────────
+void KonEditor::onModeChanged(int index) {
+    if (index == SceneMode) {
+        m_centerModeStack->setCurrentIndex(0);
+        m_statusLabel->setText("  Scene mode");
+    } else if (index == AnimationMode) {
+        m_centerModeStack->setCurrentIndex(1);
+        m_statusLabel->setText("  Animation mode");
+    }
+}
+
+// ── New Animation File ──────────────────────────────────────────────
+void KonEditor::onNewAnimFile() {
+    QString dir;
+    if (m_project->isOpen())
+        dir = m_project->rootDir();
+
+    QString path = QFileDialog::getSaveFileName(this, "New Animation File", dir,
+        "Animation Files (*.anim)");
+    if (path.isEmpty()) return;
+
+    // Create a blank .anim file
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream ts(&f);
+        ts << "# New animation\n\nanim idle\n\tdisplay 32 32 1\nend\n";
+        f.close();
+    }
+
+    // Switch to Animation mode and open it
+    m_modeSelector->setCurrentIndex(AnimationMode);
+    m_animatorPanel->openFile(path);
+}
+
+// ── New Asset Pack ──────────────────────────────────────────────────
+void KonEditor::onNewAssetPack() {
+    QString dir;
+    if (m_project->isOpen())
+        dir = m_project->rootDir();
+
+    QString srcDir = QFileDialog::getExistingDirectory(this,
+        "Select Directory to Pack", dir);
+    if (srcDir.isEmpty()) return;
+
+    m_assetPackPanel->setProjectRoot(m_project->isOpen() ? m_project->rootDir() : "");
+    m_assetPackPanel->newPack(srcDir);
+    m_bottomTabs->setCurrentWidget(m_assetsTab);
+}
+
+// ── Open .konpak ────────────────────────────────────────────────────
+void KonEditor::onOpenKonpak() {
+    QString dir;
+    if (m_project->isOpen())
+        dir = m_project->rootDir();
+
+    QString path = QFileDialog::getOpenFileName(this, "Open Asset Pack", dir,
+        "KonPak Files (*.konpak);;All Files (*)");
+    if (path.isEmpty()) return;
+
+    m_assetPackPanel->setProjectRoot(m_project->isOpen() ? m_project->rootDir() : "");
+    m_assetPackPanel->openPack(path);
+    m_bottomTabs->setCurrentWidget(m_assetsTab);
 }
