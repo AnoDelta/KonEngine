@@ -4686,7 +4686,7 @@ func print_usage() {
     Print("  -l<lib>          Link library (e.g. -lSDL2)");
     Print("  --cpp            Output C++ source only (don't compile)");
     Print("  --no-stdlib      Don't link KonScript runtime (for OS dev)");
-    Print("  --pack           Enable KonPak asset pack support (-DKON_PACK_SUPPORT)");
+    Print("  --pack           Enable KonPak asset pack support (-DKON_USE_PACK)");
     Print("  --help, -h       Show this help");
     Print("");
     Print("Examples:");
@@ -5111,7 +5111,7 @@ func main() -> I32 {
 
     // KonPak support: add -DKON_PACK_SUPPORT if --pack flag or source uses AssetManager
     if pack_support || src.contains("AssetManager") {
-        cxx_flags = cxx_flags + " -DKON_PACK_SUPPORT";
+        cxx_flags = cxx_flags + " -DKON_USE_PACK";
     }
 
     // Build final command
