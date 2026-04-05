@@ -298,6 +298,7 @@ void Viewport::paintEvent(QPaintEvent*) {
             if (n.type == "Camera2D" || n.type == "CameraNode2D")
                 drawNode(p, n);
     }
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: cam icons done\n");
 
     // Info overlay
     p.setPen(QColor(70, 70, 70));
@@ -316,6 +317,8 @@ void Viewport::paintEvent(QPaintEvent*) {
             .arg(m_nodes.size());
     }
     p.drawText(8, height() - 8, info);
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: info overlay done\n");
+    if (paintCount <= 6) fprintf(stderr, "[Viewport] paintEvent #%d COMPLETE\n", paintCount);
 }
 
 void Viewport::drawGrid(QPainter& p) {
