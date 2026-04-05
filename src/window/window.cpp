@@ -234,8 +234,7 @@ void Present() {
 
 	// Draw letterbox black bars LAST, on top of everything using scissor test
 	if (s_letterboxEnabled) {
-		int fbW, fbH;
-		glfwGetFramebufferSize(window->getGLFW(), &fbW, &fbH);
+		int fbW = window->getWidth(), fbH = window->getHeight();
 		glViewport(0, 0, fbW, fbH);
 		glEnable(GL_SCISSOR_TEST);
 		// Left bar
