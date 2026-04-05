@@ -838,7 +838,7 @@ void SceneTree::loadScene(const QString& path) {
             // Step 1: let mut varName: Texture = LoadTexture("path") → texVarToPath
             QMap<QString, QString> texVarToPath;
             {
-                QRegularExpression reTex(R"(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))");
+                QRegularExpression reTex(R"RE(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))RE");
                 auto itTex = reTex.globalMatch(mainBody);
                 while (itTex.hasNext()) {
                     auto tm = itTex.next();
@@ -932,7 +932,7 @@ void SceneTree::loadScene(const QString& path) {
                 // Check the current source for varName.SetTexture(texVar) patterns
                 // First build a LoadTexture map from the source
                 QMap<QString, QString> localTexVars;
-                QRegularExpression reLoadTex(R"(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))");
+                QRegularExpression reLoadTex(R"RE(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))RE");
                 auto itLT = reLoadTex.globalMatch(source);
                 while (itLT.hasNext()) {
                     auto ltm = itLT.next();
@@ -957,7 +957,7 @@ void SceneTree::loadScene(const QString& path) {
 
                     // Check child script for texture property or SetTexture call
                     if (!child->data(0, Qt::UserRole+7).isValid()) {
-                        QRegularExpression reScriptTex(R"(LoadTexture\s*\(\s*"([^"]+)"\s*\))");
+                        QRegularExpression reScriptTex(R"RE(LoadTexture\s*\(\s*"([^"]+)"\s*\))RE");
                         auto stxm = reScriptTex.match(childSrc);
                         if (stxm.hasMatch())
                             child->setData(0, Qt::UserRole+7, stxm.captured(1));
