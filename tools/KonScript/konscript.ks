@@ -4826,110 +4826,93 @@ func main() -> I32 {
     let mut t0: F64 = 0.0;
 
     // Pre-process #include "file.ks" — inline included source before lexing
-    // Multi-pass: each pass scans for #include "*.ks", prepends file content,
-    // and strips the directive. Handles nested includes up to 8 levels deep.
-    // Tracks already-included files to prevent duplicates/circular includes.
+    // Depth-first: when file A includes file B, B's content (and B's own
+    // dependencies) appear before A, ensuring types are defined in order.
     let mut included_files: [Str] = [""];
     let mut included_file_count: I32 = 0;
+    // Stack of texts to scan (depth-first traversal of include graph)
+    let mut inc_stack: [Str] = [""];
+    let mut inc_stack_top: I32 = 0;
+    // Push entry file source onto stack
+    inc_stack_top = inc_stack_top + 1;
+    inc_stack.push(src);
     let mut full_src: Str = "";
-    let mut remaining: Str = src;
-    let mut inc_pass: I32 = 0;
-    while inc_pass < 8 {
-        let mut prepend: Str = "";
-        let mut found_include: Bool = false;
+    while inc_stack_top > 0 {
+        let cur: Str = inc_stack[inc_stack_top];
+        inc_stack_top = inc_stack_top - 1;
+        // Scan this text for #include "file.ks" directives
+        // Collect all includes in this file, then push them in REVERSE order
+        // (so first include is processed first = appears first in output)
+        let mut inc_paths: [Str] = [""];
+        let mut inc_count: I32 = 0;
         let mut si: I32 = 0;
-        let slen: I32 = remaining.len();
+        let slen: I32 = cur.len();
         while si < slen {
-            // Skip comment lines
-            if remaining.substr(si, 2) == "//" {
-                while si < slen && remaining.substr(si, 1) != "\n" { si = si + 1; }
+            // Skip // comment lines
+            if cur.substr(si, 2) == "//" {
+                while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
                 si = si + 1;
                 continue;
             }
-            if remaining.substr(si, 8) == "#include" {
-                // Find the quoted path
+            // Skip # comment lines (legacy)
+            if cur.substr(si, 1) == "#" && !(si + 7 < slen && cur.substr(si, 8) == "#include") {
+                while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
+                si = si + 1;
+                continue;
+            }
+            if cur.substr(si, 8) == "#include" {
                 let mut qi: I32 = si + 8;
-                while qi < slen && remaining.substr(qi, 1) != "\"" { qi = qi + 1; }
-                qi = qi + 1; // skip opening quote
+                while qi < slen && cur.substr(qi, 1) != "\"" { qi = qi + 1; }
+                qi = qi + 1;
                 let mut qe: I32 = qi;
-                while qe < slen && remaining.substr(qe, 1) != "\"" { qe = qe + 1; }
-                let inc_path: Str = remaining.substr(qi, qe - qi);
+                while qe < slen && cur.substr(qe, 1) != "\"" { qe = qe + 1; }
+                let inc_path: Str = cur.substr(qi, qe - qi);
                 if inc_path.ends(".ks") {
-                    // Normalize path for deduplication:
-                    // 1. Strip leading "../segment/" patterns (resolve parent traversals)
-                    // 2. Collapse internal "foo/../bar" → "bar"
-                    // 3. Strip leading "./"
-                    let mut norm: Str = inc_path;
-                    // Strip leading "../xxx/" patterns
-                    let mut strip_again: Bool = true;
-                    while strip_again && norm.len() > 3 && norm.substr(0, 3) == "../" {
-                        // Find the next '/' after "../"
-                        let mut sl: I32 = 3;
-                        while sl < norm.len() && norm.substr(sl, 1) != "/" { sl = sl + 1; }
-                        if sl < norm.len() {
-                            norm = norm.substr(sl + 1, norm.len() - sl - 1);
-                        } else {
-                            strip_again = false;
-                        }
-                    }
-                    // Collapse internal "foo/../bar" → "bar"
-                    let mut changed: Bool = true;
-                    while changed {
-                        changed = false;
-                        let mut ni: I32 = 0;
-                        while ni + 3 < norm.len() {
-                            if norm.substr(ni, 3) == "/.." {
-                                let mut ps: I32 = ni - 1;
-                                while ps >= 0 && norm.substr(ps, 1) != "/" { ps = ps - 1; }
-                                if ps >= 0 {
-                                    norm = norm.substr(0, ps) + norm.substr(ni + 3, norm.len() - ni - 3);
-                                    changed = true;
-                                    ni = 0;
-                                } else if ni > 0 {
-                                    norm = norm.substr(ni + 4, norm.len() - ni - 4);
-                                    changed = true;
-                                    ni = 0;
-                                } else {
-                                    ni = ni + 1;
-                                }
-                            } else {
-                                ni = ni + 1;
-                            }
-                        }
-                    }
-                    // Strip leading "./"
-                    if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
-                    // Check if already included (using normalized path)
-                    let mut already: Bool = false;
-                    let mut ai: I32 = 1;
-                    while ai <= included_file_count {
-                        if included_files[ai] == norm { already = true; }
-                        ai = ai + 1;
-                    }
-                    if !already {
-                        included_file_count = included_file_count + 1;
-                        included_files.push(norm);
-                        let inc_result: Result<Str> = File.read(inc_path);
-                        if inc_result.ok {
-                            prepend = prepend + inc_result.value + "\n";
-                            found_include = true;
-                        } else {
-                            Print("warning: cannot read include '", inc_path, "'");
-                        }
-                    }
+                    inc_count = inc_count + 1;
+                    inc_paths.push(inc_path);
                 }
-                // Skip to end of line
-                while si < slen && remaining.substr(si, 1) != "\n" { si = si + 1; }
+                while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
             }
             si = si + 1;
         }
-        if !found_include { inc_pass = 8; } // done — no new includes
-        // Next pass scans the newly prepended content for ITS includes
-        remaining = prepend;
-        full_src = prepend + full_src;
-        inc_pass = inc_pass + 1;
+        // Push includes in REVERSE order so first include is on top of stack
+        let mut ri: I32 = inc_count;
+        while ri >= 1 {
+            let rp: Str = inc_paths[ri];
+            // Normalize: strip leading "../segment/" and "./"
+            let mut norm: Str = rp;
+            let mut strip_again: Bool = true;
+            while strip_again && norm.len() > 3 && norm.substr(0, 3) == "../" {
+                let mut sl: I32 = 3;
+                while sl < norm.len() && norm.substr(sl, 1) != "/" { sl = sl + 1; }
+                if sl < norm.len() { norm = norm.substr(sl + 1, norm.len() - sl - 1); }
+                else { strip_again = false; }
+            }
+            if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
+            // Check if already included
+            let mut already: Bool = false;
+            let mut ai: I32 = 1;
+            while ai <= included_file_count {
+                if included_files[ai] == norm { already = true; }
+                ai = ai + 1;
+            }
+            if !already {
+                included_file_count = included_file_count + 1;
+                included_files.push(norm);
+                let inc_result: Result<Str> = File.read(rp);
+                if inc_result.ok {
+                    // Push onto stack — will be scanned for ITS includes next
+                    inc_stack_top = inc_stack_top + 1;
+                    inc_stack.push(inc_result.value);
+                } else {
+                    Print("warning: cannot read include '", rp, "'");
+                }
+            }
+            ri = ri - 1;
+        }
+        // Prepend this text's content to full_src (dependencies already prepended above)
+        full_src = cur + "\n" + full_src;
     }
-    full_src = full_src + src;
 
     if has_cli { stage_doing(1, total_steps, "Lexing"); t0 = _ks_time_ms(); }
     let ntoks: I32 = lex(full_src);

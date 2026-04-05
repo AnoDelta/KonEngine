@@ -41,10 +41,10 @@ public:
         // Propagate the scene registration callback down
         if (_onChildAdded) node->_onChildAdded = _onChildAdded;
         T* ptr = node.get();
-        children.push_back(std::move(node));
+        children.push_back(std::unique_ptr<Node>(std::move(node)));
         ptr->Ready();
         // Notify scene so it can register any colliders
-        if (_onChildAdded) _onChildAdded(ptr);
+        if (_onChildAdded) _onChildAdded(static_cast<Node*>(ptr));
         return ptr;
     }
 
