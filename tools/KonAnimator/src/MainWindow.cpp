@@ -700,19 +700,26 @@ void MainWindow::onAddKeyframe() {
     // Copy curve from previous keyframe so the user's chosen curve propagates
     Ease curve = Ease::Linear;
     auto& keys = c->tracks[m_trackIdx].keys;
+    float ph = m_timeline->playhead();
     if (!keys.empty()) {
         // Find the keyframe just before the playhead (or the last one)
         Ease prevCurve = keys.back().curve;
-        float ph = m_timeline->playhead();
         for (int i = (int)keys.size()-1; i >= 0; --i) {
             if (keys[i].time <= ph) { prevCurve = keys[i].curve; break; }
         }
         curve = prevCurve;
     }
-    keys.push_back({m_timeline->playhead(), defVal, curve});
+    keys.push_back({ph, defVal, curve});
     c->tracks[m_trackIdx].sortKeys();
+    // Auto-select the newly added keyframe (find it by matching playhead time)
+    m_keyIdx = -1;
+    for (int j = 0; j < (int)keys.size(); ++j) {
+        if (keys[j].time == ph) { m_keyIdx = j; break; }
+    }
     m_proj.dirty=true;
     m_timeline->refreshClip();   // ← preserves playhead position
+    m_timeline->update();
+    refreshKFProps();
     updateTitle();
 }
 void MainWindow::onRemoveKeyframe() {

@@ -251,10 +251,8 @@ private:
         target->srcHeight     = f.srcHeight;
         target->useSourceRect = true;
 
-        float dW = (anim.displayW > 0.0f ? anim.displayW : f.srcWidth)  * anim.displayScale;
-        float dH = (anim.displayH > 0.0f ? anim.displayH : f.srcHeight) * anim.displayScale;
-        target->width  = dW;
-        target->height = dH;
+        // Display size is NOT set here — it comes from the sprite's own
+        // width/height combined with the animation overlay's animScaleX/Y.
     }
 
     // ── Track application ────────────────────────────────────────────────

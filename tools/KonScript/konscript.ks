@@ -4686,6 +4686,7 @@ func print_usage() {
     Print("  -l<lib>          Link library (e.g. -lSDL2)");
     Print("  --cpp            Output C++ source only (don't compile)");
     Print("  --no-stdlib      Don't link KonScript runtime (for OS dev)");
+    Print("  --pack           Enable KonPak asset pack support (-DKON_PACK_SUPPORT)");
     Print("  --help, -h       Show this help");
     Print("");
     Print("Examples:");
@@ -4708,6 +4709,7 @@ func main() -> I32 {
     let mut extra_libs: [Str] = [""];
     let mut cpp_only: Bool = false;
     let mut no_stdlib: Bool = false;
+    let mut pack_support: Bool = false;
     let mut target_platform: Str = "linux64";
     extra_includes.clear();
     extra_libdirs.clear();
@@ -4729,6 +4731,7 @@ func main() -> I32 {
             if arg == "--help" || arg == "-h" { print_usage(); return 0; }
             if arg == "--cpp" { cpp_only = true; i = i + 1; continue; }
             if arg == "--no-stdlib" { no_stdlib = true; i = i + 1; continue; }
+            if arg == "--pack" { pack_support = true; i = i + 1; continue; }
             // --target=windows64 or --target windows64
             if arg.starts("--target=") {
                 target_platform = arg.substr(9, arg.len() - 9);
@@ -5105,6 +5108,11 @@ func main() -> I32 {
 
     // Always add -lm
     if !is_windows { link_flags = link_flags + " -lm"; }
+
+    // KonPak support: add -DKON_PACK_SUPPORT if --pack flag or source uses AssetManager
+    if pack_support || src.contains("AssetManager") {
+        cxx_flags = cxx_flags + " -DKON_PACK_SUPPORT";
+    }
 
     // Build final command
     let mut compile_src: Str = cpp_path;
