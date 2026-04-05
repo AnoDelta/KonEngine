@@ -711,8 +711,7 @@ void KonEditor::onProjectSettings() {
             QString src = QTextStream(&mf).readAll();
             mf.close();
             // Parse InitWindow(w, h, "title")
-            QRegularExpression reInit(R"(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)")");
-            auto mi = reInit.match(src);
+            QRegularExpression reInit(R"RE(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)")RE");            auto mi = reInit.match(src);
             if (mi.hasMatch()) {
                 widthSpin->setValue(mi.captured(1).toInt());
                 heightSpin->setValue(mi.captured(2).toInt());
