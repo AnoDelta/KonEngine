@@ -1191,10 +1191,12 @@ void KonEditor::rebuildViewport() {
             QVariant vtex = item->data(0, Qt::UserRole + 7);
             if (vtex.isValid() && !vtex.toString().isEmpty()) {
                 QString texRel = vtex.toString();
-                // Resolve relative to the project/file directory
+                // Strip leading "./" from paths like "./liny.png"
+                if (texRel.startsWith("./")) texRel = texRel.mid(2);
+                // Resolve relative to the project root directory
                 QString projDir;
                 if (m_project->isOpen())
-                    projDir = QFileInfo(m_project->path()).absolutePath();
+                    projDir = m_project->rootDir();
                 else if (!m_sceneTree->scenePath().isEmpty())
                     projDir = QFileInfo(m_sceneTree->scenePath()).absolutePath();
                 if (!projDir.isEmpty())
