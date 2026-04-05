@@ -7,15 +7,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets OpenGL)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
 
 set(KONSCRIPTIDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../KonScriptIDE/src)
-set(KONANIMATOR_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/../KonAnimator/src)
-set(STB_DIR          ${CMAKE_CURRENT_SOURCE_DIR}/../../src/stb)
 
 message(STATUS "KonEditor: configured")
 message(STATUS "KonScriptIDE dir: ${KONSCRIPTIDE_DIR}")
-message(STATUS "KonAnimator dir:  ${KONANIMATOR_DIR}")
 
 set(SOURCES
     src/main.cpp
@@ -31,13 +28,9 @@ set(SOURCES
     src/BuildPanel.cpp
     src/DebugConsole.cpp
     src/WelcomeScreen.cpp
-    src/AnimatorPanel.cpp
     src/AssetPackPanel.cpp
     ${KONSCRIPTIDE_DIR}/KonScriptEditor.cpp
     ${KONSCRIPTIDE_DIR}/KonScriptHighlighter.hpp
-    ${KONANIMATOR_DIR}/PreviewWidget.cpp
-    ${KONANIMATOR_DIR}/SpritesheetView.cpp
-    ${KONANIMATOR_DIR}/TimelineWidget.cpp
 )
 
 if(WIN32)
@@ -49,15 +42,12 @@ endif()
 target_include_directories(KonEditor PRIVATE
     src
     ${KONSCRIPTIDE_DIR}
-    ${KONANIMATOR_DIR}
-    ${STB_DIR}
 )
 
 target_link_libraries(KonEditor PRIVATE
     Qt5::Core
     Qt5::Gui
     Qt5::Widgets
-    Qt5::OpenGL
 )
 
 add_custom_command(TARGET KonEditor POST_BUILD

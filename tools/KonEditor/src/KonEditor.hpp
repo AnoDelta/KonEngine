@@ -8,7 +8,6 @@
 #include <QLabel>
 #include <QAction>
 #include <QStackedWidget>
-#include <QComboBox>
 #include "ProjectManager.hpp"
 #include "SceneTree.hpp"
 #include "Inspector.hpp"
@@ -17,7 +16,6 @@
 #include "AssetBrowser.hpp"
 #include "BuildPanel.hpp"
 #include "DebugConsole.hpp"
-#include "AnimatorPanel.hpp"
 #include "AssetPackPanel.hpp"
 #include <QTextEdit>
 #include <QTreeWidget>
@@ -45,7 +43,6 @@ private slots:
     void onPackAssets();
     void syncInspectorPosition(const QString& name);
     void writeInstancePosition(const QString& scenePath, const QString& varName, float x, float y);
-    void onModeChanged(int index);
     void onNewAnimFile();
     void onNewAssetPack();
     void onOpenKonpak();
@@ -57,16 +54,6 @@ private:
     void setupStatusBar();
     void updateTitle();
     void updateRunButtons(bool running);
-
-    // Mode
-    enum EditorMode { SceneMode = 0, AnimationMode = 1 };
-    QComboBox*     m_modeSelector = nullptr;
-
-    // Stacked widgets for mode switching
-    QStackedWidget* m_leftModeStack   = nullptr;   // scene left / anim left (spritesheet)
-    QStackedWidget* m_centerModeStack = nullptr;   // scene center / anim center
-    QStackedWidget* m_rightModeStack  = nullptr;   // scene right / anim right
-    QStackedWidget* m_bottomModeStack = nullptr;   // scene bottom / anim bottom
 
     // Layout
     QSplitter*     m_rootSplitter  = nullptr;
@@ -95,9 +82,6 @@ private:
     QTreeWidget*   m_assetTree     = nullptr;
     QTextEdit*     m_packOutput    = nullptr;
     QProcess*      m_packProcess   = nullptr;
-
-    // Animation mode — embedded animator
-    AnimatorPanel* m_animatorPanel = nullptr;
 
     // Asset pack panel
     AssetPackPanel* m_assetPackPanel = nullptr;
