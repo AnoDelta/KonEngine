@@ -15,7 +15,8 @@ node Paddle : Sprite2D {
     }
 
     func Update(dt: F64) {
-        if y < (height / 2 + border)              { y = height / 2 + border; }
+		// making sure the paddle doesn't go past the screen
+        if y < (height / 2 + border) { y = height / 2 + border; }
         if y > (screenHeight - height / 2 - border) { y = screenHeight - height / 2 - border; }
     }
 }
@@ -35,8 +36,11 @@ node Ball : Sprite2D {
     }
 
     func Update(dt: F64) {
-        if y - height / 2 < 0              { dir.y =  1; }
+		// makes it change direciton when hitting the top or bottom of the screen
+        if y - height / 2 < 0 { dir.y =  1; }
         else if y + height / 2 > screenHeight { dir.y = -1; }
+
+		// 
         x += dir.x * dt * speed;
         y += dir.y * dt * speed;
     }
