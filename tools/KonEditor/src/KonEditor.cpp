@@ -242,23 +242,76 @@ void KonEditor::setupLayout() {
                 } else if (prop == "__attachScript__") {
                     m_sceneTree->attachScriptToSelected();
                 } else if (prop == "x" || prop == "y") {
+                    // Inspector edits local position; update tree and viewport accordingly
                     bool ok;
                     float v = val.toFloat(&ok);
                     if (!ok) return;
+                    // Update the LOCAL position in the tree item
+                    float localX = (prop == "x") ? v : 0.0f;
+                    float localY = (prop == "y") ? v : 0.0f;
+                    // Read existing local values from tree
+                    auto* tw = m_sceneTree->treeWidget();
+                    QTreeWidgetItem* nodeItem = nullptr;
+                    if (tw && tw->topLevelItemCount()) {
+                        std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findIt;
+                        findIt = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
+                            if (item->data(0, Qt::UserRole+1).toString() == n) return item;
+                            for (int i = 0; i < item->childCount(); i++)
+                                if (auto* r = findIt(item->child(i), n)) return r;
+                            return nullptr;
+                        };
+                        nodeItem = findIt(tw->topLevelItem(0), node);
+                    }
+                    if (nodeItem) {
+                        QVariant evx = nodeItem->data(0, Qt::UserRole+3);
+                        QVariant evy = nodeItem->data(0, Qt::UserRole+4);
+                        if (prop == "x") {
+                            localX = v;
+                            localY = evy.isValid() ? evy.toFloat() : 0.0f;
+                        } else {
+                            localX = evx.isValid() ? evx.toFloat() : 0.0f;
+                            localY = v;
+                        }
+                    }
+                    m_sceneTree->updateNodePosition(node, localX, localY);
+                    // Compute world position for viewport display
+                    float parentWorldX = 0.0f, parentWorldY = 0.0f;
+                    QTreeWidgetItem* parentItem = nullptr;
+                    if (nodeItem) {
+                        parentItem = nodeItem->parent();
+                        QList<QTreeWidgetItem*> ancestors;
+                        for (auto* p = parentItem; p; p = p->parent()) {
+                            QString ptype = p->data(0, Qt::UserRole).toString();
+                            if (ptype != "Scene") ancestors.prepend(p);
+                        }
+                        for (auto* a : ancestors) {
+                            QVariant avx = a->data(0, Qt::UserRole+3);
+                            QVariant avy = a->data(0, Qt::UserRole+4);
+                            parentWorldX += avx.isValid() ? avx.toFloat() : 0.0f;
+                            parentWorldY += avy.isValid() ? avy.toFloat() : 0.0f;
+                        }
+                    }
+                    float worldX = parentWorldX + localX;
+                    float worldY = parentWorldY + localY;
                     auto nodes = m_viewport->nodes();
                     for (auto& vn : nodes) {
                         if (vn.name == node) {
-                            if (prop == "x") vn.x = v;
-                            else              vn.y = v;
+                            vn.x = worldX;
+                            vn.y = worldY;
                         }
                     }
                     m_viewport->setNodes(nodes);
-                    float nx = (prop == "x") ? v : m_viewport->nodeX(node);
-                    float ny = (prop == "y") ? v : m_viewport->nodeY(node);
-                    m_sceneTree->updateNodePosition(node, nx, ny);
+                    // Write LOCAL position to the correct script file
                     QString scenePath = m_sceneTree->scenePath();
-                    if (!scenePath.isEmpty())
-                        writeInstancePosition(scenePath, node.toLower(), nx, ny);
+                    if (!scenePath.isEmpty()) {
+                        QString targetScript = scenePath;
+                        if (parentItem) {
+                            QString parentScript = parentItem->data(0, Qt::UserRole+2).toString();
+                            if (!parentScript.isEmpty())
+                                targetScript = parentScript;
+                        }
+                        writeInstancePosition(targetScript, node.toLower(), localX, localY);
+                    }
                 } else {
                     // Any other property change — autosave scene and rebuild viewport
                     m_sceneTree->autoSaveScene();
@@ -317,12 +370,10 @@ void KonEditor::setupLayout() {
     connect(m_viewport, &Viewport::nodeMoved,
             this, [this](const QString& name, float x, float y) {
                 m_inspector->updatePosition(name, x, y);
-                m_sceneTree->updateNodePosition(name, x, y);
-                // Update child world positions in the viewport without full rebuild
-                // (full rebuild would kill the drag pointer)
-                // Find this node's children in the tree and offset them
+                // Viewport gives us WORLD position; tree items store LOCAL.
+                // Convert world→local before storing.
                 auto* treeWidget = m_sceneTree->treeWidget();
-                if (!treeWidget) return;
+                if (!treeWidget || !treeWidget->topLevelItemCount()) return;
                 std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findItem;
                 findItem = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
                     if (item->data(0, Qt::UserRole+1).toString() == n) return item;
@@ -330,9 +381,31 @@ void KonEditor::setupLayout() {
                         if (auto* r = findItem(item->child(i), n)) return r;
                     return nullptr;
                 };
-                if (!treeWidget->topLevelItemCount()) return;
                 auto* movedItem = findItem(treeWidget->topLevelItem(0), name);
                 if (!movedItem) return;
+                // Compute parent's world position by walking up the tree
+                float parentWorldX = 0.0f, parentWorldY = 0.0f;
+                {
+                    // Collect ancestors (excluding the moved item itself)
+                    QList<QTreeWidgetItem*> ancestors;
+                    for (auto* p = movedItem->parent(); p; p = p->parent()) {
+                        QString ptype = p->data(0, Qt::UserRole).toString();
+                        if (ptype != "Scene") ancestors.prepend(p);
+                    }
+                    // Accumulate local positions along ancestor chain
+                    float accX = 0.0f, accY = 0.0f;
+                    for (auto* a : ancestors) {
+                        QVariant avx = a->data(0, Qt::UserRole+3);
+                        QVariant avy = a->data(0, Qt::UserRole+4);
+                        accX += avx.isValid() ? avx.toFloat() : 0.0f;
+                        accY += avy.isValid() ? avy.toFloat() : 0.0f;
+                    }
+                    parentWorldX = accX;
+                    parentWorldY = accY;
+                }
+                float localX = x - parentWorldX;
+                float localY = y - parentWorldY;
+                m_sceneTree->updateNodePosition(name, localX, localY);
                 // Update children world positions in viewport nodes list
                 auto nodes = m_viewport->nodes();
                 std::function<void(QTreeWidgetItem*, float, float)> updateChildren;
@@ -359,7 +432,46 @@ void KonEditor::setupLayout() {
             this, [this](const QString& name, float x, float y) {
                 QString scenePath = m_sceneTree->scenePath();
                 if (scenePath.isEmpty()) return;
-                writeInstancePosition(scenePath, name.toLower(), x, y);
+                // Viewport gives WORLD position; we must save LOCAL position
+                // relative to parent, and write to the correct script file.
+                auto* treeWidget = m_sceneTree->treeWidget();
+                if (!treeWidget || !treeWidget->topLevelItemCount()) return;
+                std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findItem;
+                findItem = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
+                    if (item->data(0, Qt::UserRole+1).toString() == n) return item;
+                    for (int i = 0; i < item->childCount(); i++)
+                        if (auto* r = findItem(item->child(i), n)) return r;
+                    return nullptr;
+                };
+                auto* movedItem = findItem(treeWidget->topLevelItem(0), name);
+                if (!movedItem) return;
+                // Compute parent's world position
+                float parentWorldX = 0.0f, parentWorldY = 0.0f;
+                QTreeWidgetItem* parentItem = movedItem->parent();
+                {
+                    QList<QTreeWidgetItem*> ancestors;
+                    for (auto* p = parentItem; p; p = p->parent()) {
+                        QString ptype = p->data(0, Qt::UserRole).toString();
+                        if (ptype != "Scene") ancestors.prepend(p);
+                    }
+                    for (auto* a : ancestors) {
+                        QVariant avx = a->data(0, Qt::UserRole+3);
+                        QVariant avy = a->data(0, Qt::UserRole+4);
+                        parentWorldX += avx.isValid() ? avx.toFloat() : 0.0f;
+                        parentWorldY += avy.isValid() ? avy.toFloat() : 0.0f;
+                    }
+                }
+                float localX = x - parentWorldX;
+                float localY = y - parentWorldY;
+                // Determine the correct script file to write to:
+                // If the parent has a script (UserRole+2), write there; else scene file.
+                QString targetScript = scenePath;
+                if (parentItem) {
+                    QString parentScript = parentItem->data(0, Qt::UserRole+2).toString();
+                    if (!parentScript.isEmpty())
+                        targetScript = parentScript;
+                }
+                writeInstancePosition(targetScript, name.toLower(), localX, localY);
             });
 
     connect(m_viewport, &Viewport::nodeSelected,
@@ -528,7 +640,7 @@ void KonEditor::onProjectSettings() {
 
     QDialog dlg(this);
     dlg.setWindowTitle("Project Settings");
-    dlg.setMinimumWidth(380);
+    dlg.setMinimumWidth(420);
     dlg.setStyleSheet("QDialog { background: #1e1e1e; }");
 
     auto* layout = new QVBoxLayout(&dlg);
@@ -547,17 +659,32 @@ void KonEditor::onProjectSettings() {
     auto* winForm  = new QFormLayout(winGroup);
     auto* widthSpin  = new QSpinBox(); widthSpin->setRange(320,7680); widthSpin->setValue(m_project->json().value("width").toInt(800));
     auto* heightSpin = new QSpinBox(); heightSpin->setRange(240,4320); heightSpin->setValue(m_project->json().value("height").toInt(600));
-    auto* fpsSpin    = new QSpinBox(); fpsSpin->setRange(1,999); fpsSpin->setValue(m_project->json().value("fps").toInt(60));
+    auto* fpsSpin    = new QSpinBox(); fpsSpin->setRange(0,999); fpsSpin->setValue(m_project->json().value("fps").toInt(60));
+    fpsSpin->setToolTip("0 = uncapped (no SetTargetFPS call emitted)");
+    fpsSpin->setSpecialValueText("Uncapped");
     auto* vsyncCheck = new QCheckBox(); vsyncCheck->setChecked(m_project->json().value("vsync").toBool(true));
+    auto* resizableCheck = new QCheckBox(); resizableCheck->setChecked(m_project->json().value("resizable").toBool(false));
     auto* titleEdit  = new QLineEdit(m_project->json().value("windowTitle").toString(m_project->name()));
     winForm->addRow("Width:",  widthSpin);
     winForm->addRow("Height:", heightSpin);
     winForm->addRow("FPS:",    fpsSpin);
+    auto* fpsHint = new QLabel("0 = uncapped framerate");
+    fpsHint->setStyleSheet("QLabel { color: #666; font-size: 10px; }");
+    winForm->addRow("", fpsHint);
     winForm->addRow("VSync:",  vsyncCheck);
+    winForm->addRow("Resizable:", resizableCheck);
     winForm->addRow("Title:",  titleEdit);
     layout->addWidget(winGroup);
 
-    // Main scene
+    // Debug
+    auto* debugGroup = new QGroupBox("Debug");
+    auto* debugForm  = new QFormLayout(debugGroup);
+    auto* debugCheck = new QCheckBox("Enable debug overlays");
+    debugCheck->setChecked(m_project->json().value("debug").toBool(false));
+    debugForm->addRow("Debug Mode:", debugCheck);
+    layout->addWidget(debugGroup);
+
+    // Entry point
     auto* sceneGroup = new QGroupBox("Entry Point");
     auto* sceneForm  = new QFormLayout(sceneGroup);
     auto* entryEdit  = new QLineEdit(m_project->json().value("entry").toString("src/main.ks"));
@@ -571,11 +698,49 @@ void KonEditor::onProjectSettings() {
         QString f = QFileDialog::getOpenFileName(&dlg, "Entry File",
             m_project->rootDir(), "KonScript (*.ks);;All (*)");
         if (!f.isEmpty()) {
-            // Make relative
             entryEdit->setText(QDir(m_project->rootDir()).relativeFilePath(f));
         }
     });
     layout->addWidget(sceneGroup);
+
+    // Scan main.ks on open to populate actual values from code
+    QString mainKsPathInit = m_project->rootDir() + "/" + entryEdit->text();
+    if (QFile::exists(mainKsPathInit)) {
+        QFile mf(mainKsPathInit);
+        if (mf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString src = QTextStream(&mf).readAll();
+            mf.close();
+            // Parse InitWindow(w, h, "title")
+            QRegularExpression reInit(R"(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)")");
+            auto mi = reInit.match(src);
+            if (mi.hasMatch()) {
+                widthSpin->setValue(mi.captured(1).toInt());
+                heightSpin->setValue(mi.captured(2).toInt());
+                titleEdit->setText(mi.captured(3));
+            }
+            // Parse SetTargetFPS(n)
+            QRegularExpression reFps(R"(SetTargetFPS\s*\(\s*(\d+)\s*\))");
+            auto mfps = reFps.match(src);
+            if (mfps.hasMatch()) {
+                fpsSpin->setValue(mfps.captured(1).toInt());
+            } else {
+                // No SetTargetFPS call means uncapped
+                fpsSpin->setValue(0);
+            }
+            // Parse SetVsync(true/false)
+            QRegularExpression reVs(R"(SetVsync\s*\(\s*(true|false)\s*\))");
+            auto mvs = reVs.match(src);
+            if (mvs.hasMatch()) {
+                vsyncCheck->setChecked(mvs.captured(1) == "true");
+            }
+            // Parse SetWindowResizable(true/false)
+            QRegularExpression reResize(R"(SetWindowResizable\s*\(\s*(true|false)\s*\))");
+            auto mres = reResize.match(src);
+            if (mres.hasMatch()) {
+                resizableCheck->setChecked(mres.captured(1) == "true");
+            }
+        }
+    }
 
     auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     layout->addWidget(btns);
@@ -584,7 +749,7 @@ void KonEditor::onProjectSettings() {
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    // Save settings
+    // Save settings to project json
     auto json = m_project->json();
     json["name"]        = nameEdit->text();
     json["version"]     = verEdit->text();
@@ -592,19 +757,22 @@ void KonEditor::onProjectSettings() {
     json["height"]      = heightSpin->value();
     json["fps"]         = fpsSpin->value();
     json["vsync"]       = vsyncCheck->isChecked();
+    json["resizable"]   = resizableCheck->isChecked();
+    json["debug"]       = debugCheck->isChecked();
     json["windowTitle"] = titleEdit->text();
     json["entry"]       = entryEdit->text();
     m_project->setJson(json);
     m_project->save();
     updateTitle();
 
-    // Patch main.ks InitWindow call
+    // Patch main.ks
     QString mainKsPath = m_project->rootDir() + "/" + entryEdit->text();
     if (QFile::exists(mainKsPath)) {
         QFile f(mainKsPath);
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QString src = f.readAll();
             f.close();
+
             // Replace InitWindow args
             QRegularExpression re(R"(InitWindow\s*\([^)]+\))");
             QString newCall = QString("InitWindow(%1, %2, \"%3\")")
@@ -612,15 +780,64 @@ void KonEditor::onProjectSettings() {
                 .arg(heightSpin->value())
                 .arg(titleEdit->text());
             src.replace(re, newCall);
-            // Replace SetTargetFPS
-            QRegularExpression re2(R"(SetTargetFPS\s*\([^)]+\))");
-            src.replace(re2, QString("SetTargetFPS(%1)").arg(fpsSpin->value()));
-            // Save vsync to project — user sets SetVsync() manually or
-            // editor patches it only if already present in main.ks
+
+            // Handle SetTargetFPS: if fps=0 (uncapped), remove the line; otherwise update/add
+            QRegularExpression re2(R"(\n?[ \t]*SetTargetFPS\s*\([^)]+\)\s*;?[^\n]*)");
+            if (fpsSpin->value() == 0) {
+                // Remove SetTargetFPS line entirely
+                src.remove(re2);
+            } else {
+                QRegularExpression re2match(R"(SetTargetFPS\s*\([^)]+\))");
+                if (re2match.match(src).hasMatch()) {
+                    src.replace(re2match, QString("SetTargetFPS(%1)").arg(fpsSpin->value()));
+                } else {
+                    // Insert after InitWindow line
+                    QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                    auto m = reAfterInit.match(src);
+                    if (m.hasMatch()) {
+                        int insertPos = m.capturedEnd();
+                        src.insert(insertPos, QString("\n    SetTargetFPS(%1)").arg(fpsSpin->value()));
+                    }
+                }
+            }
+
+            // Handle SetVsync: update if exists, insert if missing and enabled
             QString vsyncVal = vsyncCheck->isChecked() ? "true" : "false";
             QRegularExpression re3(R"(SetVsync\s*\([^)]+\))");
-            if (re3.match(src).hasMatch())
+            if (re3.match(src).hasMatch()) {
                 src.replace(re3, QString("SetVsync(%1)").arg(vsyncVal));
+            } else if (vsyncCheck->isChecked()) {
+                // Insert SetVsync after SetTargetFPS, or after InitWindow if no SetTargetFPS
+                QRegularExpression reAfterFps(R"(SetTargetFPS\s*\([^)]+\)[^\n]*)");
+                auto mFps = reAfterFps.match(src);
+                if (mFps.hasMatch()) {
+                    int insertPos = mFps.capturedEnd();
+                    src.insert(insertPos, QString("\n    SetVsync(%1)").arg(vsyncVal));
+                } else {
+                    QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                    auto mInit = reAfterInit.match(src);
+                    if (mInit.hasMatch()) {
+                        int insertPos = mInit.capturedEnd();
+                        src.insert(insertPos, QString("\n    SetVsync(%1)").arg(vsyncVal));
+                    }
+                }
+            }
+
+            // Handle SetWindowResizable: update if exists, insert if missing
+            QString resizableVal = resizableCheck->isChecked() ? "true" : "false";
+            QRegularExpression re4(R"(SetWindowResizable\s*\([^)]+\))");
+            if (re4.match(src).hasMatch()) {
+                src.replace(re4, QString("SetWindowResizable(%1)").arg(resizableVal));
+            } else if (resizableCheck->isChecked()) {
+                // Insert after InitWindow line
+                QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                auto mInit = reAfterInit.match(src);
+                if (mInit.hasMatch()) {
+                    int insertPos = mInit.capturedEnd();
+                    src.insert(insertPos, QString("\n    SetWindowResizable(%1)").arg(resizableVal));
+                }
+            }
+
             if (f.open(QIODevice::WriteOnly | QIODevice::Text))
                 QTextStream(&f) << src;
         }
