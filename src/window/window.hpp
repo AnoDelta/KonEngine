@@ -82,6 +82,20 @@ void BeginCamera2D(const Camera2D& cam);
 void EndCamera2D();
 
 // -----------------------------------------------------------------------
+// Letterbox scaling — game always works in design-resolution coordinates.
+// The renderer handles the scaling transparently. Mouse input is also
+// transformed so game code never needs to care about the actual window size.
+// -----------------------------------------------------------------------
+int   GetDesignWidth();
+int   GetDesignHeight();
+float GetLetterboxScale();
+float GetLetterboxOffsetX();
+float GetLetterboxOffsetY();
+// Convert raw OS mouse position to game (design-resolution) coordinates.
+float GetGameMouseX();
+float GetGameMouseY();
+
+// -----------------------------------------------------------------------
 // Debug mode — draws FPS, mouse crosshair, red border overlay
 // -----------------------------------------------------------------------
 void DebugMode(bool enabled);

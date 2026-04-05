@@ -123,6 +123,23 @@ void CollisionWorld::Resolve(Collider2D* a, Collider2D* b, const MTV& mtv) {
 
 // ── Public query helpers ──────────────────────────────────────────────────
 
+glm::vec2 CollisionWorld::ResolveOverlap(Collider2D* mover, Collider2D* wall) {
+    MTV mtv = GetMTV(mover, wall);
+    if (!mtv.hit || mtv.depth <= 0.0f)
+        return {0.0f, 0.0f};
+
+    // mtv.normal points from wall toward mover, so pushing mover along
+    // +normal separates them.
+    constexpr float slop = 0.01f;
+    float d = std::max(mtv.depth - slop, 0.0f);
+    if (d == 0.0f) return {0.0f, 0.0f};
+
+    glm::vec2 push = mtv.normal * d;
+    mover->x += push.x;
+    mover->y += push.y;
+    return push;
+}
+
 bool CollisionWorld::Overlaps(Collider2D* a, Collider2D* b) {
     return GetMTV(a, b).hit;
 }

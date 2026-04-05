@@ -29,6 +29,11 @@ public:
     // Full MTV query (used internally and available for manual queries)
     static MTV GetMTV(Collider2D* a, Collider2D* b);
 
+    // Compute the overlap between `mover` and `wall`, push `mover` out along
+    // the shortest axis (minimum penetration), and return the push vector.
+    // Useful for KinematicBody2D::MoveAndCollide and RigidBody2D physics.
+    static glm::vec2 ResolveOverlap(Collider2D* mover, Collider2D* wall);
+
 private:
     std::mutex m_mutex;
     std::vector<Collider2D*> colliders;
