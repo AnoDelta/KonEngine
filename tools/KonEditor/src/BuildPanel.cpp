@@ -337,7 +337,13 @@ void BuildPanel::runGame() {
     }
     appendLog("▶ Running: " + binary + "\n");
     auto* gameProc = new QProcess();
-    gameProc->setWorkingDirectory(QFileInfo(m_entryFile).absolutePath() + "/..");
+    // Set CWD to where assets live:
+    // - Project layout (src/main.ks): go up to project root
+    // - Monolithic (main.ks in root): stay in the file's directory
+    QString entryDir = QFileInfo(m_entryFile).absolutePath();
+    QString gameDir = QFileInfo(entryDir).fileName() == "src"
+        ? entryDir + "/.." : entryDir;
+    gameProc->setWorkingDirectory(gameDir);
     // Don't connect any signals — just fire and forget
     // Parent is nullptr so it won't be deleted with BuildPanel
     gameProc->start(binary, QStringList());

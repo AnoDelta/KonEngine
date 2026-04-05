@@ -598,13 +598,124 @@ void SceneTree::loadScene(const QString& path) {
 
     QString src = QString::fromUtf8(data);
 
-    QRegularExpression reNode(R"(node\s+(\w+)\s*:\s*\w+\s*\{)");
-    auto mNode = reNode.match(src);
-    QString rootName = mNode.hasMatch() ? mNode.captured(1) : "Main";
+    // Detect if this is a monolithic file (has func main()) vs a scene file
+    bool isMonolithic = src.contains("func main()") || src.contains("func main()");;
+
+    // For scene files: root = first node definition
+    // For monolithic: root = filename, children = scene.add() calls
+    QString rootName;
+    if (!isMonolithic) {
+        QRegularExpression reNode(R"(node\s+(\w+)\s*:\s*\w+\s*\{)");
+        auto mNode = reNode.match(src);
+        rootName = mNode.hasMatch() ? mNode.captured(1) : "Main";
+    } else {
+        rootName = QFileInfo(path).baseName();
+    }
 
     auto* rootItem = new QTreeWidgetItem(m_tree,{"🎬  "+rootName});
     rootItem->setData(0,Qt::UserRole,"Scene"); rootItem->setData(0,Qt::UserRole+1,rootName);
     rootItem->setExpanded(true);
+
+    if (isMonolithic) {
+        // ── Monolithic file: parse node definitions and scene.add() calls ──
+        // First, collect all node definitions: node Name : Base { ... }
+        QRegularExpression reAllNodes(R"(node\s+(\w+)\s*:\s*(\w+)\s*\{)");
+        auto itNodes = reAllNodes.globalMatch(src);
+        QMap<QString, QTreeWidgetItem*> nodeItems; // typeName → tree item
+
+        while (itNodes.hasNext()) {
+            auto nm = itNodes.next();
+            QString nodeName = nm.captured(1);
+            QString baseType = nm.captured(2);
+            auto* nodeItem = addNode(rootItem, nodeName, baseType);
+            nodeItem->setData(0, Qt::UserRole+2, path);
+            nodeItems[nodeName] = nodeItem;
+
+            // Parse this.add() inside the node to find children
+            // Find the node's body
+            int braceStart = nm.capturedEnd();
+            int depth = 1, pos = braceStart;
+            while (pos < src.size() && depth > 0) {
+                if (src[pos] == '{') depth++;
+                else if (src[pos] == '}') depth--;
+                if (depth > 0) pos++;
+            }
+            QString body = src.mid(braceStart, pos - braceStart);
+
+            // Parse this.add(Type, "name") inside the body
+            QRegularExpression reChildAdd(R"RE(let\s+mut\s+(\w+)\s*:\s*(\w+)\s*=\s*this\.add\(\s*\w+\s*,\s*"([^"]+)"\s*\))RE");
+            auto itChildren = reChildAdd.globalMatch(body);
+            while (itChildren.hasNext()) {
+                auto cm = itChildren.next();
+                QString childVar = cm.captured(1);
+                QString childType = cm.captured(2);
+                QString childName = cm.captured(3);
+                auto* childItem = addNode(nodeItem, childName, childType);
+
+                // Parse position from Ready() body
+                QRegularExpression rxX(QString(R"(%1\s*[.=]\s*x\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(childVar)));
+                QRegularExpression rxY(QString(R"(%1\s*[.=]\s*y\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(childVar)));
+                auto mx = rxX.match(body); auto my = rxY.match(body);
+                if (mx.hasMatch()) childItem->setData(0, Qt::UserRole+3, mx.captured(1).toFloat());
+                if (my.hasMatch()) childItem->setData(0, Qt::UserRole+4, my.captured(1).toFloat());
+            }
+        }
+
+        // Parse scene.add(Type, "name") in func main() for the top-level scene hierarchy
+        QRegularExpression reSceneAdd(R"RE((\w+)\.add\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
+        // Find func main() body
+        QRegularExpression reMain(R"(func\s+main\s*\([^)]*\)\s*(?:->\s*\w+\s*)?\{)");
+        auto mainMatch = reMain.match(src);
+        if (mainMatch.hasMatch()) {
+            int mainStart = mainMatch.capturedEnd();
+            int depth = 1, pos = mainStart;
+            while (pos < src.size() && depth > 0) {
+                if (src[pos] == '{') depth++;
+                else if (src[pos] == '}') depth--;
+                if (depth > 0) pos++;
+            }
+            QString mainBody = src.mid(mainStart, pos - mainStart);
+
+            // Parse variable.x = value assignments in main()
+            QMap<QString, QString> varToType; // varName → typeName
+            QRegularExpression reVarAdd(R"RE(let\s+mut\s+(\w+)\s*:\s*(\w+)\s*=\s*\w+\.add\(\s*\w+\s*,\s*"[^"]+"\s*\))RE");
+            auto itVars = reVarAdd.globalMatch(mainBody);
+            while (itVars.hasNext()) {
+                auto vm = itVars.next();
+                varToType[vm.captured(1)] = vm.captured(2);
+            }
+
+            // Parse position assignments: varName.x = value;
+            for (auto it = varToType.constBegin(); it != varToType.constEnd(); ++it) {
+                QString var = it.key();
+                QString type = it.value();
+                // Find the node item for this type
+                QTreeWidgetItem* item = nodeItems.value(type, nullptr);
+                if (!item) {
+                    // It's an instance, find or create under root
+                    for (int i = 0; i < rootItem->childCount(); i++) {
+                        if (rootItem->child(i)->data(0, Qt::UserRole+1).toString() == type)
+                            item = rootItem->child(i);
+                    }
+                }
+                if (!item) continue;
+
+                QRegularExpression rxX(QString(R"(%1\.x\s*=\s*([^;]+))").arg(QRegularExpression::escape(var)));
+                QRegularExpression rxY(QString(R"(%1\.y\s*=\s*([^;]+))").arg(QRegularExpression::escape(var)));
+                auto mx = rxX.match(mainBody); auto my = rxY.match(mainBody);
+                if (mx.hasMatch()) item->setData(0, Qt::UserRole+3, mx.captured(1).trimmed().toFloat());
+                if (my.hasMatch()) item->setData(0, Qt::UserRole+4, my.captured(1).trimmed().toFloat());
+            }
+        }
+
+        rootItem->setExpanded(true);
+        m_sceneLoaded = true;
+        emit sceneLoaded(path);
+        m_loading = false;
+        return;
+    }
+
+    // ── Scene file parsing (non-monolithic) ──────────────────────────────
 
     // Parse all .add() calls — handles both this.add() and parentVar.add()
     // Pattern: let mut varName: Type = parentExpr.add(Type, "name")
@@ -671,66 +782,8 @@ void SceneTree::loadScene(const QString& path) {
         }
     };
 
-    // First parse the scene file itself
+    // First parse the scene file itself (non-monolithic scene files)
     parseSource(src, path, rootItem);
-
-    // ── Monolithic file support ──────────────────────────────────────────
-    // For monolithic .ks files, scan for ALL top-level "node X : Y { }" definitions
-    // beyond the root node and add them as children of the root scene node.
-    // Also parse scene.add(Type, "name") calls in func main() for hierarchy,
-    // and position assignments like player.x = 50;
-    {
-        // Find all node definitions in the file
-        QRegularExpression reAllNodes(R"(node\s+(\w+)\s*:\s*(\w+)\s*\{)");
-        auto itNodes = reAllNodes.globalMatch(src);
-        QSet<QString> addedNodeNames;
-        // Track which names were already added via .add() parsing
-        for (auto itr = varToItem.constBegin(); itr != varToItem.constEnd(); ++itr) {
-            if (itr.key() != "this")
-                addedNodeNames.insert(itr.key());
-        }
-
-        while (itNodes.hasNext()) {
-            auto nm = itNodes.next();
-            QString nodeName = nm.captured(1);
-            QString baseType = nm.captured(2);
-            // Skip the root node itself (already created)
-            if (nodeName == rootName) continue;
-            // Skip if already added via .add() parsing
-            if (addedNodeNames.contains(nodeName) || addedNodeNames.contains(nodeName.toLower()))
-                continue;
-
-            auto* nodeItem = addNode(rootItem, nodeName, baseType);
-            nodeItem->setData(0, Qt::UserRole+2, path);  // script is the monolithic file itself
-            addedNodeNames.insert(nodeName);
-            varToItem[nodeName] = nodeItem;
-
-            // Parse position assignments like nodeName.x = 50; anywhere in the file
-            // Use lowercase var name convention
-            QString varName = nodeName.toLower();
-            QRegularExpression rxPosX(QString(R"(%1\.x\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(varName)));
-            QRegularExpression rxPosY(QString(R"(%1\.y\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(varName)));
-            auto mPosX = rxPosX.match(src);
-            auto mPosY = rxPosY.match(src);
-            if (mPosX.hasMatch()) nodeItem->setData(0, Qt::UserRole+3, mPosX.captured(1).toFloat());
-            if (mPosY.hasMatch()) nodeItem->setData(0, Qt::UserRole+4, mPosY.captured(1).toFloat());
-        }
-
-        // Also parse scene.add(Type, "name") calls from func main() for hierarchy
-        QRegularExpression reSceneAdd(R"RE(scene\.add\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
-        auto itScene = reSceneAdd.globalMatch(src);
-        while (itScene.hasNext()) {
-            auto sm = itScene.next();
-            QString typeName = sm.captured(1);
-            QString displayName = sm.captured(2);
-            // If a node definition with this type exists, ensure it's in the tree
-            if (!addedNodeNames.contains(typeName) && !addedNodeNames.contains(displayName)) {
-                auto* sceneChild = addNode(rootItem, displayName, typeName);
-                addedNodeNames.insert(displayName);
-                varToItem[displayName] = sceneChild;
-            }
-        }
-    }
 
     rootItem->setExpanded(true);
     m_sceneLoaded = true;
