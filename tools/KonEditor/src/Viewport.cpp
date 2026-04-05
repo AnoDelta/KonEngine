@@ -356,6 +356,8 @@ void Viewport::drawNode(QPainter& p, ViewportNode& n) {
             QPixmap pix(n.texturePath);
             if (!pix.isNull())
                 m_textureCache[n.texturePath] = pix;
+            else
+                fprintf(stderr, "[Viewport] Failed to load texture: %s\n", n.texturePath.toUtf8().constData());
         }
         if (m_textureCache.contains(n.texturePath)) {
             p.drawPixmap(box.toRect(), m_textureCache[n.texturePath]);
