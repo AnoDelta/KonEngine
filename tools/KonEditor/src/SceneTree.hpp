@@ -20,6 +20,8 @@ public:
     bool hasScene() const { return m_sceneLoaded; }
     QString scenePath() const { return m_scenePath; }
     void setScenePath(const QString& p) { m_scenePath = p; }
+    void setReadOnly(bool ro) { m_readOnly = ro; }
+    bool isReadOnly() const { return m_readOnly; }
     QTreeWidget* treeWidget() const { return m_tree; }
 
 signals:
@@ -47,6 +49,7 @@ private:
     QTreeWidget* m_tree        = nullptr;
     bool         m_sceneLoaded = false;
     bool         m_loading     = false;
+    bool         m_readOnly    = false;  // monolithic .ks files — never overwrite
     QString      m_scenePath;
     QString      m_projectRoot;
     SceneFile    m_scene;

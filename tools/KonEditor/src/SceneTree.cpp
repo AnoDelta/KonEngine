@@ -541,8 +541,7 @@ void SceneTree::updateNodePosition(const QString& name, float x, float y) {
 }
 
 void SceneTree::autoSaveScene() {
-    fprintf(stderr,"[SceneTree] autoSave: loading=%d path=%s\n",
-            m_loading, m_scenePath.toUtf8().constData());
+    if (m_readOnly) return;  // NEVER overwrite monolithic .ks files
     if (m_loading || m_scenePath.isEmpty()) return;
     auto* root = m_tree->topLevelItem(0);
     if (!root || root->childCount() == 0) return;
@@ -550,6 +549,7 @@ void SceneTree::autoSaveScene() {
 }
 
 void SceneTree::saveCurrentScene() {
+    if (m_readOnly) return;  // NEVER overwrite monolithic .ks files
     if (m_scenePath.isEmpty()) return;
     auto* root = m_tree->topLevelItem(0);
     if (!root || root->childCount() == 0) return;
@@ -741,6 +741,7 @@ void SceneTree::loadScene(const QString& path) {
 }
 
 void SceneTree::saveScene(const QString& path) {
+    if (m_readOnly) return;  // NEVER overwrite monolithic .ks files
     auto* root = m_tree->topLevelItem(0);
     if (!root) return;
     if (m_projectRoot.isEmpty()) return;

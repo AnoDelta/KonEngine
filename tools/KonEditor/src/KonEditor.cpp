@@ -451,6 +451,7 @@ void KonEditor::setupLayout() {
     // Write to script only when drag ends (not every frame)
     connect(m_viewport, &Viewport::nodeMovedFinal,
             this, [this](const QString& name, float x, float y) {
+                if (m_sceneTree->isReadOnly()) return;  // don't write to monolithic files
                 QString scenePath = m_sceneTree->scenePath();
                 if (scenePath.isEmpty()) return;
                 // Viewport gives WORLD position; we must save LOCAL position
@@ -689,10 +690,13 @@ void KonEditor::openProject(const QString& path) {
         m_centerTabs->setCurrentWidget(m_scriptEditor);
 
         // Parse the monolithic .ks file for node definitions and show in scene tree
+        // Mark as READ-ONLY so autoSave/saveScene never overwrites the user's code
+        m_sceneTree->setReadOnly(true);
         m_sceneTree->loadScene(absPath);
         return;
     }
 
+    m_sceneTree->setReadOnly(false);  // project files CAN be saved
     updateTitle();
     QString dir = QFileInfo(path).absolutePath();
     m_assetBrowser->setRoot(dir);
