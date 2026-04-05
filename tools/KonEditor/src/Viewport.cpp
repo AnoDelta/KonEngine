@@ -67,6 +67,16 @@ Viewport::Viewport(QWidget* parent) : QWidget(parent) {
     });
 }
 
+bool Viewport::event(QEvent* e) {
+    // Debug: track what event type fires (only after drag starts)
+    static bool debugEvents = false;
+    if (m_dragging) debugEvents = true;
+    if (debugEvents && e->type() != QEvent::Paint && e->type() != QEvent::MouseMove
+        && e->type() != QEvent::Timer && e->type() != QEvent::UpdateRequest)
+        fprintf(stderr, "[Viewport] event type=%d\n", (int)e->type());
+    return QWidget::event(e);
+}
+
 void Viewport::setCameraPreview(bool on) {
     m_cameraPreview = on;
     m_previewBtn->setChecked(on);
@@ -449,6 +459,9 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent* e) {
+    static int moveCount = 0;
+    fprintf(stderr, "[Viewport] mouseMoveEvent #%d dragging=%d dragNode=%p\n",
+            ++moveCount, m_dragging, (void*)m_dragNode);
     if (m_panning) {
         QPointF delta = e->pos() - m_dragStart;
         m_panX += delta.x();

@@ -39,6 +39,7 @@ signals:
     void nodeMovedFinal(const QString& name, float x, float y);
 
 protected:
+    bool event(QEvent* e) override;
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
