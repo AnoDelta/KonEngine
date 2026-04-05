@@ -25,6 +25,7 @@
 #include <QTreeWidgetItem>
 #include <QTextEdit>
 #include <QTimer>
+#include <QInputDialog>
 
 // ── Dark theme ────────────────────────────────────────────────────────────
 static void applyDarkTheme() {
@@ -675,16 +676,20 @@ void KonEditor::openProject(const QString& path) {
         return;
     }
 
-    // For standalone .ks files, open directly in the script editor
+    // For standalone .ks files, set up the editor with the file's directory
     if (isKsFile) {
         updateTitle();
         QString dir = QFileInfo(path).absolutePath();
+        QString absPath = QFileInfo(path).absoluteFilePath();
         m_assetBrowser->setRoot(dir);
         m_scriptEditor->setProjectRoot(dir);
         m_sceneTree->setProjectRoot(dir);
         m_statusLabel->setText("  " + m_project->name() + " (file)  |  " + dir);
-        m_scriptEditor->openFile(QFileInfo(path).absoluteFilePath());
+        m_scriptEditor->openFile(absPath);
         m_centerTabs->setCurrentWidget(m_scriptEditor);
+
+        // Parse the monolithic .ks file for node definitions and show in scene tree
+        m_sceneTree->loadScene(absPath);
         return;
     }
 
@@ -829,6 +834,27 @@ void KonEditor::onProjectSettings() {
     });
     layout->addWidget(sceneGroup);
 
+    // KonPak
+    auto* pakGroup = new QGroupBox("KonPak");
+    auto* pakForm  = new QFormLayout(pakGroup);
+    auto* usePakCheck = new QCheckBox("Use Asset Pack");
+    usePakCheck->setChecked(m_project->json().value("useKonpak").toBool(false));
+    pakForm->addRow("", usePakCheck);
+    auto* pakFileEdit = new QLineEdit(m_project->json().value("konpakFile").toString("game.konpak"));
+    pakForm->addRow("Pack File:", pakFileEdit);
+    auto* pakPassEdit = new QLineEdit(m_project->json().value("konpakPassword").toString());
+    pakPassEdit->setEchoMode(QLineEdit::Password);
+    pakPassEdit->setPlaceholderText("Optional password");
+    pakForm->addRow("Pack Password:", pakPassEdit);
+    // Enable/disable pack fields based on checkbox
+    pakFileEdit->setEnabled(usePakCheck->isChecked());
+    pakPassEdit->setEnabled(usePakCheck->isChecked());
+    connect(usePakCheck, &QCheckBox::toggled, [pakFileEdit, pakPassEdit](bool on){
+        pakFileEdit->setEnabled(on);
+        pakPassEdit->setEnabled(on);
+    });
+    layout->addWidget(pakGroup);
+
     // Scan main.ks on open to populate actual values from code
     QString mainKsPathInit = m_project->rootDir() + "/" + entryEdit->text();
     if (QFile::exists(mainKsPathInit)) {
@@ -887,7 +913,10 @@ void KonEditor::onProjectSettings() {
     json["resizable"]   = resizableCheck->isChecked();
     json["debug"]       = debugCheck->isChecked();
     json["windowTitle"] = titleEdit->text();
-    json["entry"]       = entryEdit->text();
+    json["entry"]          = entryEdit->text();
+    json["useKonpak"]      = usePakCheck->isChecked();
+    json["konpakFile"]     = pakFileEdit->text();
+    json["konpakPassword"] = pakPassEdit->text();
     m_project->setJson(json);
     m_project->save();
     updateTitle();
@@ -1002,7 +1031,24 @@ void KonEditor::onBuild() {
         return;
     }
     m_bottomTabs->setCurrentWidget(m_buildPanel);
-    m_buildPanel->build(m_project->entryFile(), m_buildTarget, m_project->outDir());
+
+    // Determine konpak password for build
+    QString packPassword;
+    bool isMonolithic = m_project->path().isEmpty(); // no .konproj
+    if (isMonolithic) {
+        // For monolithic .ks files, show a password input dialog before build
+        bool ok;
+        QString pwd = QInputDialog::getText(this, "KonPak Password",
+            "Enter password for asset pack (leave empty for none):",
+            QLineEdit::Password, "", &ok);
+        if (ok && !pwd.isEmpty())
+            packPassword = pwd;
+    } else if (m_project->json().value("useKonpak").toBool(false)) {
+        packPassword = m_project->json().value("konpakPassword").toString();
+    }
+
+    m_buildPanel->build(m_project->entryFile(), m_buildTarget,
+                        m_project->outDir(), false, packPassword);
 }
 
 void KonEditor::onRun() {
@@ -1010,8 +1056,22 @@ void KonEditor::onRun() {
     m_scriptEditor->saveAll();
     m_sceneTree->saveCurrentScene();  // save scene before run
     m_bottomTabs->setCurrentWidget(m_buildPanel);
+
+    QString packPassword;
+    bool isMonolithic = m_project->path().isEmpty();
+    if (isMonolithic) {
+        bool ok;
+        QString pwd = QInputDialog::getText(this, "KonPak Password",
+            "Enter password for asset pack (leave empty for none):",
+            QLineEdit::Password, "", &ok);
+        if (ok && !pwd.isEmpty())
+            packPassword = pwd;
+    } else if (m_project->json().value("useKonpak").toBool(false)) {
+        packPassword = m_project->json().value("konpakPassword").toString();
+    }
+
     m_buildPanel->build(m_project->entryFile(), m_buildTarget,
-                        m_project->outDir(), true);
+                        m_project->outDir(), true, packPassword);
 }
 
 void KonEditor::onStop() {

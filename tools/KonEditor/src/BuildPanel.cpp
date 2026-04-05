@@ -107,15 +107,17 @@ void BuildPanel::appendLog(const QString& text) {
 }
 
 void BuildPanel::build(const QString& entryFile, const QString& target,
-                       const QString& outDir, bool runAfter) {
+                       const QString& outDir, bool runAfter,
+                       const QString& packPassword) {
     if (m_proc && m_proc->state() != QProcess::NotRunning) {
         appendLog("⚠ Build already in progress.");
         return;
     }
-    m_entryFile = entryFile;
-    m_target    = target;
-    m_outDir    = outDir;
-    m_runAfter  = runAfter;
+    m_entryFile     = entryFile;
+    m_target        = target;
+    m_outDir        = outDir;
+    m_runAfter      = runAfter;
+    m_packPassword  = packPassword;
 
     QDir().mkpath(outDir);
     m_log->clear();
@@ -166,8 +168,13 @@ void BuildPanel::startBuild() {
 
     QString outBinary = m_outDir + (m_target == "windows64" ? "/game.exe" : "/game");
     QStringList args;
-    if (!m_target.isEmpty() && m_target != "linux64")
-        args << "--target" << m_target;
+    if (!m_target.isEmpty() && m_target != "linux64") {
+        // Map editor target names to konscript --target flag values
+        // "windows64" → "windows" (konscript handles 64-bit via MXE)
+        QString ksTarget = m_target;
+        if (ksTarget == "windows64") ksTarget = "windows";
+        args << "--target" << ksTarget;
+    }
     args << m_entryFile << "-o" << outBinary;
 
     appendLog("$ " + m_konscript + " " + args.join(' '));
@@ -241,6 +248,10 @@ void BuildPanel::onProcessFinished(int exitCode, QProcess::ExitStatus) {
                   QString::number(m_timer.elapsed() / 1000.0, 'f', 1) + "s");
         m_status->setText("✓ Build succeeded");
         m_status->setStyleSheet("color: #4caf50; font-size: 11px;");
+        // Run konpak if password was provided (konpak enabled)
+        if (!m_packPassword.isEmpty()) {
+            runKonpak();
+        }
         if (m_runAfter) runGame();
     } else {
         appendLog("✗ Build failed (exit code " + QString::number(exitCode) + ")");
@@ -253,6 +264,69 @@ void BuildPanel::onProcessFinished(int exitCode, QProcess::ExitStatus) {
     m_proc->deleteLater();
     m_proc = nullptr;
     m_cancelBtn->setEnabled(false);
+}
+
+void BuildPanel::runKonpak() {
+    // Find konpak binary
+    QString konpakPath;
+    QStringList candidates = {
+        QCoreApplication::applicationDirPath() + "/konpak",
+        QCoreApplication::applicationDirPath() + "/../KonPaktor/build/konpak",
+        QCoreApplication::applicationDirPath() + "/../../KonPaktor/build/konpak",
+        "/usr/local/bin/konpak",
+        "/usr/bin/konpak"
+    };
+    for (auto& c : candidates) {
+        if (QFile::exists(c)) { konpakPath = c; break; }
+    }
+    if (konpakPath.isEmpty()) {
+        appendLog("⚠ konpak not found — skipping asset packing.");
+        return;
+    }
+
+    // Determine assets directory and output pack file
+    QString assetsDir = QFileInfo(m_entryFile).absolutePath();
+    // If there's an assets/ subdirectory, use it; otherwise use the entry file's directory
+    if (QDir(assetsDir + "/assets").exists())
+        assetsDir = assetsDir + "/assets";
+    else if (QDir(assetsDir + "/../assets").exists())
+        assetsDir = QDir::cleanPath(assetsDir + "/../assets");
+
+    QString packFile = m_outDir + "/game.konpak";
+    appendLog("");
+    appendLog("▶ Creating asset pack...");
+
+    QStringList args;
+    args << "create" << packFile << assetsDir + "/*";
+    if (!m_packPassword.isEmpty())
+        args << "--pass" << m_packPassword;
+
+    appendLog("$ " + konpakPath + " " + args.join(' '));
+
+    auto* pakProc = new QProcess(this);
+    pakProc->setWorkingDirectory(QFileInfo(m_entryFile).absolutePath());
+    pakProc->start(konpakPath, args);
+    if (!pakProc->waitForStarted(3000)) {
+        appendLog("✗ Failed to start konpak: " + pakProc->errorString());
+        delete pakProc;
+        return;
+    }
+    pakProc->waitForFinished(30000);
+    QString pakOut = pakProc->readAllStandardOutput();
+    QString pakErr = pakProc->readAllStandardError();
+    if (!pakOut.isEmpty()) appendLog(pakOut);
+    if (!pakErr.isEmpty()) appendLog(pakErr);
+    if (pakProc->exitCode() == 0) {
+        QFileInfo fi(packFile);
+        qint64 sz = fi.size();
+        QString sizeStr = sz < 1048576
+            ? QString("%1 KB").arg(sz / 1024.0, 0, 'f', 1)
+            : QString("%1 MB").arg(sz / 1048576.0, 0, 'f', 2);
+        appendLog("✓ Asset pack created: " + fi.fileName() + " (" + sizeStr + ")");
+    } else {
+        appendLog("✗ konpak failed (exit code " + QString::number(pakProc->exitCode()) + ")");
+    }
+    delete pakProc;
 }
 
 void BuildPanel::runGame() {

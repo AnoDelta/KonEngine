@@ -14,6 +14,8 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QGroupBox>
+#include <QSet>
+#include <QRegularExpression>
 
 // ── Node type registry ────────────────────────────────────────────────────
 struct NodeTypeInfo {
@@ -671,6 +673,64 @@ void SceneTree::loadScene(const QString& path) {
 
     // First parse the scene file itself
     parseSource(src, path, rootItem);
+
+    // ── Monolithic file support ──────────────────────────────────────────
+    // For monolithic .ks files, scan for ALL top-level "node X : Y { }" definitions
+    // beyond the root node and add them as children of the root scene node.
+    // Also parse scene.add(Type, "name") calls in func main() for hierarchy,
+    // and position assignments like player.x = 50;
+    {
+        // Find all node definitions in the file
+        QRegularExpression reAllNodes(R"(node\s+(\w+)\s*:\s*(\w+)\s*\{)");
+        auto itNodes = reAllNodes.globalMatch(src);
+        QSet<QString> addedNodeNames;
+        // Track which names were already added via .add() parsing
+        for (auto itr = varToItem.constBegin(); itr != varToItem.constEnd(); ++itr) {
+            if (itr.key() != "this")
+                addedNodeNames.insert(itr.key());
+        }
+
+        while (itNodes.hasNext()) {
+            auto nm = itNodes.next();
+            QString nodeName = nm.captured(1);
+            QString baseType = nm.captured(2);
+            // Skip the root node itself (already created)
+            if (nodeName == rootName) continue;
+            // Skip if already added via .add() parsing
+            if (addedNodeNames.contains(nodeName) || addedNodeNames.contains(nodeName.toLower()))
+                continue;
+
+            auto* nodeItem = addNode(rootItem, nodeName, baseType);
+            nodeItem->setData(0, Qt::UserRole+2, path);  // script is the monolithic file itself
+            addedNodeNames.insert(nodeName);
+            varToItem[nodeName] = nodeItem;
+
+            // Parse position assignments like nodeName.x = 50; anywhere in the file
+            // Use lowercase var name convention
+            QString varName = nodeName.toLower();
+            QRegularExpression rxPosX(QString(R"(%1\.x\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(varName)));
+            QRegularExpression rxPosY(QString(R"(%1\.y\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(varName)));
+            auto mPosX = rxPosX.match(src);
+            auto mPosY = rxPosY.match(src);
+            if (mPosX.hasMatch()) nodeItem->setData(0, Qt::UserRole+3, mPosX.captured(1).toFloat());
+            if (mPosY.hasMatch()) nodeItem->setData(0, Qt::UserRole+4, mPosY.captured(1).toFloat());
+        }
+
+        // Also parse scene.add(Type, "name") calls from func main() for hierarchy
+        QRegularExpression reSceneAdd(R"RE(scene\.add\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
+        auto itScene = reSceneAdd.globalMatch(src);
+        while (itScene.hasNext()) {
+            auto sm = itScene.next();
+            QString typeName = sm.captured(1);
+            QString displayName = sm.captured(2);
+            // If a node definition with this type exists, ensure it's in the tree
+            if (!addedNodeNames.contains(typeName) && !addedNodeNames.contains(displayName)) {
+                auto* sceneChild = addNode(rootItem, displayName, typeName);
+                addedNodeNames.insert(displayName);
+                varToItem[displayName] = sceneChild;
+            }
+        }
+    }
 
     rootItem->setExpanded(true);
     m_sceneLoaded = true;
