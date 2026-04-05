@@ -232,6 +232,43 @@ void Present() {
 	// Final flush: push any remaining batched geometry (debug overlay, etc.)
 	window->present();
 
+	// Draw letterbox black bars LAST, on top of everything using scissor test
+	if (s_letterboxEnabled) {
+		int fbW, fbH;
+		glfwGetFramebufferSize(window->getGLFW(), &fbW, &fbH);
+		glViewport(0, 0, fbW, fbH);
+		glEnable(GL_SCISSOR_TEST);
+		// Left bar
+		if (s_lbOffsetX > 0) {
+			glScissor(0, 0, (int)s_lbOffsetX, fbH);
+			glClearColor(0, 0, 0, 1);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		// Right bar
+		int rightX = (int)(s_lbOffsetX + s_lbViewW);
+		if (rightX < fbW) {
+			glScissor(rightX, 0, fbW - rightX, fbH);
+			glClearColor(0, 0, 0, 1);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		// Top bar (OpenGL Y is bottom-up, so "top" in screen = high Y in GL)
+		int topY = (int)(s_lbOffsetY + s_lbViewH);
+		if (topY < fbH) {
+			glScissor(0, topY, fbW, fbH - topY);
+			glClearColor(0, 0, 0, 1);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		// Bottom bar
+		if (s_lbOffsetY > 0) {
+			glScissor(0, 0, fbW, (int)s_lbOffsetY);
+			glClearColor(0, 0, 0, 1);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		glDisable(GL_SCISSOR_TEST);
+		// Restore letterbox viewport for next frame
+		glViewport((int)s_lbOffsetX, (int)s_lbOffsetY, s_lbViewW, s_lbViewH);
+	}
+
 	window->swapBuffers();
 }
 
