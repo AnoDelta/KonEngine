@@ -348,11 +348,28 @@ void Viewport::drawNode(QPainter& p, ViewportNode& n) {
     QColor  col = nodeColor(n.type);
 
     QRectF box(s.x()-hw, s.y()-hh, hw*2, hh*2);
-    p.setPen(Qt::NoPen);
-    QColor fill = col;
-    fill.setAlpha(n.selected ? 180 : 80);
-    p.setBrush(fill);
-    p.drawRoundedRect(box, 3, 3);
+
+    // If the node has a texture, draw the image instead of the colored rect
+    bool drewTexture = false;
+    if (!n.texturePath.isEmpty()) {
+        if (!m_textureCache.contains(n.texturePath)) {
+            QPixmap pix(n.texturePath);
+            if (!pix.isNull())
+                m_textureCache[n.texturePath] = pix;
+        }
+        if (m_textureCache.contains(n.texturePath)) {
+            p.drawPixmap(box.toRect(), m_textureCache[n.texturePath]);
+            drewTexture = true;
+        }
+    }
+
+    if (!drewTexture) {
+        p.setPen(Qt::NoPen);
+        QColor fill = col;
+        fill.setAlpha(n.selected ? 180 : 80);
+        p.setBrush(fill);
+        p.drawRoundedRect(box, 3, 3);
+    }
 
     QPen border(n.selected ? QColor(255,255,255) : col, n.selected ? 2 : 1);
     p.setPen(border);

@@ -1184,6 +1184,24 @@ void KonEditor::rebuildViewport() {
                 m_project->json().value("height").toInt(600) : 600;
             vn.zoom = 1.0f;
         }
+        // Read texture path from tree item (UserRole+7) for Sprite2D nodes
+        {
+            QVariant vtex = item->data(0, Qt::UserRole + 7);
+            if (vtex.isValid() && !vtex.toString().isEmpty()) {
+                QString texRel = vtex.toString();
+                // Resolve relative to the project/file directory
+                QString projDir;
+                if (m_project->isOpen())
+                    projDir = QFileInfo(m_project->path()).absolutePath();
+                else if (!m_sceneTree->scenePath().isEmpty())
+                    projDir = QFileInfo(m_sceneTree->scenePath()).absolutePath();
+                if (!projDir.isEmpty())
+                    vn.texturePath = QDir(projDir).absoluteFilePath(texRel);
+                else
+                    vn.texturePath = texRel;
+            }
+        }
+
         nodes.append(vn);
         for (int i = 0; i < item->childCount(); i++)
             walk(item->child(i), worldX, worldY);
@@ -1194,9 +1212,39 @@ void KonEditor::rebuildViewport() {
         walk(sceneTree->topLevelItem(0), 0.0f, 0.0f);
 
     m_viewport->setNodes(nodes);
-    m_viewport->setGameResolution(
-        m_project->isOpen() ? m_project->json().value("width").toInt(800) : 800,
-        m_project->isOpen() ? m_project->json().value("height").toInt(600) : 600);
+
+    // Determine game resolution: for monolithic .ks files, parse InitWindow;
+    // for project files, read from project JSON.
+    int gameW = 800, gameH = 600;
+    if (m_project->isOpen()) {
+        gameW = m_project->json().value("width").toInt(800);
+        gameH = m_project->json().value("height").toInt(600);
+    }
+    // For monolithic .ks files, check if the root tree item has parsed InitWindow values
+    if (sceneTree && sceneTree->topLevelItemCount() > 0) {
+        auto* rootItem = sceneTree->topLevelItem(0);
+        QVariant vgw = rootItem->data(0, Qt::UserRole + 8);
+        QVariant vgh = rootItem->data(0, Qt::UserRole + 9);
+        if (vgw.isValid() && vgh.isValid()) {
+            gameW = vgw.toInt();
+            gameH = vgh.toInt();
+        }
+    }
+    // Also try parsing directly from the .ks file if the scene path ends with .ks
+    if (!m_sceneTree->scenePath().isEmpty() && m_sceneTree->scenePath().endsWith(".ks")) {
+        QFile ksFile(m_sceneTree->scenePath());
+        if (ksFile.open(QIODevice::ReadOnly)) {
+            QString ksSrc = QTextStream(&ksFile).readAll();
+            ksFile.close();
+            QRegularExpression reInit(R"(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,)");
+            auto im = reInit.match(ksSrc);
+            if (im.hasMatch()) {
+                gameW = im.captured(1).toInt();
+                gameH = im.captured(2).toInt();
+            }
+        }
+    }
+    m_viewport->setGameResolution(gameW, gameH);
     // Re-select the previously selected node so inspector edits don't lose selection
     if (!m_selectedNode.isEmpty())
         m_viewport->selectNode(m_selectedNode);

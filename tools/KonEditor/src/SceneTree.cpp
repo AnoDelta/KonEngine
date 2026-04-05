@@ -643,6 +643,9 @@ void SceneTree::loadScene(const QString& path) {
                     constMap["screenWidth"] = im.captured(1).toFloat();
                 if (!constMap.contains("screenHeight"))
                     constMap["screenHeight"] = im.captured(2).toFloat();
+                // Store game resolution on the root item (UserRole+8 = width, +9 = height)
+                rootItem->setData(0, Qt::UserRole+8, im.captured(1).toInt());
+                rootItem->setData(0, Qt::UserRole+9, im.captured(2).toInt());
             }
         }
 
@@ -830,6 +833,40 @@ void SceneTree::loadScene(const QString& path) {
                     else if (prop == "height") item->setData(0, Qt::UserRole+6, numVal);
                 }
             }
+
+            // Parse LoadTexture / SetTexture calls in main() to associate textures with nodes
+            // Step 1: let mut varName: Texture = LoadTexture("path") → texVarToPath
+            QMap<QString, QString> texVarToPath;
+            {
+                QRegularExpression reTex(R"(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))");
+                auto itTex = reTex.globalMatch(mainBody);
+                while (itTex.hasNext()) {
+                    auto tm = itTex.next();
+                    texVarToPath[tm.captured(1)] = tm.captured(2);
+                }
+            }
+            // Step 2: nodeVar.SetTexture(texVar) → associate node with texture path
+            {
+                QRegularExpression reSetTex(R"((\w+)\.SetTexture\s*\(\s*(\w+)\s*\))");
+                auto itSetTex = reSetTex.globalMatch(mainBody);
+                while (itSetTex.hasNext()) {
+                    auto sm = itSetTex.next();
+                    QString nodeVar = sm.captured(1);
+                    QString texVar  = sm.captured(2);
+                    if (!texVarToPath.contains(texVar)) continue;
+                    // Find the tree item for this nodeVar
+                    QString nodeType = varToType.value(nodeVar);
+                    QTreeWidgetItem* item = nodeItems.value(nodeType, nullptr);
+                    if (!item) {
+                        for (int i = 0; i < rootItem->childCount(); i++) {
+                            if (rootItem->child(i)->data(0, Qt::UserRole+1).toString() == nodeType)
+                                item = rootItem->child(i);
+                        }
+                    }
+                    if (item)
+                        item->setData(0, Qt::UserRole+7, texVarToPath[texVar]);
+                }
+            }
         }
 
         rootItem->setExpanded(true);
@@ -890,12 +927,42 @@ void SceneTree::loadScene(const QString& path) {
             if (mx.hasMatch()) child->setData(0,Qt::UserRole+3,mx.captured(1).toFloat());
             if (my.hasMatch()) child->setData(0,Qt::UserRole+4,my.captured(1).toFloat());
 
+            // Parse SetTexture / LoadTexture in the source or child script for texture association
+            {
+                // Check the current source for varName.SetTexture(texVar) patterns
+                // First build a LoadTexture map from the source
+                QMap<QString, QString> localTexVars;
+                QRegularExpression reLoadTex(R"(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))");
+                auto itLT = reLoadTex.globalMatch(source);
+                while (itLT.hasNext()) {
+                    auto ltm = itLT.next();
+                    localTexVars[ltm.captured(1)] = ltm.captured(2);
+                }
+                // Now find varName.SetTexture(texVar)
+                QRegularExpression reSetTex(QString(R"(%1\.SetTexture\s*\(\s*(\w+)\s*\))").arg(QRegularExpression::escape(call.varName)));
+                auto stm = reSetTex.match(source);
+                if (stm.hasMatch()) {
+                    QString texVar = stm.captured(1);
+                    if (localTexVars.contains(texVar))
+                        child->setData(0, Qt::UserRole+7, localTexVars[texVar]);
+                }
+            }
+
             // If this child has a script, parse that script too for its children
             if (!childScript.isEmpty()) {
                 QFile sf(childScript);
                 if (sf.open(QIODevice::ReadOnly)) {
                     QString childSrc = QTextStream(&sf).readAll();
                     sf.close();
+
+                    // Check child script for texture property or SetTexture call
+                    if (!child->data(0, Qt::UserRole+7).isValid()) {
+                        QRegularExpression reScriptTex(R"(LoadTexture\s*\(\s*"([^"]+)"\s*\))");
+                        auto stxm = reScriptTex.match(childSrc);
+                        if (stxm.hasMatch())
+                            child->setData(0, Qt::UserRole+7, stxm.captured(1));
+                    }
+
                     // Add "this" mapping for this child so its children parent correctly
                     varToItem["this"] = child;
                     parseSource(childSrc, childScript, child);

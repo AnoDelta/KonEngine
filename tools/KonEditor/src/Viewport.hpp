@@ -5,6 +5,8 @@
 #include <QList>
 #include <QStack>
 #include <QPushButton>
+#include <QPixmap>
+#include <QMap>
 
 struct ViewportNode {
     QString name;
@@ -15,6 +17,8 @@ struct ViewportNode {
     // camera props (if type == Camera2D / CameraNode2D)
     float   camW = 800, camH = 600;
     float   zoom = 1.0f;
+    // texture path for Sprite2D nodes (relative to project dir)
+    QString texturePath;
 };
 
 class Viewport : public QWidget {
@@ -62,6 +66,7 @@ private:
 
     QList<ViewportNode> m_nodes;
     int    m_gameW = 800, m_gameH = 600;
+    QMap<QString, QPixmap> m_textureCache;
 
     // Viewport pan/zoom (free navigation)
     float  m_panX  = 0, m_panY = 0;
