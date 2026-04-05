@@ -363,6 +363,12 @@ func lex(src: Str) -> I32 {
             continue;
         }
 
+        // ── # comment (legacy) — skip to end of line ────────────────
+        if c == "#" && !(i + 7 < n && src.substr(i, 8) == "#include") {
+            while i < n && src.substr(i, 1) != "\n" { i += 1; col += 1; }
+            continue;
+        }
+
         // ── #include directive ─────────────────────────────────────
         if c == "#" && i + 7 < n && src.substr(i, 8) == "#include" {
             let tok_col: I32 = col;
@@ -3770,6 +3776,7 @@ func cg_gen_stmt(idx: I32) {
 
     if k == NK_LET {
         let name: Str = strip_type_ann(node_str[idx]);
+        let type_ann: Str = get_type_ann(node_str[idx]);
         let init: I32 = node_a[idx];
         if init != 0 {
             let val: Str = cg_gen_expr(init);
@@ -3789,6 +3796,10 @@ func cg_gen_stmt(idx: I32) {
                 let vtype: Str = node_types[idx];
                 if vtype == "Str" || init_k == NK_STR_LIT || init_k == NK_FSTR {
                     cg_emit("std::string " + name + " = " + val + ";");
+                } else if cg_is_ptr_type(type_ann) {
+                    // User/engine node type annotation → emit pointer declaration
+                    cg_emit(type_ann + "* " + name + " = " + val + ";");
+                    cg_mark_ptr(name);
                 } else {
                     cg_emit("auto " + name + " = " + val + ";");
                     // Track pointer vars (scene.Add, AddChild return pointers)
@@ -3799,8 +3810,12 @@ func cg_gen_stmt(idx: I32) {
             }
         } else {
             let vtype: Str = node_types[idx];
-            if vtype == "Str" {
+            if vtype == "Str" || type_ann == "Str" {
                 cg_emit("std::string " + name + " = \"\";");
+            } else if cg_is_ptr_type(type_ann) {
+                // User/engine node type annotation → emit pointer declaration
+                cg_emit(type_ann + "* " + name + " = nullptr;");
+                cg_mark_ptr(name);
             } else {
                 cg_emit("auto " + name + " = 0;");
             }
@@ -4811,39 +4826,81 @@ func main() -> I32 {
     let mut t0: F64 = 0.0;
 
     // Pre-process #include "file.ks" — inline included source before lexing
-    // Scan source for #include directives and prepend included file contents
+    // Uses a queue processed front-to-back. Each file's content is PREPENDED
+    // to full_src, so the last-processed file ends up first in output.
+    // This naturally produces correct dependency order.
+    let mut included_files: [Str] = [""];
+    let mut included_file_count: I32 = 0;
+    let mut inc_queue: [Str] = [""];
+    let mut inc_queue_count: I32 = 0;
+    // Seed queue with entry file
+    inc_queue_count = inc_queue_count + 1;
+    inc_queue.push(src);
     let mut full_src: Str = "";
-    let mut si: I32 = 0;
-    let slen: I32 = src.len();
-    while si < slen {
-        // Skip comment lines
-        if src.substr(si, 2) == "//" {
-            while si < slen && src.substr(si, 1) != "\n" { si = si + 1; }
-            si = si + 1;
-            continue;
-        }
-        if src.substr(si, 8) == "#include" {
-            // Find the quoted path
-            let mut qi: I32 = si + 8;
-            while qi < slen && src.substr(qi, 1) != "\"" { qi = qi + 1; }
-            qi = qi + 1; // skip opening quote
-            let mut qe: I32 = qi;
-            while qe < slen && src.substr(qe, 1) != "\"" { qe = qe + 1; }
-            let inc_path: Str = src.substr(qi, qe - qi);
-            if inc_path.ends(".ks") {
-                let inc_result: Result<Str> = File.read(inc_path);
-                if inc_result.ok {
-                    full_src = full_src + inc_result.value + "\n";
-                } else {
-                    Print("warning: cannot read include '", inc_path, "'");
-                }
+    let mut iq: I32 = 1;
+    while iq <= inc_queue_count {
+        let cur: Str = inc_queue[iq];
+        iq = iq + 1;
+        // Scan this text for #include "file.ks" directives
+        let mut si: I32 = 0;
+        let slen: I32 = cur.len();
+        while si < slen {
+            // Skip // comments
+            if cur.substr(si, 2) == "//" {
+                while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
+                si = si + 1;
+                continue;
             }
-            // Skip to end of line
-            while si < slen && src.substr(si, 1) != "\n" { si = si + 1; }
+            // Skip # comments (not #include)
+            if cur.substr(si, 1) == "#" && !(si + 7 < slen && cur.substr(si, 8) == "#include") {
+                while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
+                si = si + 1;
+                continue;
+            }
+            if cur.substr(si, 8) == "#include" {
+                let mut qi: I32 = si + 8;
+                while qi < slen && cur.substr(qi, 1) != "\"" { qi = qi + 1; }
+                qi = qi + 1;
+                let mut qe: I32 = qi;
+                while qe < slen && cur.substr(qe, 1) != "\"" { qe = qe + 1; }
+                let inc_path: Str = cur.substr(qi, qe - qi);
+                if inc_path.ends(".ks") {
+                    // Normalize: strip leading "../segment/" and "./"
+                    let mut norm: Str = inc_path;
+                    let mut strip_again: Bool = true;
+                    while strip_again && norm.len() > 3 && norm.substr(0, 3) == "../" {
+                        let mut sl: I32 = 3;
+                        while sl < norm.len() && norm.substr(sl, 1) != "/" { sl = sl + 1; }
+                        if sl < norm.len() { norm = norm.substr(sl + 1, norm.len() - sl - 1); }
+                        else { strip_again = false; }
+                    }
+                    if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
+                    // Check if already included
+                    let mut already: Bool = false;
+                    let mut ai: I32 = 1;
+                    while ai <= included_file_count {
+                        if included_files[ai] == norm { already = true; }
+                        ai = ai + 1;
+                    }
+                    if !already {
+                        included_file_count = included_file_count + 1;
+                        included_files.push(norm);
+                        let inc_result: Result<Str> = File.read(inc_path);
+                        if inc_result.ok {
+                            inc_queue_count = inc_queue_count + 1;
+                            inc_queue.push(inc_result.value);
+                        } else {
+                            Print("warning: cannot read include '", inc_path, "'");
+                        }
+                    }
+                }
+                while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
+            }
+            si = si + 1;
         }
-        si = si + 1;
+        // Prepend this file to output (last processed = first in output)
+        full_src = cur + "\n" + full_src;
     }
-    full_src = full_src + src;
 
     if has_cli { stage_doing(1, total_steps, "Lexing"); t0 = _ks_time_ms(); }
     let ntoks: I32 = lex(full_src);

@@ -16,7 +16,8 @@ public:
     explicit BuildPanel(QWidget* parent = nullptr);
 
     void build(const QString& entryFile, const QString& target,
-               const QString& outDir, bool runAfter = false);
+               const QString& outDir, bool runAfter = false,
+               const QString& packPassword = QString());
     void appendLog(const QString& text);
 
 signals:
@@ -43,8 +44,10 @@ private:
     QString m_outDir;
     QString m_target;
     QString m_konscript;
+    QString m_packPassword;
     bool    m_runAfter = false;
 
     void startBuild();
+    void runKonpak();
     void runGame();
 };

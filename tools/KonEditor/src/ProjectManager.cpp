@@ -98,6 +98,20 @@ bool ProjectManager::open(const QString& konprojPath) {
     return true;
 }
 
+bool ProjectManager::openKsFile(const QString& ksPath) {
+    QFileInfo fi(ksPath);
+    if (!fi.exists() || fi.suffix().toLower() != "ks") return false;
+    m_rootDir   = fi.absolutePath();
+    m_name      = fi.baseName();
+    m_path      = QString();  // no .konproj on disk
+    m_entryFile = fi.absoluteFilePath();
+    m_open      = true;
+    m_json      = QJsonObject();
+    m_json["name"]  = m_name;
+    m_json["entry"] = fi.fileName();
+    return true;
+}
+
 bool ProjectManager::save() {
     if (!m_open) return false;
     QFile f(m_path);

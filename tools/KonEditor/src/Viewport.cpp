@@ -1,6 +1,7 @@
 #include "Viewport.hpp"
 #include <QPainter>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QWheelEvent>
 #include <QPen>
 #include <QFont>
@@ -105,6 +106,9 @@ void Viewport::updatePreviewButton() {
 }
 
 void Viewport::setNodes(const QList<ViewportNode>& nodes) {
+    // Invalidate drag — list is being replaced
+    m_dragging = false;
+    m_dragIdx  = -1;
     m_nodes = nodes;
     syncCameraFromNodes();
     update();
@@ -162,14 +166,16 @@ QPointF Viewport::screenToWorld(float x, float y) const {
 
     if (m_cameraPreview && m_hasCamera) {
         float ez = m_zoom * m_camZoom;
+        if (std::fabs(ez) < 0.0001f) ez = 0.0001f;
         return { (x - cx) / ez + m_camX, (y - cy) / ez + m_camY };
     }
 
-    return { (x - cx) / m_zoom, (y - cy) / m_zoom };
+    float z = (std::fabs(m_zoom) < 0.0001f) ? 0.0001f : m_zoom;
+    return { (x - cx) / z, (y - cy) / z };
 }
 
 // ── Hit testing ───────────────────────────────────────────────────────────
-ViewportNode* Viewport::nodeAt(QPointF sp) {
+int Viewport::nodeIdxAt(QPointF sp) {
     for (int i = m_nodes.size()-1; i >= 0; i--) {
         auto& n = m_nodes[i];
         QPointF s = worldToScreen(n.x, n.y);
@@ -183,9 +189,9 @@ ViewportNode* Viewport::nodeAt(QPointF sp) {
         }
         if (sp.x() >= s.x()-hw && sp.x() <= s.x()+hw &&
             sp.y() >= s.y()-hh && sp.y() <= s.y()+hh)
-            return &n;
+            return i;
     }
-    return nullptr;
+    return -1;
 }
 
 // ── Game bounds rectangle ─────────────────────────────────────────────────
@@ -193,8 +199,9 @@ void Viewport::drawGameBounds(QPainter& p) {
     if (m_cameraPreview && m_hasCamera) {
         // In camera preview the game frame is always centered on screen,
         // sized to exactly the camera's view (gameRes / camZoom) * editorZoom.
-        float vw = (m_gameW / m_camZoom) * m_zoom;
-        float vh = (m_gameH / m_camZoom) * m_zoom;
+        float cz = (std::fabs(m_camZoom) < 0.0001f) ? 0.0001f : m_camZoom;
+        float vw = (m_gameW / cz) * m_zoom;
+        float vh = (m_gameH / cz) * m_zoom;
         float cx = width()  * 0.5f + m_panX;
         float cy = height() * 0.5f + m_panY;
         QRectF frame(cx - vw * 0.5f, cy - vh * 0.5f, vw, vh);
@@ -252,13 +259,13 @@ void Viewport::paintEvent(QPaintEvent*) {
     // Grid
     drawGrid(p);
 
-    // Origin cross (world 0,0)
+// Origin cross (world 0,0)
     drawOriginCross(p);
 
-    // Game / camera bounds + dim
+// Game / camera bounds + dim
     drawGameBounds(p);
 
-    // In scene view: draw camera frustum rects behind nodes
+// In scene view: draw camera frustum rects behind nodes
     if (!m_cameraPreview) {
         for (auto& n : m_nodes)
             if (n.type == "Camera2D" || n.type == "CameraNode2D")
@@ -286,10 +293,11 @@ void Viewport::paintEvent(QPaintEvent*) {
             .arg((int)m_camX).arg((int)m_camY)
             .arg(m_camZoom, 0, 'f', 2);
     } else {
+        float iz = (std::fabs(m_zoom) < 0.0001f) ? 0.0001f : m_zoom;
         info = QString("zoom: %1x  pan: (%2, %3)  nodes: %4")
             .arg(m_zoom, 0, 'f', 2)
-            .arg((int)(-m_panX / m_zoom))
-            .arg((int)(-m_panY / m_zoom))
+            .arg((int)(-m_panX / iz))
+            .arg((int)(-m_panY / iz))
             .arg(m_nodes.size());
     }
     p.drawText(8, height() - 8, info);
@@ -340,11 +348,28 @@ void Viewport::drawNode(QPainter& p, ViewportNode& n) {
     QColor  col = nodeColor(n.type);
 
     QRectF box(s.x()-hw, s.y()-hh, hw*2, hh*2);
-    p.setPen(Qt::NoPen);
-    QColor fill = col;
-    fill.setAlpha(n.selected ? 180 : 80);
-    p.setBrush(fill);
-    p.drawRoundedRect(box, 3, 3);
+
+    // If the node has a texture, draw the image instead of the colored rect
+    bool drewTexture = false;
+    if (!n.texturePath.isEmpty()) {
+        if (!m_textureCache.contains(n.texturePath)) {
+            QPixmap pix(n.texturePath);
+            if (!pix.isNull())
+                m_textureCache[n.texturePath] = pix;
+        }
+        if (m_textureCache.contains(n.texturePath)) {
+            p.drawPixmap(box.toRect(), m_textureCache[n.texturePath]);
+            drewTexture = true;
+        }
+    }
+
+    if (!drewTexture) {
+        p.setPen(Qt::NoPen);
+        QColor fill = col;
+        fill.setAlpha(n.selected ? 180 : 80);
+        p.setBrush(fill);
+        p.drawRoundedRect(box, 3, 3);
+    }
 
     QPen border(n.selected ? QColor(255,255,255) : col, n.selected ? 2 : 1);
     p.setPen(border);
@@ -403,16 +428,39 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
     }
 
     if (e->button() == Qt::LeftButton) {
-        ViewportNode* hit = nodeAt(e->pos());
+        int hitIdx = nodeIdxAt(e->pos());
+
+        // Prefer the already-selected node if the click is within its bounds
+        int selIdx = -1;
+        for (int i = 0; i < m_nodes.size(); ++i) {
+            if (m_nodes[i].selected) { selIdx = i; break; }
+        }
+        if (selIdx >= 0 && selIdx != hitIdx) {
+            auto& sn = m_nodes[selIdx];
+            QPointF s = worldToScreen(sn.x, sn.y);
+            float hw, hh;
+            if (sn.type == "Camera2D" || sn.type == "CameraNode2D") {
+                hw = 24.0f; hh = 24.0f;
+            } else {
+                hw = (sn.w * 0.5f) * m_zoom;
+                hh = (sn.h * 0.5f) * m_zoom;
+            }
+            QPointF ep = e->pos();
+            if (ep.x() >= s.x()-hw && ep.x() <= s.x()+hw &&
+                ep.y() >= s.y()-hh && ep.y() <= s.y()+hh) {
+                hitIdx = selIdx;
+            }
+        }
+
         for (auto& n : m_nodes) n.selected = false;
 
-        if (hit) {
-            hit->selected    = true;
+        if (hitIdx >= 0) {
+            m_nodes[hitIdx].selected = true;
             m_dragging       = true;
-            m_dragNode       = hit;
+            m_dragIdx        = hitIdx;
             m_dragStart      = e->pos();
-            m_dragNodeOrigin = { hit->x, hit->y };
-            emit nodeSelected(hit->name);
+            m_dragNodeOrigin = { m_nodes[hitIdx].x, m_nodes[hitIdx].y };
+            emit nodeSelected(m_nodes[hitIdx].name);
             setCursor(Qt::SizeAllCursor);
         } else {
             emit nodeSelected("");
@@ -431,30 +479,75 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
         return;
     }
 
-    if (m_dragging && m_dragNode) {
+    if (m_dragging && m_dragIdx >= 0 && m_dragIdx < m_nodes.size()) {
         QPointF delta = e->pos() - m_dragStart;
         float scale = (m_cameraPreview && m_hasCamera)
             ? m_zoom * m_camZoom
             : m_zoom;
-        m_dragNode->x = m_dragNodeOrigin.x() + delta.x() / scale;
-        m_dragNode->y = m_dragNodeOrigin.y() + delta.y() / scale;
-        emit nodeMoved(m_dragNode->name, m_dragNode->x, m_dragNode->y);
+        if (std::fabs(scale) < 0.0001f) scale = 0.0001f;
+        float newX = m_dragNodeOrigin.x() + delta.x() / scale;
+        float newY = m_dragNodeOrigin.y() + delta.y() / scale;
+        // Update node position via index (safe across QList COW)
+        m_nodes[m_dragIdx].x = newX;
+        m_nodes[m_dragIdx].y = newY;
+        QString dragName = m_nodes[m_dragIdx].name;
+        QString dragType = m_nodes[m_dragIdx].type;
+        emit nodeMoved(dragName, newX, newY);
+        // After emit, m_dragIdx may be invalidated by setNodes()
+        if (!m_dragging || m_dragIdx < 0) return;
         // Keep camera state in sync when moving camera node
-        if (m_dragNode->type == "Camera2D" || m_dragNode->type == "CameraNode2D") {
-            m_camX = m_dragNode->x;
-            m_camY = m_dragNode->y;
+        if (dragType == "Camera2D" || dragType == "CameraNode2D") {
+            m_camX = newX;
+            m_camY = newY;
         }
         update();
     }
 }
 
 void Viewport::mouseReleaseEvent(QMouseEvent*) {
-    if (m_dragging && m_dragNode)
-        emit nodeMovedFinal(m_dragNode->name, m_dragNode->x, m_dragNode->y);
+    if (m_dragging && m_dragIdx >= 0 && m_dragIdx < m_nodes.size()) {
+        // Push undo entry: old position (from drag start) and new position
+        UndoEntry ue;
+        ue.name = m_nodes[m_dragIdx].name;
+        ue.oldX = m_dragNodeOrigin.x();
+        ue.oldY = m_dragNodeOrigin.y();
+        ue.newX = m_nodes[m_dragIdx].x;
+        ue.newY = m_nodes[m_dragIdx].y;
+        // Only push if the position actually changed
+        if (ue.oldX != ue.newX || ue.oldY != ue.newY)
+            m_undoStack.push(ue);
+        emit nodeMovedFinal(m_nodes[m_dragIdx].name, m_nodes[m_dragIdx].x, m_nodes[m_dragIdx].y);
+    }
     m_dragging = false;
     m_panning  = false;
-    m_dragNode = nullptr;
+    m_dragIdx  = -1;
     setCursor(Qt::ArrowCursor);
+}
+
+void Viewport::keyPressEvent(QKeyEvent* e) {
+    if (e->key() == Qt::Key_Z && (e->modifiers() & Qt::ControlModifier)) {
+        if (!m_undoStack.isEmpty()) {
+            UndoEntry ue = m_undoStack.pop();
+            // Restore the old position
+            for (auto& n : m_nodes) {
+                if (n.name == ue.name) {
+                    n.x = ue.oldX;
+                    n.y = ue.oldY;
+                    // Keep camera state in sync
+                    if (n.type == "Camera2D" || n.type == "CameraNode2D") {
+                        m_camX = ue.oldX;
+                        m_camY = ue.oldY;
+                    }
+                    emit nodeMoved(ue.name, ue.oldX, ue.oldY);
+                    emit nodeMovedFinal(ue.name, ue.oldX, ue.oldY);
+                    break;
+                }
+            }
+            update();
+        }
+        return;
+    }
+    QWidget::keyPressEvent(e);
 }
 
 void Viewport::wheelEvent(QWheelEvent* e) {
@@ -463,8 +556,9 @@ void Viewport::wheelEvent(QWheelEvent* e) {
 
     // Zoom towards cursor
     QPointF c = e->position();
-    m_panX = c.x() - (c.x() - m_panX) * (newZoom / m_zoom);
-    m_panY = c.y() - (c.y() - m_panY) * (newZoom / m_zoom);
+    float wz = (std::fabs(m_zoom) < 0.0001f) ? 0.0001f : m_zoom;
+    m_panX = c.x() - (c.x() - m_panX) * (newZoom / wz);
+    m_panY = c.y() - (c.y() - m_panY) * (newZoom / wz);
     m_zoom = newZoom;
     update();
 }

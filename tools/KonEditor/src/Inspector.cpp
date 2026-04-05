@@ -59,13 +59,36 @@ QList<NodeProperty> Inspector::parseNodeProperties(const QString& path) {
     if (!f.open(QIODevice::ReadOnly)) return props;
     QString src = QTextStream(&f).readAll();
 
+    // Determine the region to parse: if this is a monolithic file with a specific
+    // node selected, only parse declarations inside that node's { } block.
+    // This avoids showing variables from func main() or other nodes.
+    QString parseRegion = src;
+
+    if (!m_currentNode.isEmpty()) {
+        // Try to find this specific node's block: node NodeName : Type { ... }
+        QRegularExpression reNodeBlock(
+            QString(R"(node\s+%1\s*:\s*\w+\s*\{)")
+                .arg(QRegularExpression::escape(m_currentNode)));
+        auto nm = reNodeBlock.match(src);
+        if (nm.hasMatch()) {
+            int braceStart = nm.capturedEnd();
+            int depth = 1, pos = braceStart;
+            while (pos < src.size() && depth > 0) {
+                if (src[pos] == QLatin1Char('{')) depth++;
+                else if (src[pos] == QLatin1Char('}')) depth--;
+                if (depth > 0) pos++;
+            }
+            parseRegion = src.mid(braceStart, pos - braceStart);
+        }
+    }
+
     // Match both: let [mut] name: Type = value;
     //         and: const name: Type = value;
     QRegularExpression re(
         R"((let\s+(mut\s+)?|const\s+)(\w+)\s*:\s*(\w+)\s*=\s*([^;]+);)",
         QRegularExpression::MultilineOption);
 
-    auto it = re.globalMatch(src);
+    auto it = re.globalMatch(parseRegion);
     while (it.hasNext()) {
         auto m = it.next();
         NodeProperty p;

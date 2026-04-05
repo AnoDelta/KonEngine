@@ -21,6 +21,11 @@
 #include <QGroupBox>
 #include <QTextStream>
 #include <QDir>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QTextEdit>
+#include <QTimer>
+#include <QInputDialog>
 
 // ── Dark theme ────────────────────────────────────────────────────────────
 static void applyDarkTheme() {
@@ -103,11 +108,8 @@ KonEditor::KonEditor(QWidget* parent) : QMainWindow(parent) {
     setupLayout();
     setupStatusBar();
 
-    // Restore last project
-    QSettings s("AnoDelta", "KonEditor");
-    QString last = s.value("lastProject").toString();
-    if (!last.isEmpty() && QFile::exists(last))
-        openProject(last);
+    // Note: project is opened by main.cpp after the welcome screen.
+    // Do NOT auto-open here — it would race with the welcome screen's openProject call.
 }
 
 KonEditor::~KonEditor() {
@@ -121,6 +123,10 @@ void KonEditor::setupMenuBar() {
     file->addAction("&New Project",   this, &KonEditor::onNewProject,   QKeySequence::New);
     file->addAction("&Open Project",  this, &KonEditor::onOpenProject,  QKeySequence::Open);
     file->addAction("&Save",          this, &KonEditor::onSaveProject,  QKeySequence::Save);
+    file->addSeparator();
+    file->addAction("New Animation File...", this, &KonEditor::onNewAnimFile);
+    file->addAction("New Asset Pack...",     this, &KonEditor::onNewAssetPack);
+    file->addAction("Open .konpak...",       this, &KonEditor::onOpenKonpak);
     file->addSeparator();
     file->addAction("&Quit", qApp, &QApplication::quit, QKeySequence::Quit);
 
@@ -162,6 +168,7 @@ void KonEditor::setupToolBar() {
     m_stopAction = tb->addAction("■  Stop");
     m_stopAction->setEnabled(false);
     connect(m_stopAction, &QAction::triggered, this, &KonEditor::onStop);
+
 }
 
 void KonEditor::setupLayout() {
@@ -209,12 +216,13 @@ void KonEditor::setupLayout() {
 
     m_rootSplitter->addWidget(m_leftPanel);
 
-    // ── Center: Script / Viewport ─────────────────────────────────────────
+    // ── Center: Script / Viewport ─────────────────────────────────────
     m_centerTabs = new QTabWidget();
     m_viewport     = new Viewport();
     m_scriptEditor = new ScriptEditor();
     m_centerTabs->addTab(m_viewport,     "Viewport");
     m_centerTabs->addTab(m_scriptEditor, "Script");
+
     m_rootSplitter->addWidget(m_centerTabs);
 
     // ── Right: Inspector ──────────────────────────────────────────────────
@@ -245,23 +253,78 @@ void KonEditor::setupLayout() {
                 } else if (prop == "__attachScript__") {
                     m_sceneTree->attachScriptToSelected();
                 } else if (prop == "x" || prop == "y") {
+                    // Inspector edits local position; update tree and viewport accordingly
                     bool ok;
                     float v = val.toFloat(&ok);
                     if (!ok) return;
+                    // Update the LOCAL position in the tree item
+                    float localX = (prop == "x") ? v : 0.0f;
+                    float localY = (prop == "y") ? v : 0.0f;
+                    // Read existing local values from tree
+                    auto* tw = m_sceneTree->treeWidget();
+                    QTreeWidgetItem* nodeItem = nullptr;
+                    if (tw && tw->topLevelItemCount()) {
+                        std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findIt;
+                        findIt = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
+                            if (item->data(0, Qt::UserRole+1).toString() == n) return item;
+                            for (int i = 0; i < item->childCount(); i++)
+                                if (auto* r = findIt(item->child(i), n)) return r;
+                            return nullptr;
+                        };
+                        nodeItem = findIt(tw->topLevelItem(0), node);
+                    }
+                    if (nodeItem) {
+                        QVariant evx = nodeItem->data(0, Qt::UserRole+3);
+                        QVariant evy = nodeItem->data(0, Qt::UserRole+4);
+                        if (prop == "x") {
+                            localX = v;
+                            localY = evy.isValid() ? evy.toFloat() : 0.0f;
+                        } else {
+                            localX = evx.isValid() ? evx.toFloat() : 0.0f;
+                            localY = v;
+                        }
+                    }
+                    m_sceneTree->updateNodePosition(node, localX, localY);
+                    // Compute world position for viewport display
+                    float parentWorldX = 0.0f, parentWorldY = 0.0f;
+                    QTreeWidgetItem* parentItem = nullptr;
+                    if (nodeItem) {
+                        parentItem = nodeItem->parent();
+                        QList<QTreeWidgetItem*> ancestors;
+                        for (auto* p = parentItem; p; p = p->parent()) {
+                            QString ptype = p->data(0, Qt::UserRole).toString();
+                            if (ptype != "Scene") ancestors.prepend(p);
+                        }
+                        for (auto* a : ancestors) {
+                            QVariant avx = a->data(0, Qt::UserRole+3);
+                            QVariant avy = a->data(0, Qt::UserRole+4);
+                            parentWorldX += avx.isValid() ? avx.toFloat() : 0.0f;
+                            parentWorldY += avy.isValid() ? avy.toFloat() : 0.0f;
+                        }
+                    }
+                    float worldX = parentWorldX + localX;
+                    float worldY = parentWorldY + localY;
                     auto nodes = m_viewport->nodes();
                     for (auto& vn : nodes) {
                         if (vn.name == node) {
-                            if (prop == "x") vn.x = v;
-                            else              vn.y = v;
+                            vn.x = worldX;
+                            vn.y = worldY;
                         }
                     }
                     m_viewport->setNodes(nodes);
-                    float nx = (prop == "x") ? v : m_viewport->nodeX(node);
-                    float ny = (prop == "y") ? v : m_viewport->nodeY(node);
-                    m_sceneTree->updateNodePosition(node, nx, ny);
-                    QString scenePath = m_sceneTree->scenePath();
-                    if (!scenePath.isEmpty())
-                        writeInstancePosition(scenePath, node.toLower(), nx, ny);
+                    // Write LOCAL position to the correct script file
+                    if (!m_sceneTree->isReadOnly()) {
+                        QString scenePath = m_sceneTree->scenePath();
+                        if (!scenePath.isEmpty()) {
+                            QString targetScript = scenePath;
+                            if (parentItem) {
+                                QString parentScript = parentItem->data(0, Qt::UserRole+2).toString();
+                                if (!parentScript.isEmpty())
+                                    targetScript = parentScript;
+                            }
+                            writeInstancePosition(targetScript, node.toLower(), localX, localY);
+                        }
+                    }
                 } else {
                     // Any other property change — autosave scene and rebuild viewport
                     m_sceneTree->autoSaveScene();
@@ -320,12 +383,10 @@ void KonEditor::setupLayout() {
     connect(m_viewport, &Viewport::nodeMoved,
             this, [this](const QString& name, float x, float y) {
                 m_inspector->updatePosition(name, x, y);
-                m_sceneTree->updateNodePosition(name, x, y);
-                // Update child world positions in the viewport without full rebuild
-                // (full rebuild would kill the drag pointer)
-                // Find this node's children in the tree and offset them
+                // Viewport gives us WORLD position; tree items store LOCAL.
+                // Convert world→local before storing.
                 auto* treeWidget = m_sceneTree->treeWidget();
-                if (!treeWidget) return;
+                if (!treeWidget || !treeWidget->topLevelItemCount()) return;
                 std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findItem;
                 findItem = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
                     if (item->data(0, Qt::UserRole+1).toString() == n) return item;
@@ -333,9 +394,31 @@ void KonEditor::setupLayout() {
                         if (auto* r = findItem(item->child(i), n)) return r;
                     return nullptr;
                 };
-                if (!treeWidget->topLevelItemCount()) return;
                 auto* movedItem = findItem(treeWidget->topLevelItem(0), name);
                 if (!movedItem) return;
+                // Compute parent's world position by walking up the tree
+                float parentWorldX = 0.0f, parentWorldY = 0.0f;
+                {
+                    // Collect ancestors (excluding the moved item itself)
+                    QList<QTreeWidgetItem*> ancestors;
+                    for (auto* p = movedItem->parent(); p; p = p->parent()) {
+                        QString ptype = p->data(0, Qt::UserRole).toString();
+                        if (ptype != "Scene") ancestors.prepend(p);
+                    }
+                    // Accumulate local positions along ancestor chain
+                    float accX = 0.0f, accY = 0.0f;
+                    for (auto* a : ancestors) {
+                        QVariant avx = a->data(0, Qt::UserRole+3);
+                        QVariant avy = a->data(0, Qt::UserRole+4);
+                        accX += avx.isValid() ? avx.toFloat() : 0.0f;
+                        accY += avy.isValid() ? avy.toFloat() : 0.0f;
+                    }
+                    parentWorldX = accX;
+                    parentWorldY = accY;
+                }
+                float localX = x - parentWorldX;
+                float localY = y - parentWorldY;
+                m_sceneTree->updateNodePosition(name, localX, localY);
                 // Update children world positions in viewport nodes list
                 auto nodes = m_viewport->nodes();
                 std::function<void(QTreeWidgetItem*, float, float)> updateChildren;
@@ -360,11 +443,49 @@ void KonEditor::setupLayout() {
     // Write to script only when drag ends (not every frame)
     connect(m_viewport, &Viewport::nodeMovedFinal,
             this, [this](const QString& name, float x, float y) {
-                // Write position to SCENE file with instance variable name
-                // e.g. spri.x = 100.0; in Main.ks Ready() block
+                if (m_sceneTree->isReadOnly()) return;  // don't write to monolithic files
                 QString scenePath = m_sceneTree->scenePath();
                 if (scenePath.isEmpty()) return;
-                writeInstancePosition(scenePath, name.toLower(), x, y);
+                // Viewport gives WORLD position; we must save LOCAL position
+                // relative to parent, and write to the correct script file.
+                auto* treeWidget = m_sceneTree->treeWidget();
+                if (!treeWidget || !treeWidget->topLevelItemCount()) return;
+                std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findItem;
+                findItem = [&](QTreeWidgetItem* item, const QString& n) -> QTreeWidgetItem* {
+                    if (item->data(0, Qt::UserRole+1).toString() == n) return item;
+                    for (int i = 0; i < item->childCount(); i++)
+                        if (auto* r = findItem(item->child(i), n)) return r;
+                    return nullptr;
+                };
+                auto* movedItem = findItem(treeWidget->topLevelItem(0), name);
+                if (!movedItem) return;
+                // Compute parent's world position
+                float parentWorldX = 0.0f, parentWorldY = 0.0f;
+                QTreeWidgetItem* parentItem = movedItem->parent();
+                {
+                    QList<QTreeWidgetItem*> ancestors;
+                    for (auto* p = parentItem; p; p = p->parent()) {
+                        QString ptype = p->data(0, Qt::UserRole).toString();
+                        if (ptype != "Scene") ancestors.prepend(p);
+                    }
+                    for (auto* a : ancestors) {
+                        QVariant avx = a->data(0, Qt::UserRole+3);
+                        QVariant avy = a->data(0, Qt::UserRole+4);
+                        parentWorldX += avx.isValid() ? avx.toFloat() : 0.0f;
+                        parentWorldY += avy.isValid() ? avy.toFloat() : 0.0f;
+                    }
+                }
+                float localX = x - parentWorldX;
+                float localY = y - parentWorldY;
+                // Determine the correct script file to write to:
+                // If the parent has a script (UserRole+2), write there; else scene file.
+                QString targetScript = scenePath;
+                if (parentItem) {
+                    QString parentScript = parentItem->data(0, Qt::UserRole+2).toString();
+                    if (!parentScript.isEmpty())
+                        targetScript = parentScript;
+                }
+                writeInstancePosition(targetScript, name.toLower(), localX, localY);
             });
 
     connect(m_viewport, &Viewport::nodeSelected,
@@ -381,18 +502,72 @@ void KonEditor::setupLayout() {
     m_rootSplitter->setSizes({240, 900, 280});
     m_mainSplitter->addWidget(m_rootSplitter);
 
-    // ── Bottom: Build + Output ────────────────────────────────────────────
+    // ── Bottom: Build + Output + Assets ─────────────────────────────────
     m_bottomTabs = new QTabWidget();
     m_bottomTabs->setMaximumHeight(200);
     m_buildPanel   = new BuildPanel();
     m_debugConsole = new DebugConsole();
     m_bottomTabs->addTab(m_buildPanel,   "Build");
     m_bottomTabs->addTab(m_debugConsole, "Output");
+
+    // Assets tab — directory listing + Pack button
+    {
+        m_assetsTab = new QWidget();
+        auto* al = new QVBoxLayout(m_assetsTab);
+        al->setContentsMargins(4,4,4,4);
+        al->setSpacing(4);
+
+        auto* topRow = new QHBoxLayout();
+        auto* refreshBtn = new QPushButton("Refresh");
+        auto* packBtn = new QPushButton("Pack Assets (.konpak)");
+        topRow->addWidget(refreshBtn);
+        topRow->addWidget(packBtn);
+        topRow->addStretch();
+        al->addLayout(topRow);
+
+        m_assetTree = new QTreeWidget();
+        m_assetTree->setHeaderLabels({"File", "Size"});
+        m_assetTree->setColumnWidth(0, 300);
+        m_assetTree->setRootIsDecorated(false);
+        m_assetTree->setAlternatingRowColors(true);
+        al->addWidget(m_assetTree, 1);
+
+        m_packOutput = new QTextEdit();
+        m_packOutput->setReadOnly(true);
+        m_packOutput->setMaximumHeight(60);
+        m_packOutput->setStyleSheet("QTextEdit { background: #141414; color: #aaa; font-family: monospace; font-size: 10px; }");
+        al->addWidget(m_packOutput);
+
+        connect(refreshBtn, &QPushButton::clicked, [this]{
+            if (!m_project->isOpen()) return;
+            m_assetTree->clear();
+            QString assetsDir = m_project->rootDir() + "/assets";
+            QDir dir(assetsDir);
+            if (!dir.exists()) { m_packOutput->setText("No assets/ directory found."); return; }
+            QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
+            for (const auto& fi : files) {
+                auto* item = new QTreeWidgetItem();
+                item->setText(0, fi.fileName());
+                qint64 sz = fi.size();
+                QString sizeStr = sz < 1024 ? QString("%1 B").arg(sz)
+                    : sz < 1048576 ? QString("%1 KB").arg(sz / 1024.0, 0, 'f', 1)
+                    : QString("%1 MB").arg(sz / 1048576.0, 0, 'f', 2);
+                item->setText(1, sizeStr);
+                m_assetTree->addTopLevelItem(item);
+            }
+            m_packOutput->setText(QString("Found %1 files in assets/").arg(files.size()));
+        });
+        connect(packBtn, &QPushButton::clicked, this, &KonEditor::onPackAssets);
+        m_bottomTabs->addTab(m_assetsTab, "Assets");
+    }
+
     m_mainSplitter->addWidget(m_bottomTabs);
 
     m_mainSplitter->setStretchFactor(0, 1);
     m_mainSplitter->setStretchFactor(1, 0);
     m_mainSplitter->setSizes({680, 180});
+
+    m_assetPackPanel = new AssetPackPanel();
 
     rootLayout->addWidget(m_mainSplitter);
 
@@ -405,6 +580,13 @@ void KonEditor::setupLayout() {
                     m_sceneTree->loadScene(path);
                     m_leftTabs->setCurrentIndex(0);
                     m_statusLabel->setText("  Scene: " + QFileInfo(path).fileName());
+                } else if (path.endsWith(".anim") || path.endsWith(".konani")) {
+                    // Open animation file — auto-switch to Animation mode
+                    onOpenAnimFile(path);
+                } else if (path.endsWith(".konpak")) {
+                    // Open asset pack
+                    m_assetPackPanel->openPack(path);
+                    m_bottomTabs->setCurrentWidget(m_assetsTab);
                 } else if (path.endsWith(".ks")) {
                     m_scriptEditor->openFile(path);
                     m_centerTabs->setCurrentWidget(m_scriptEditor);
@@ -423,6 +605,14 @@ void KonEditor::setupLayout() {
                 }
             });
 
+    // Wire asset browser new animation / asset pack signals
+    connect(m_assetBrowser, &AssetBrowser::newAssetPackRequested,
+            [this](const QString& dir) {
+                m_assetPackPanel->setProjectRoot(m_project->isOpen() ? m_project->rootDir() : "");
+                m_assetPackPanel->newPack(dir);
+                m_bottomTabs->setCurrentWidget(m_assetsTab);
+            });
+
     // Wire build panel game started
     connect(m_buildPanel, &BuildPanel::gameStarted,
             [this](QProcess* proc){
@@ -438,6 +628,7 @@ void KonEditor::setupLayout() {
                     static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
                     this, [this](int code){ onGameProcessFinished(code); });
             });
+
 }
 
 void KonEditor::setupStatusBar() {
@@ -455,15 +646,40 @@ void KonEditor::updateRunButtons(bool running) {
 }
 
 void KonEditor::openProject(const QString& path) {
-    if (!m_project->open(path)) {
+    // Detect if this is a standalone .ks file rather than a .konproj
+    bool isKsFile = QFileInfo(path).suffix().toLower() == "ks";
+    bool opened = isKsFile ? m_project->openKsFile(path) : m_project->open(path);
+    if (!opened) {
         QMessageBox::warning(this, "Error", "Failed to open: " + path);
         return;
     }
+
+    // For standalone .ks files, set up the editor with the file's directory
+    if (isKsFile) {
+        updateTitle();
+        QString dir = QFileInfo(path).absolutePath();
+        QString absPath = QFileInfo(path).absoluteFilePath();
+        m_assetBrowser->setRoot(dir);
+        m_scriptEditor->setProjectRoot(dir);
+        m_sceneTree->setProjectRoot(dir);
+        m_statusLabel->setText("  " + m_project->name() + " (file)  |  " + dir);
+        m_scriptEditor->openFile(absPath);
+        m_centerTabs->setCurrentWidget(m_scriptEditor);
+
+        // Parse the monolithic .ks file for node definitions and show in scene tree
+        // Mark as READ-ONLY so autoSave/saveScene never overwrites the user's code
+        m_sceneTree->setReadOnly(true);
+        m_sceneTree->loadScene(absPath);
+        return;
+    }
+
+    m_sceneTree->setReadOnly(false);  // project files CAN be saved
     updateTitle();
     QString dir = QFileInfo(path).absolutePath();
     m_assetBrowser->setRoot(dir);
     m_scriptEditor->setProjectRoot(dir);
     m_sceneTree->setProjectRoot(dir);
+    m_assetPackPanel->setProjectRoot(dir);
     m_statusLabel->setText("  " + m_project->name() + "  |  " + dir);
     QSettings("AnoDelta","KonEditor").setValue("lastProject", path);
 
@@ -517,9 +733,13 @@ void KonEditor::onOpenProject() {
 
 void KonEditor::onSaveProject() {
     if (!m_project->isOpen()) return;
-    m_scriptEditor->saveAll();
+
+    // Save scripts if the script tab is active
+    if (m_centerTabs && m_centerTabs->currentWidget() == m_scriptEditor)
+        m_scriptEditor->saveAll();
+
+    // Save project and scene
     m_project->save();
-    // Also save scene
     m_sceneTree->saveCurrentScene();
     m_statusLabel->setText("  Saved  |  " + m_project->name());
     updateTitle();  // clear dirty marker
@@ -533,7 +753,7 @@ void KonEditor::onProjectSettings() {
 
     QDialog dlg(this);
     dlg.setWindowTitle("Project Settings");
-    dlg.setMinimumWidth(380);
+    dlg.setMinimumWidth(420);
     dlg.setStyleSheet("QDialog { background: #1e1e1e; }");
 
     auto* layout = new QVBoxLayout(&dlg);
@@ -552,17 +772,32 @@ void KonEditor::onProjectSettings() {
     auto* winForm  = new QFormLayout(winGroup);
     auto* widthSpin  = new QSpinBox(); widthSpin->setRange(320,7680); widthSpin->setValue(m_project->json().value("width").toInt(800));
     auto* heightSpin = new QSpinBox(); heightSpin->setRange(240,4320); heightSpin->setValue(m_project->json().value("height").toInt(600));
-    auto* fpsSpin    = new QSpinBox(); fpsSpin->setRange(1,999); fpsSpin->setValue(m_project->json().value("fps").toInt(60));
+    auto* fpsSpin    = new QSpinBox(); fpsSpin->setRange(0,999); fpsSpin->setValue(m_project->json().value("fps").toInt(60));
+    fpsSpin->setToolTip("0 = uncapped (no SetTargetFPS call emitted)");
+    fpsSpin->setSpecialValueText("Uncapped");
     auto* vsyncCheck = new QCheckBox(); vsyncCheck->setChecked(m_project->json().value("vsync").toBool(true));
+    auto* resizableCheck = new QCheckBox(); resizableCheck->setChecked(m_project->json().value("resizable").toBool(false));
     auto* titleEdit  = new QLineEdit(m_project->json().value("windowTitle").toString(m_project->name()));
     winForm->addRow("Width:",  widthSpin);
     winForm->addRow("Height:", heightSpin);
     winForm->addRow("FPS:",    fpsSpin);
+    auto* fpsHint = new QLabel("0 = uncapped framerate");
+    fpsHint->setStyleSheet("QLabel { color: #666; font-size: 10px; }");
+    winForm->addRow("", fpsHint);
     winForm->addRow("VSync:",  vsyncCheck);
+    winForm->addRow("Resizable:", resizableCheck);
     winForm->addRow("Title:",  titleEdit);
     layout->addWidget(winGroup);
 
-    // Main scene
+    // Debug
+    auto* debugGroup = new QGroupBox("Debug");
+    auto* debugForm  = new QFormLayout(debugGroup);
+    auto* debugCheck = new QCheckBox("Enable debug overlays");
+    debugCheck->setChecked(m_project->json().value("debug").toBool(false));
+    debugForm->addRow("Debug Mode:", debugCheck);
+    layout->addWidget(debugGroup);
+
+    // Entry point
     auto* sceneGroup = new QGroupBox("Entry Point");
     auto* sceneForm  = new QFormLayout(sceneGroup);
     auto* entryEdit  = new QLineEdit(m_project->json().value("entry").toString("src/main.ks"));
@@ -576,11 +811,71 @@ void KonEditor::onProjectSettings() {
         QString f = QFileDialog::getOpenFileName(&dlg, "Entry File",
             m_project->rootDir(), "KonScript (*.ks);;All (*)");
         if (!f.isEmpty()) {
-            // Make relative
             entryEdit->setText(QDir(m_project->rootDir()).relativeFilePath(f));
         }
     });
     layout->addWidget(sceneGroup);
+
+    // KonPak
+    auto* pakGroup = new QGroupBox("KonPak");
+    auto* pakForm  = new QFormLayout(pakGroup);
+    auto* usePakCheck = new QCheckBox("Use Asset Pack");
+    usePakCheck->setChecked(m_project->json().value("useKonpak").toBool(false));
+    pakForm->addRow("", usePakCheck);
+    auto* pakFileEdit = new QLineEdit(m_project->json().value("konpakFile").toString("game.konpak"));
+    pakForm->addRow("Pack File:", pakFileEdit);
+    auto* pakPassEdit = new QLineEdit(m_project->json().value("konpakPassword").toString());
+    pakPassEdit->setEchoMode(QLineEdit::Password);
+    pakPassEdit->setPlaceholderText("Optional password");
+    pakForm->addRow("Pack Password:", pakPassEdit);
+    // Enable/disable pack fields based on checkbox
+    pakFileEdit->setEnabled(usePakCheck->isChecked());
+    pakPassEdit->setEnabled(usePakCheck->isChecked());
+    connect(usePakCheck, &QCheckBox::toggled, [pakFileEdit, pakPassEdit](bool on){
+        pakFileEdit->setEnabled(on);
+        pakPassEdit->setEnabled(on);
+    });
+    layout->addWidget(pakGroup);
+
+    // Scan main.ks on open to populate actual values from code
+    QString mainKsPathInit = m_project->rootDir() + "/" + entryEdit->text();
+    if (QFile::exists(mainKsPathInit)) {
+        QFile mf(mainKsPathInit);
+        if (mf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString src = QTextStream(&mf).readAll();
+            mf.close();
+            // Parse InitWindow(w, h, "title") or InitWindow(w, h, "title", resizable)
+            QRegularExpression reInit(R"RE(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)"(?:\s*,\s*(true|false))?\s*\))RE");
+            auto mi = reInit.match(src);
+            if (mi.hasMatch()) {
+                widthSpin->setValue(mi.captured(1).toInt());
+                heightSpin->setValue(mi.captured(2).toInt());
+                titleEdit->setText(mi.captured(3));
+                if (!mi.captured(4).isEmpty())
+                    resizableCheck->setChecked(mi.captured(4) == "true");
+            }
+            // Parse SetTargetFPS(n)
+            QRegularExpression reFps(R"(SetTargetFPS\s*\(\s*(\d+)\s*\))");
+            auto mfps = reFps.match(src);
+            if (mfps.hasMatch()) {
+                fpsSpin->setValue(mfps.captured(1).toInt());
+            } else {
+                fpsSpin->setValue(0); // no SetTargetFPS = uncapped
+            }
+            // Parse SetVsync(true/false)
+            QRegularExpression reVs(R"(SetVsync\s*\(\s*(true|false)\s*\))");
+            auto mvs = reVs.match(src);
+            if (mvs.hasMatch()) {
+                vsyncCheck->setChecked(mvs.captured(1) == "true");
+            }
+            // Parse DebugMode(true/false)
+            QRegularExpression reDbg(R"(DebugMode\s*\(\s*(true|false)\s*\))");
+            auto mdbg = reDbg.match(src);
+            if (mdbg.hasMatch()) {
+                debugCheck->setChecked(mdbg.captured(1) == "true");
+            }
+        }
+    }
 
     auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     layout->addWidget(btns);
@@ -589,7 +884,7 @@ void KonEditor::onProjectSettings() {
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    // Save settings
+    // Save settings to project json
     auto json = m_project->json();
     json["name"]        = nameEdit->text();
     json["version"]     = verEdit->text();
@@ -597,40 +892,116 @@ void KonEditor::onProjectSettings() {
     json["height"]      = heightSpin->value();
     json["fps"]         = fpsSpin->value();
     json["vsync"]       = vsyncCheck->isChecked();
+    json["resizable"]   = resizableCheck->isChecked();
+    json["debug"]       = debugCheck->isChecked();
     json["windowTitle"] = titleEdit->text();
-    json["entry"]       = entryEdit->text();
+    json["entry"]          = entryEdit->text();
+    json["useKonpak"]      = usePakCheck->isChecked();
+    json["konpakFile"]     = pakFileEdit->text();
+    json["konpakPassword"] = pakPassEdit->text();
     m_project->setJson(json);
     m_project->save();
     updateTitle();
 
-    // Patch main.ks InitWindow call
+    // Patch main.ks
     QString mainKsPath = m_project->rootDir() + "/" + entryEdit->text();
+    fprintf(stderr, "[Settings] Patching main.ks: %s\n", mainKsPath.toUtf8().constData());
+    fprintf(stderr, "[Settings] exists=%d\n", QFile::exists(mainKsPath));
     if (QFile::exists(mainKsPath)) {
         QFile f(mainKsPath);
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QString src = f.readAll();
             f.close();
-            // Replace InitWindow args
+            fprintf(stderr, "[Settings] Read %d chars\n", src.size());
+
+            // Replace InitWindow args (including resizable 4th param)
             QRegularExpression re(R"(InitWindow\s*\([^)]+\))");
-            QString newCall = QString("InitWindow(%1, %2, \"%3\")")
+            QString resArg = resizableCheck->isChecked() ? ", true" : "";
+            QString newCall = QString("InitWindow(%1, %2, \"%3\"%4)")
                 .arg(widthSpin->value())
                 .arg(heightSpin->value())
-                .arg(titleEdit->text());
+                .arg(titleEdit->text())
+                .arg(resArg);
             src.replace(re, newCall);
-            // Replace SetTargetFPS
-            QRegularExpression re2(R"(SetTargetFPS\s*\([^)]+\))");
-            src.replace(re2, QString("SetTargetFPS(%1)").arg(fpsSpin->value()));
-            // Save vsync to project — user sets SetVsync() manually or
-            // editor patches it only if already present in main.ks
+
+            // Handle SetTargetFPS: if fps=0 (uncapped), remove the line; otherwise update/add
+            QRegularExpression re2(R"(\n?[ \t]*SetTargetFPS\s*\([^)]+\)\s*;?[^\n]*)");
+            if (fpsSpin->value() == 0) {
+                // Remove SetTargetFPS line entirely
+                src.remove(re2);
+            } else {
+                QRegularExpression re2match(R"(SetTargetFPS\s*\([^)]+\))");
+                if (re2match.match(src).hasMatch()) {
+                    src.replace(re2match, QString("SetTargetFPS(%1)").arg(fpsSpin->value()));
+                } else {
+                    // Insert after InitWindow line
+                    QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                    auto m = reAfterInit.match(src);
+                    if (m.hasMatch()) {
+                        int insertPos = m.capturedEnd();
+                        src.insert(insertPos, QString("\n    SetTargetFPS(%1)").arg(fpsSpin->value()));
+                    }
+                }
+            }
+
+            // Handle SetVsync: update if exists, insert if missing and enabled
             QString vsyncVal = vsyncCheck->isChecked() ? "true" : "false";
             QRegularExpression re3(R"(SetVsync\s*\([^)]+\))");
-            if (re3.match(src).hasMatch())
+            if (re3.match(src).hasMatch()) {
                 src.replace(re3, QString("SetVsync(%1)").arg(vsyncVal));
-            if (f.open(QIODevice::WriteOnly | QIODevice::Text))
-                QTextStream(&f) << src;
+            } else if (vsyncCheck->isChecked()) {
+                // Insert SetVsync after SetTargetFPS, or after InitWindow if no SetTargetFPS
+                QRegularExpression reAfterFps(R"(SetTargetFPS\s*\([^)]+\)[^\n]*)");
+                auto mFps = reAfterFps.match(src);
+                if (mFps.hasMatch()) {
+                    int insertPos = mFps.capturedEnd();
+                    src.insert(insertPos, QString("\n    SetVsync(%1)").arg(vsyncVal));
+                } else {
+                    QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                    auto mInit = reAfterInit.match(src);
+                    if (mInit.hasMatch()) {
+                        int insertPos = mInit.capturedEnd();
+                        src.insert(insertPos, QString("\n    SetVsync(%1)").arg(vsyncVal));
+                    }
+                }
+            }
+
+            // Handle DebugMode: update if exists, insert if enabled, remove if disabled
+            QRegularExpression re4(R"(\n?[ \t]*DebugMode\s*\([^)]+\)\s*;?[^\n]*)");
+            QRegularExpression re4match(R"(DebugMode\s*\([^)]+\))");
+            if (debugCheck->isChecked()) {
+                if (re4match.match(src).hasMatch()) {
+                    src.replace(re4match, "DebugMode(true)");
+                } else {
+                    // Insert after InitWindow line
+                    QRegularExpression reAfterInit(R"(InitWindow\s*\([^)]+\)[^\n]*)");
+                    auto mInit = reAfterInit.match(src);
+                    if (mInit.hasMatch()) {
+                        int insertPos = mInit.capturedEnd();
+                        src.insert(insertPos, "\n    DebugMode(true)");
+                    }
+                }
+            } else {
+                // Remove DebugMode line if present
+                src.remove(re4);
+            }
+
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream ts(&f);
+                ts << src;
+                ts.flush();
+                f.close();
+                fprintf(stderr, "[Settings] Wrote %d chars to %s\n", src.size(), mainKsPath.toUtf8().constData());
+            } else {
+                fprintf(stderr, "[Settings] FAILED to open for writing: %s\n", mainKsPath.toUtf8().constData());
+            }
+        } else {
+            fprintf(stderr, "[Settings] FAILED to open for reading: %s\n", mainKsPath.toUtf8().constData());
         }
-        m_scriptEditor->openFile(mainKsPath);
+        m_scriptEditor->reloadFile(mainKsPath);
         m_centerTabs->setCurrentWidget(m_scriptEditor);
+    } else {
+        fprintf(stderr, "[Settings] main.ks not found at: %s\n", mainKsPath.toUtf8().constData());
     }
 }
 
@@ -642,7 +1013,24 @@ void KonEditor::onBuild() {
         return;
     }
     m_bottomTabs->setCurrentWidget(m_buildPanel);
-    m_buildPanel->build(m_project->entryFile(), m_buildTarget, m_project->outDir());
+
+    // Determine konpak password for build
+    QString packPassword;
+    bool isMonolithic = m_project->path().isEmpty(); // no .konproj
+    if (isMonolithic) {
+        // For monolithic .ks files, show a password input dialog before build
+        bool ok;
+        QString pwd = QInputDialog::getText(this, "KonPak Password",
+            "Enter password for asset pack (leave empty for none):",
+            QLineEdit::Password, "", &ok);
+        if (ok && !pwd.isEmpty())
+            packPassword = pwd;
+    } else if (m_project->json().value("useKonpak").toBool(false)) {
+        packPassword = m_project->json().value("konpakPassword").toString();
+    }
+
+    m_buildPanel->build(m_project->entryFile(), m_buildTarget,
+                        m_project->outDir(), false, packPassword);
 }
 
 void KonEditor::onRun() {
@@ -650,8 +1038,22 @@ void KonEditor::onRun() {
     m_scriptEditor->saveAll();
     m_sceneTree->saveCurrentScene();  // save scene before run
     m_bottomTabs->setCurrentWidget(m_buildPanel);
+
+    QString packPassword;
+    bool isMonolithic = m_project->path().isEmpty();
+    if (isMonolithic) {
+        bool ok;
+        QString pwd = QInputDialog::getText(this, "KonPak Password",
+            "Enter password for asset pack (leave empty for none):",
+            QLineEdit::Password, "", &ok);
+        if (ok && !pwd.isEmpty())
+            packPassword = pwd;
+    } else if (m_project->json().value("useKonpak").toBool(false)) {
+        packPassword = m_project->json().value("konpakPassword").toString();
+    }
+
     m_buildPanel->build(m_project->entryFile(), m_buildTarget,
-                        m_project->outDir(), true);
+                        m_project->outDir(), true, packPassword);
 }
 
 void KonEditor::onStop() {
@@ -743,9 +1145,15 @@ void KonEditor::rebuildViewport() {
         vn.x    = worldX;
         vn.y    = worldY;
 
-        // Default sizes
+        // Default sizes — check if tree item has parsed width/height (UserRole+5/+6)
         vn.w = (baseType == "CameraNode2D" || baseType == "Camera2D") ? 32 : 48;
         vn.h = vn.w;
+        {
+            QVariant vw = item->data(0, Qt::UserRole + 5);
+            QVariant vh = item->data(0, Qt::UserRole + 6);
+            if (vw.isValid()) vn.w = vw.toFloat();
+            if (vh.isValid()) vn.h = vh.toFloat();
+        }
 
         // For colliders, read actual width/height from the script's Ready() block
         if (baseType == "Collider2D" && !script.isEmpty() && QFile::exists(script)) {
@@ -778,6 +1186,24 @@ void KonEditor::rebuildViewport() {
                 m_project->json().value("height").toInt(600) : 600;
             vn.zoom = 1.0f;
         }
+        // Read texture path from tree item (UserRole+7) for Sprite2D nodes
+        {
+            QVariant vtex = item->data(0, Qt::UserRole + 7);
+            if (vtex.isValid() && !vtex.toString().isEmpty()) {
+                QString texRel = vtex.toString();
+                // Resolve relative to the project/file directory
+                QString projDir;
+                if (m_project->isOpen())
+                    projDir = QFileInfo(m_project->path()).absolutePath();
+                else if (!m_sceneTree->scenePath().isEmpty())
+                    projDir = QFileInfo(m_sceneTree->scenePath()).absolutePath();
+                if (!projDir.isEmpty())
+                    vn.texturePath = QDir(projDir).absoluteFilePath(texRel);
+                else
+                    vn.texturePath = texRel;
+            }
+        }
+
         nodes.append(vn);
         for (int i = 0; i < item->childCount(); i++)
             walk(item->child(i), worldX, worldY);
@@ -788,9 +1214,39 @@ void KonEditor::rebuildViewport() {
         walk(sceneTree->topLevelItem(0), 0.0f, 0.0f);
 
     m_viewport->setNodes(nodes);
-    m_viewport->setGameResolution(
-        m_project->isOpen() ? m_project->json().value("width").toInt(800) : 800,
-        m_project->isOpen() ? m_project->json().value("height").toInt(600) : 600);
+
+    // Determine game resolution: for monolithic .ks files, parse InitWindow;
+    // for project files, read from project JSON.
+    int gameW = 800, gameH = 600;
+    if (m_project->isOpen()) {
+        gameW = m_project->json().value("width").toInt(800);
+        gameH = m_project->json().value("height").toInt(600);
+    }
+    // For monolithic .ks files, check if the root tree item has parsed InitWindow values
+    if (sceneTree && sceneTree->topLevelItemCount() > 0) {
+        auto* rootItem = sceneTree->topLevelItem(0);
+        QVariant vgw = rootItem->data(0, Qt::UserRole + 8);
+        QVariant vgh = rootItem->data(0, Qt::UserRole + 9);
+        if (vgw.isValid() && vgh.isValid()) {
+            gameW = vgw.toInt();
+            gameH = vgh.toInt();
+        }
+    }
+    // Also try parsing directly from the .ks file if the scene path ends with .ks
+    if (!m_sceneTree->scenePath().isEmpty() && m_sceneTree->scenePath().endsWith(".ks")) {
+        QFile ksFile(m_sceneTree->scenePath());
+        if (ksFile.open(QIODevice::ReadOnly)) {
+            QString ksSrc = QTextStream(&ksFile).readAll();
+            ksFile.close();
+            QRegularExpression reInit(R"(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,)");
+            auto im = reInit.match(ksSrc);
+            if (im.hasMatch()) {
+                gameW = im.captured(1).toInt();
+                gameH = im.captured(2).toInt();
+            }
+        }
+    }
+    m_viewport->setGameResolution(gameW, gameH);
     // Re-select the previously selected node so inspector edits don't lose selection
     if (!m_selectedNode.isEmpty())
         m_viewport->selectNode(m_selectedNode);
@@ -842,4 +1298,149 @@ void KonEditor::onGameProcessFinished(int code) {
     updateRunButtons(false);
     m_statusLabel->setText(QString("  Finished (exit %1)").arg(code));
     m_gameProcess = nullptr;
+}
+
+// ── Animation tab — launch KonAnimator externally ───────────────────
+void KonEditor::onOpenAnimFile(const QString& path) {
+    // Find KonAnimator binary
+    QString animatorPath;
+    QStringList candidates = {
+        QApplication::applicationDirPath() + "/KonAnimator",
+        QApplication::applicationDirPath() + "/../KonAnimator/build/KonAnimator",
+        "/usr/local/bin/KonAnimator",
+    };
+    for (const auto& c : candidates) {
+        if (QFile::exists(c)) { animatorPath = c; break; }
+    }
+    if (animatorPath.isEmpty()) {
+        QMessageBox::warning(this, "KonAnimator Not Found",
+            "Could not find KonAnimator binary.\n"
+            "Build KonAnimator first, or place it next to KonEditor.");
+        return;
+    }
+
+    auto* proc = new QProcess(this);
+    proc->setProgram(animatorPath);
+    proc->setArguments({path});
+    connect(proc, static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+            proc, &QProcess::deleteLater);
+    proc->start();
+    m_statusLabel->setText("  Launched KonAnimator: " + QFileInfo(path).fileName());
+}
+
+// ── Assets tab — run konpak to create .konpak ────────────────────────
+void KonEditor::onPackAssets() {
+    if (!m_project->isOpen()) {
+        m_packOutput->setText("No project open.");
+        return;
+    }
+
+    QString assetsDir = m_project->rootDir() + "/assets";
+    if (!QDir(assetsDir).exists()) {
+        m_packOutput->setText("No assets/ directory found in project root.");
+        return;
+    }
+
+    // Try to find konpak binary
+    QString konpakPath;
+    QStringList candidates = {
+        QApplication::applicationDirPath() + "/konpak",
+        QApplication::applicationDirPath() + "/../KonPaktor/build/konpak",
+        QApplication::applicationDirPath() + "/../../KonPaktor/build/konpak",
+    };
+    for (const auto& c : candidates) {
+        if (QFile::exists(c)) { konpakPath = c; break; }
+    }
+
+    if (konpakPath.isEmpty()) {
+        m_packOutput->setText("konpak not found. Build KonPaktor first.");
+        return;
+    }
+
+    QString outFile = m_project->rootDir() + "/" + m_project->name() + ".konpak";
+    m_packOutput->setText("Packing assets...\n");
+    m_bottomTabs->setCurrentWidget(m_assetsTab);
+
+    m_packProcess = new QProcess(this);
+    m_packProcess->setProgram(konpakPath);
+    m_packProcess->setArguments({assetsDir, outFile});
+    m_packProcess->setWorkingDirectory(m_project->rootDir());
+    connect(m_packProcess, &QProcess::readyReadStandardOutput, [this]{
+        m_packOutput->append(m_packProcess->readAllStandardOutput());
+    });
+    connect(m_packProcess, &QProcess::readyReadStandardError, [this]{
+        m_packOutput->append("[err] " + m_packProcess->readAllStandardError());
+    });
+    connect(m_packProcess,
+        static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+        this, [this, outFile](int code, QProcess::ExitStatus) {
+            if (code == 0) {
+                QFileInfo fi(outFile);
+                qint64 sz = fi.size();
+                QString sizeStr = sz < 1048576
+                    ? QString("%1 KB").arg(sz / 1024.0, 0, 'f', 1)
+                    : QString("%1 MB").arg(sz / 1048576.0, 0, 'f', 2);
+                m_packOutput->append(QString("\nDone! Created %1 (%2)")
+                                     .arg(fi.fileName(), sizeStr));
+                m_statusLabel->setText("  Packed: " + fi.fileName());
+            } else {
+                m_packOutput->append(QString("\nkonpak exited with code %1").arg(code));
+                m_statusLabel->setText("  Pack failed");
+            }
+            m_packProcess->deleteLater();
+            m_packProcess = nullptr;
+        });
+    m_packProcess->start();
+}
+
+// ── New Animation File ──────────────────────────────────────────────
+void KonEditor::onNewAnimFile() {
+    QString dir;
+    if (m_project->isOpen())
+        dir = m_project->rootDir();
+
+    QString path = QFileDialog::getSaveFileName(this, "New Animation File", dir,
+        "Animation Files (*.anim)");
+    if (path.isEmpty()) return;
+
+    // Create a blank .anim file
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream ts(&f);
+        ts << "# New animation\n\nanim idle\n\tdisplay 32 32 1\nend\n";
+        f.close();
+    }
+
+    // Launch KonAnimator externally with the new file
+    onOpenAnimFile(path);
+}
+
+// ── New Asset Pack ──────────────────────────────────────────────────
+void KonEditor::onNewAssetPack() {
+    QString dir;
+    if (m_project->isOpen())
+        dir = m_project->rootDir();
+
+    QString srcDir = QFileDialog::getExistingDirectory(this,
+        "Select Directory to Pack", dir);
+    if (srcDir.isEmpty()) return;
+
+    m_assetPackPanel->setProjectRoot(m_project->isOpen() ? m_project->rootDir() : "");
+    m_assetPackPanel->newPack(srcDir);
+    m_bottomTabs->setCurrentWidget(m_assetsTab);
+}
+
+// ── Open .konpak ────────────────────────────────────────────────────
+void KonEditor::onOpenKonpak() {
+    QString dir;
+    if (m_project->isOpen())
+        dir = m_project->rootDir();
+
+    QString path = QFileDialog::getOpenFileName(this, "Open Asset Pack", dir,
+        "KonPak Files (*.konpak);;All Files (*)");
+    if (path.isEmpty()) return;
+
+    m_assetPackPanel->setProjectRoot(m_project->isOpen() ? m_project->rootDir() : "");
+    m_assetPackPanel->openPack(path);
+    m_bottomTabs->setCurrentWidget(m_assetsTab);
 }

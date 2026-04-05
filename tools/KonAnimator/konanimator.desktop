@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=KonAnimator
+Comment=KonEngine sprite animation editor
+Exec=KonAnimator
+Icon=konanimator
+Terminal=false
+Type=Application
+Categories=Development;Graphics;
+Keywords=animation;sprite;konengine;

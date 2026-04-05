@@ -3,7 +3,10 @@
 #include <QPointF>
 #include <QColor>
 #include <QList>
+#include <QStack>
 #include <QPushButton>
+#include <QPixmap>
+#include <QMap>
 
 struct ViewportNode {
     QString name;
@@ -14,6 +17,8 @@ struct ViewportNode {
     // camera props (if type == Camera2D / CameraNode2D)
     float   camW = 800, camH = 600;
     float   zoom = 1.0f;
+    // texture path for Sprite2D nodes (relative to project dir)
+    QString texturePath;
 };
 
 class Viewport : public QWidget {
@@ -44,12 +49,13 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void wheelEvent(QWheelEvent*) override;
+    void keyPressEvent(QKeyEvent*) override;
     void resizeEvent(QResizeEvent*) override;
 
 private:
     QPointF worldToScreen(float x, float y) const;
     QPointF screenToWorld(float x, float y) const;
-    ViewportNode* nodeAt(QPointF screenPos);
+    int nodeIdxAt(QPointF screenPos);
     void drawGrid(QPainter& p);
     void drawNode(QPainter& p, ViewportNode& n);
     void drawCameraFrame(QPainter& p, const ViewportNode& cam);
@@ -60,6 +66,7 @@ private:
 
     QList<ViewportNode> m_nodes;
     int    m_gameW = 800, m_gameH = 600;
+    QMap<QString, QPixmap> m_textureCache;
 
     // Viewport pan/zoom (free navigation)
     float  m_panX  = 0, m_panY = 0;
@@ -76,10 +83,18 @@ private:
     bool   m_panning     = false;
     QPointF m_dragStart;
     QPointF m_dragNodeOrigin;
-    ViewportNode* m_dragNode = nullptr;
+    int     m_dragIdx     = -1;   // index into m_nodes (safe across QList COW)
 
     // Overlay toggle button (top-right corner)
     QPushButton* m_previewBtn = nullptr;
+
+    // Undo stack for node position changes
+    struct UndoEntry {
+        QString name;
+        float oldX, oldY;
+        float newX, newY;
+    };
+    QStack<UndoEntry> m_undoStack;
 
     static constexpr float GRID_STEP = 32.0f;
 };

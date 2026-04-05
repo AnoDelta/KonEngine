@@ -18,7 +18,7 @@ static Ease parseEase(const std::string& s) {
     std::string lo = toLower(s);
     for (int i = 0; i < kEaseCount; i++)
         if (lo == kEaseLower[i]) return static_cast<Ease>(i);
-    return Ease::EaseInOut;
+    return Ease::Linear;
 }
 static void wStr(std::ofstream& o, const std::string& s) {
     uint32_t len = (uint32_t)s.size();

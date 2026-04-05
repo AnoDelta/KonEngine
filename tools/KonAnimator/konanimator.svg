@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="20" fill="#1e1e2e"/>
+  <rect x="32" y="32" width="28" height="36" rx="3" fill="#2ecc71" opacity="0.4"/>
+  <rect x="44" y="28" width="28" height="36" rx="3" fill="#2ecc71" opacity="0.6"/>
+  <rect x="56" y="24" width="28" height="36" rx="3" fill="#2ecc71" opacity="0.9"/>
+  <line x1="16" y1="88" x2="112" y2="88" stroke="#585b70" stroke-width="2"/>
+  <circle cx="28" cy="88" r="5" fill="#f38ba8"/>
+  <circle cx="52" cy="88" r="5" fill="#a6e3a1"/>
+  <circle cx="76" cy="88" r="5" fill="#89b4fa"/>
+  <circle cx="100" cy="88" r="5" fill="#f9e2af"/>
+  <path d="M24 98 Q40 106 56 98 Q72 90 88 98 Q104 106 112 98" fill="none" stroke="#cba6f7" stroke-width="2.5"/>
+  <text x="64" y="118" font-family="sans-serif" font-size="12" font-weight="bold" fill="#cdd6f4" text-anchor="middle">KA</text>
+</svg>

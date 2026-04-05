@@ -14,6 +14,12 @@ public:
     float originX = 0.5f;
     float originY = 0.5f;
 
+    // Animation overlay — applied during rendering only, never touches actual transform.
+    // Position offsets are added; scale factors are multiplied.
+    float animOffsetX  = 0.0f, animOffsetY  = 0.0f;
+    float animScaleX   = 1.0f, animScaleY   = 1.0f;
+    float animRotation = 0.0f;
+
     Node2D(const std::string& name = "Node2D") : Node(name) {}
 
     void Move(float dx, float dy) { x += dx; y += dy; }
@@ -25,7 +31,9 @@ public:
     // This ensures colliders have correct world positions during both
     // Update (collision) and Draw (debug outlines).
     void DrawChildren() override {
-        float rad  = rotation * 3.14159265f / 180.f;
+        // Combine actual rotation + animation overlay rotation
+        float totalRot = rotation + animRotation;
+        float rad  = totalRot * 3.14159265f / 180.f;
         float cosR = std::cos(rad);
         float sinR = std::sin(rad);
         for (auto& child : children) {

@@ -191,50 +191,30 @@ private:
     bool  playing      = false;
     bool  finished     = false;
 
-    // ── Visual-only base (scale, rotation, alpha) ────────────────────────
-    // Snapshotted at Play(), restored at Stop()/clip-switch.
-    // x/y deliberately excluded — gameplay code owns position.
-    bool  hasVisualBase = false;
-    float baseScaleX    = 1.0f;
-    float baseScaleY    = 1.0f;
-    float baseRot       = 0.0f;
-    float baseAlpha     = 1.0f;
+    // ── Overlay reset ─────────────────────────────────────────────────────
+    // Animation transforms are now stored as overlays on the node/sprite:
+    //   Node2D::animOffsetX/Y   — added to position during rendering
+    //   Node2D::animScaleX/Y    — multiplied to scale during rendering
+    //   Node2D::animRotation    — added to rotation during rendering
+    //   Sprite2D::animAlpha     — multiplied to tint alpha during rendering
+    // This never touches the actual x/y/scaleX/scaleY/rotation/alpha.
 
-    void SnapshotVisualBase() {
-        if (!node) { hasVisualBase = false; return; }
-        hasVisualBase = true;
-        baseScaleX    = node->scaleX;
-        baseScaleY    = node->scaleY;
-        baseRot       = node->rotation;
-        if (auto* s = dynamic_cast<Sprite2D*>(node)) baseAlpha = s->tint.a;
-        else                                               baseAlpha = 1.0f;
-    }
-
-    void RestoreVisualBase() {
-        if (!hasVisualBase || !node) return;
-        node->scaleX   = baseScaleX;
-        node->scaleY   = baseScaleY;
-        node->rotation = baseRot;
+    void ResetOverlays() {
+        if (node) {
+            node->animOffsetX  = 0.0f;
+            node->animOffsetY  = 0.0f;
+            node->animScaleX   = 1.0f;
+            node->animScaleY   = 1.0f;
+            node->animRotation = 0.0f;
+        }
         if (auto* s = dynamic_cast<Sprite2D*>(node))
-            s->tint.a = baseAlpha;
-        hasVisualBase = false;
+            s->animAlpha = 1.0f;
     }
 
-    // ── Position delta tracking ──────────────────────────────────────────
-    // x/y tracks add an offset each frame. We track what we applied last
-    // frame so we can subtract it before applying the new value.
-    // This way the animation never permanently moves the node — it just
-    // rides on top of wherever gameplay put it.
-    float lastDeltaX = 0.0f;
-    float lastDeltaY = 0.0f;
-
-    void UndoPositionDelta() {
-        if (!node) return;
-        node->x     -= lastDeltaX;
-        node->y     -= lastDeltaY;
-        lastDeltaX   = 0.0f;
-        lastDeltaY   = 0.0f;
-    }
+    // Legacy stubs for backward compatibility
+    void SnapshotVisualBase() {}
+    void RestoreVisualBase()  { ResetOverlays(); }
+    void UndoPositionDelta()  { ResetOverlays(); }
 
     // ── Sprite frame ─────────────────────────────────────────────────────
 
@@ -279,42 +259,46 @@ private:
 
     // ── Track application ────────────────────────────────────────────────
     //
-    //  x / y      → delta on top of current gameplay position.
-    //               Undo last frame's delta first so it doesn't accumulate.
-    //  scaleX/Y   → multiply base scale  (1.0 = no change)
-    //  rotation   → add to base rotation (0   = no change)
-    //  alpha      → multiply base alpha   (1.0 = no change)
+    // All animation values are stored as rendering overlays — the node's
+    // actual x/y/scaleX/scaleY/rotation/alpha are NEVER modified.
+    //
+    //  x / y      → added to position during rendering  (0 = no offset)
+    //  scaleX/Y   → multiplied to scale during rendering (1.0 = no change)
+    //  rotation   → added to rotation during rendering  (0 = no change)
+    //  alpha      → multiplied to alpha during rendering (1.0 = no change)
 
     void ApplyTracks(Animation& anim) {
-        // Undo last frame's position delta before re-applying
-        if (node) {
-            node->x -= lastDeltaX;
-            node->y -= lastDeltaY;
-        }
-        lastDeltaX = 0.0f;
-        lastDeltaY = 0.0f;
+        if (!node) return;
+
+        // Reset overlays before applying current frame's values
+        node->animOffsetX  = 0.0f;
+        node->animOffsetY  = 0.0f;
+        node->animScaleX   = 1.0f;
+        node->animScaleY   = 1.0f;
+        node->animRotation = 0.0f;
+        Sprite2D* spr = dynamic_cast<Sprite2D*>(node);
+        if (spr) spr->animAlpha = 1.0f;
 
         for (auto& track : anim.tracks) {
             float value = track.Sample(elapsed);
 
             if (track.name == "x") {
-                if (node) { node->x += value; lastDeltaX = value; }
+                node->animOffsetX = value;
             }
             else if (track.name == "y") {
-                if (node) { node->y += value; lastDeltaY = value; }
+                node->animOffsetY = value;
             }
             else if (track.name == "scaleX") {
-                if (node && hasVisualBase) node->scaleX = baseScaleX * value;
+                node->animScaleX = value;
             }
             else if (track.name == "scaleY") {
-                if (node && hasVisualBase) node->scaleY = baseScaleY * value;
+                node->animScaleY = value;
             }
             else if (track.name == "rotation") {
-                if (node && hasVisualBase) node->rotation = baseRot + value;
+                node->animRotation = value;
             }
             else if (track.name == "alpha") {
-                if (auto* s = dynamic_cast<Sprite2D*>(node))
-                    s->tint.a = hasVisualBase ? baseAlpha * value : value;
+                if (spr) spr->animAlpha = value;
             }
         }
     }

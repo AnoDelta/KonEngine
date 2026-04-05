@@ -6,10 +6,12 @@
 // ── Registration ──────────────────────────────────────────────────────────
 
 void CollisionWorld::Add(Collider2D* collider) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     colliders.push_back(collider);
 }
 
 void CollisionWorld::Remove(Collider2D* collider) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     colliders.erase(std::remove(colliders.begin(), colliders.end(), collider),
                     colliders.end());
     for (auto it = activePairs.begin(); it != activePairs.end(); ) {
@@ -26,6 +28,7 @@ void CollisionWorld::Remove(Collider2D* collider) {
 }
 
 void CollisionWorld::Clear() {
+    std::lock_guard<std::mutex> lock(m_mutex);
     colliders.clear();
     activePairs.clear();
 }
@@ -33,6 +36,7 @@ void CollisionWorld::Clear() {
 // ── Main update ───────────────────────────────────────────────────────────
 
 void CollisionWorld::Update() {
+    std::lock_guard<std::mutex> lock(m_mutex);
     std::set<std::pair<Collider2D*, Collider2D*>> currentPairs;
 
     for (size_t i = 0; i < colliders.size(); i++) {

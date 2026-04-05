@@ -58,16 +58,16 @@ static float applyEase(Ease e, float t) {
 
     case E::EaseInElastic:
         if (t==0||t==1) return t;
-        return -std::pow(2,10*t-10)*std::sin((t*10-10.75f)*(2*3.14159265f)/3);
+        return -std::pow(2,8*t-8)*std::sin((t*8-8.75f)*(2*3.14159265f)/3);
     case E::EaseOutElastic:
         if (t==0||t==1) return t;
-        return std::pow(2,-10*t)*std::sin((t*10-0.75f)*(2*3.14159265f)/3)+1;
+        return std::pow(2,-8*t)*std::sin((t*8-0.75f)*(2*3.14159265f)/3)+1;
     case E::EaseInOutElastic:
         if (t==0||t==1) return t;
         { const float c=(2*3.14159265f)/4.5f;
           return t<0.5f
-            ? -(std::pow(2, 20*t-10)*std::sin((20*t-11.125f)*c))/2
-            :  (std::pow(2,-20*t+10)*std::sin((20*t-11.125f)*c))/2+1; }
+            ? -(std::pow(2, 16*t-8)*std::sin((16*t-9.125f)*c))/2
+            :  (std::pow(2,-16*t+8)*std::sin((16*t-9.125f)*c))/2+1; }
 
     case E::EaseOutBounce: {
         float n=7.5625f,d=2.75f;
@@ -83,11 +83,11 @@ static float applyEase(Ease e, float t) {
             : (1+applyEase(E::EaseOutBounce,2*t-1))/2;
 
     case E::EaseInBack:
-        { float c=1.70158f; return (c+1)*t*t*t-c*t*t; }
+        { float c=1.2f; return (c+1)*t*t*t-c*t*t; }
     case E::EaseOutBack:
-        { float c=1.70158f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
+        { float c=1.2f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
     case E::EaseInOutBack:
-        { float c=1.70158f*1.525f;
+        { float c=1.2f*1.525f;
           return t<0.5f
             ? (std::pow(2*t,2)*((c+1)*2*t-c))/2
             : (std::pow(2*t-2,2)*((c+1)*(2*t-2)+c)+2)/2; }
@@ -136,6 +136,13 @@ PreviewWidget::PreviewWidget(QWidget* parent) : QOpenGLWidget(parent) {
         "font-family: monospace; font-size: 8pt;");
     m_zoomLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_zoomLabel->setVisible(false);
+
+    m_debugLabel = new QLabel(this);
+    m_debugLabel->setStyleSheet(
+        "color: rgba(180,220,255,200); background: rgba(0,0,0,120); "
+        "font-family: monospace; font-size: 8pt; padding: 4px;");
+    m_debugLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_debugLabel->setVisible(false);
 
     m_timer = new QTimer(this);
     m_timer->setInterval(16);
@@ -240,6 +247,10 @@ void PreviewWidget::resizeEvent(QResizeEvent* e) {
     m_overlay->setGeometry(rect());
     m_zoomLabel->adjustSize();
     m_zoomLabel->move(width() - m_zoomLabel->width() - 6, 4);
+    if (m_debugLabel->isVisible()) {
+        m_debugLabel->adjustSize();
+        m_debugLabel->move(4, height() - m_debugLabel->height() - 4);
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -359,6 +370,40 @@ void PreviewWidget::paintGL() {
         m_zoomLabel->setVisible(true);
     } else {
         m_zoomLabel->setVisible(false);
+    }
+
+    // Show debug overlay with track values + active curve when playing
+    if (m_playing && m_clip && !m_clip->tracks.empty()) {
+        static const char* easeNames[] = {
+            "Linear","EaseIn","EaseOut","EaseInOut",
+            "EaseInCubic","EaseOutCubic","EaseInOutCubic",
+            "EaseInElastic","EaseOutElastic","EaseInOutElastic",
+            "EaseInBounce","EaseOutBounce","EaseInOutBounce",
+            "EaseInBack","EaseOutBack","EaseInOutBack",
+        };
+        QString dbg;
+        for (const auto& track : m_clip->tracks) {
+            float v = sampleKFTrack(track, m_elapsed);
+            // Find the active curve (from the keyframe just before current time)
+            QString curveName = "—";
+            for (int i = (int)track.keys.size()-1; i >= 0; --i) {
+                if (track.keys[i].time <= m_elapsed) {
+                    int ci = static_cast<int>(track.keys[i].curve);
+                    if (ci >= 0 && ci < 16) curveName = easeNames[ci];
+                    break;
+                }
+            }
+            dbg += QString("%1: %2  [%3]\n")
+                .arg(QString::fromStdString(track.name), -8)
+                .arg(v, 0, 'f', 3)
+                .arg(curveName);
+        }
+        m_debugLabel->setText(dbg.trimmed());
+        m_debugLabel->adjustSize();
+        m_debugLabel->move(4, height() - m_debugLabel->height() - 4);
+        m_debugLabel->setVisible(true);
+    } else {
+        m_debugLabel->setVisible(false);
     }
 }
 

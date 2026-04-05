@@ -3,6 +3,7 @@
 #include <vector>
 #include <set>
 #include <utility>
+#include <mutex>
 
 // Minimum Translation Vector — result of a solid collision query.
 // normal points FROM b TO a (push a in this direction to resolve).
@@ -29,6 +30,7 @@ public:
     static MTV GetMTV(Collider2D* a, Collider2D* b);
 
 private:
+    std::mutex m_mutex;
     std::vector<Collider2D*> colliders;
     std::set<std::pair<Collider2D*, Collider2D*>> activePairs;
 
