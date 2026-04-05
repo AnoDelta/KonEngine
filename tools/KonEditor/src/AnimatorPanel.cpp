@@ -171,9 +171,11 @@ void AnimatorPanel::setupToolbar(QVBoxLayout* mainLayout) {
     auto* newBtn  = makeBtn("New");
     auto* openBtn = makeBtn("Open");
     auto* saveBtn = makeBtn("Save");
+    auto* loadSheetBtn = makeBtn("Load Spritesheet");
     tbLayout->addWidget(newBtn);
     tbLayout->addWidget(openBtn);
     tbLayout->addWidget(saveBtn);
+    tbLayout->addWidget(loadSheetBtn);
 
     tbLayout->addWidget(new QLabel("  |  "));
 
@@ -202,6 +204,7 @@ void AnimatorPanel::setupToolbar(QVBoxLayout* mainLayout) {
     connect(newBtn,      &QPushButton::clicked, this, &AnimatorPanel::onNewAnimation);
     connect(openBtn,     &QPushButton::clicked, this, &AnimatorPanel::onOpenAnimation);
     connect(saveBtn,     &QPushButton::clicked, this, &AnimatorPanel::onSaveAnimation);
+    connect(loadSheetBtn,&QPushButton::clicked, this, &AnimatorPanel::onLoadSpritesheet);
     connect(addTrackBtn, &QPushButton::clicked, this, &AnimatorPanel::onAddTrack);
     connect(addKeyBtn,   &QPushButton::clicked, this, &AnimatorPanel::onAddKeyframe);
     connect(m_playBtn,   &QPushButton::clicked, this, &AnimatorPanel::onPlayStop);
@@ -297,6 +300,22 @@ void AnimatorPanel::onOpenAnimation() {
 
 void AnimatorPanel::onSaveAnimation() {
     saveFile();
+}
+
+void AnimatorPanel::onLoadSpritesheet() {
+    QString path = QFileDialog::getOpenFileName(this, "Load Spritesheet", {},
+        "Images (*.png *.jpg *.bmp);;All (*)");
+    if (path.isEmpty()) return;
+    QPixmap px(path);
+    if (px.isNull()) {
+        QMessageBox::warning(this, "Error", "Failed to load image.");
+        return;
+    }
+    m_spritesheetView->setPixmap(px);
+    m_previewWidget->setSpritesheetPath(path);
+    m_project.spritesheetPath = path.toStdString();
+    m_project.dirty = true;
+    emit titleChanged(QFileInfo(path).fileName() + " (spritesheet loaded)");
 }
 
 void AnimatorPanel::onAddTrack() {

@@ -623,6 +623,21 @@ void SceneTree::loadScene(const QString& path) {
         auto itNodes = reAllNodes.globalMatch(src);
         QMap<QString, QTreeWidgetItem*> nodeItems; // typeName → tree item
 
+        // Helper: try to parse a numeric literal from a value string.
+        // Returns true and sets *out if the value is a plain number.
+        // Returns false if it contains operators or identifiers (e.g. "screenWidth / 2").
+        auto tryParseNumeric = [](const QString& val, float* out) -> bool {
+            QString trimmed = val.trimmed();
+            if (trimmed.isEmpty()) return false;
+            // Reject if it contains letters (identifiers) or operators other than unary minus
+            static QRegularExpression reNonNumeric(R"([a-zA-Z_/\*\+%])");
+            if (reNonNumeric.match(trimmed).hasMatch()) return false;
+            bool ok = false;
+            float v = trimmed.toFloat(&ok);
+            if (ok && out) *out = v;
+            return ok;
+        };
+
         while (itNodes.hasNext()) {
             auto nm = itNodes.next();
             QString nodeName = nm.captured(1);
@@ -641,6 +656,38 @@ void SceneTree::loadScene(const QString& path) {
                 if (depth > 0) pos++;
             }
             QString body = src.mid(braceStart, pos - braceStart);
+
+            // Parse the node's own Ready() for x, y, width, height assignments
+            {
+                QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
+                auto rm = reReady.match(body);
+                if (rm.hasMatch()) {
+                    int rStart = rm.capturedEnd();
+                    int rDepth = 1, rPos = rStart;
+                    while (rPos < body.size() && rDepth > 0) {
+                        if (body[rPos] == QLatin1Char('{')) rDepth++;
+                        else if (body[rPos] == QLatin1Char('}')) rDepth--;
+                        if (rDepth > 0) rPos++;
+                    }
+                    QString readyBody = body.mid(rStart, rPos - rStart);
+
+                    // Parse bare assignments: x = value; y = value; width = value; height = value;
+                    // Only match assignments that are NOT prefixed by a variable name (i.e. not "foo.x = ...")
+                    QRegularExpression reAssign(R"((?:^|[;\n\{])\s*(\w+)\s*=\s*([^;]+);)");
+                    auto itAssign = reAssign.globalMatch(readyBody);
+                    while (itAssign.hasNext()) {
+                        auto am = itAssign.next();
+                        QString prop = am.captured(1).trimmed();
+                        QString val  = am.captured(2).trimmed();
+                        float numVal = 0;
+                        if (!tryParseNumeric(val, &numVal)) continue; // skip expressions
+                        if (prop == "x")      nodeItem->setData(0, Qt::UserRole+3, numVal);
+                        else if (prop == "y") nodeItem->setData(0, Qt::UserRole+4, numVal);
+                        else if (prop == "width")  nodeItem->setData(0, Qt::UserRole+5, numVal);
+                        else if (prop == "height") nodeItem->setData(0, Qt::UserRole+6, numVal);
+                    }
+                }
+            }
 
             // Parse this.add(Type, "name") inside the body
             QRegularExpression reChildAdd(R"RE(let\s+mut\s+(\w+)\s*:\s*(\w+)\s*=\s*this\.add\(\s*\w+\s*,\s*"([^"]+)"\s*\))RE");
@@ -685,7 +732,7 @@ void SceneTree::loadScene(const QString& path) {
                 varToType[vm.captured(1)] = vm.captured(2);
             }
 
-            // Parse position assignments: varName.x = value;
+            // Parse position/size assignments: varName.x = value; varName.width = value; etc.
             for (auto it = varToType.constBegin(); it != varToType.constEnd(); ++it) {
                 QString var = it.key();
                 QString type = it.value();
@@ -700,11 +747,20 @@ void SceneTree::loadScene(const QString& path) {
                 }
                 if (!item) continue;
 
-                QRegularExpression rxX(QString(R"(%1\.x\s*=\s*([^;]+))").arg(QRegularExpression::escape(var)));
-                QRegularExpression rxY(QString(R"(%1\.y\s*=\s*([^;]+))").arg(QRegularExpression::escape(var)));
-                auto mx = rxX.match(mainBody); auto my = rxY.match(mainBody);
-                if (mx.hasMatch()) item->setData(0, Qt::UserRole+3, mx.captured(1).trimmed().toFloat());
-                if (my.hasMatch()) item->setData(0, Qt::UserRole+4, my.captured(1).trimmed().toFloat());
+                // Parse x, y, width, height assignments from main()
+                QRegularExpression rxProp(QString(R"(%1\.(\w+)\s*=\s*([^;]+);)").arg(QRegularExpression::escape(var)));
+                auto itProps = rxProp.globalMatch(mainBody);
+                while (itProps.hasNext()) {
+                    auto pm = itProps.next();
+                    QString prop = pm.captured(1).trimmed();
+                    QString val  = pm.captured(2).trimmed();
+                    float numVal = 0;
+                    if (!tryParseNumeric(val, &numVal)) continue; // skip expressions
+                    if (prop == "x")           item->setData(0, Qt::UserRole+3, numVal);
+                    else if (prop == "y")      item->setData(0, Qt::UserRole+4, numVal);
+                    else if (prop == "width")  item->setData(0, Qt::UserRole+5, numVal);
+                    else if (prop == "height") item->setData(0, Qt::UserRole+6, numVal);
+                }
             }
         }
 

@@ -35,6 +35,7 @@ private slots:
     void onNewAnimation();
     void onOpenAnimation();
     void onSaveAnimation();
+    void onLoadSpritesheet();
     void onAddTrack();
     void onAddKeyframe();
     void onPlayStop();

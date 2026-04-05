@@ -756,13 +756,27 @@ void KonEditor::onOpenProject() {
 
 void KonEditor::onSaveProject() {
     if (!m_project->isOpen()) return;
-    m_scriptEditor->saveAll();
+
+    // Determine what to save based on current mode and active tab
+    int mode = m_modeSelector ? m_modeSelector->currentIndex() : 0;
+
+    if (mode == AnimationMode) {
+        // Animation mode — save the animation
+        if (m_animatorPanel->hasUnsavedChanges())
+            m_animatorPanel->saveFile();
+    } else {
+        // Scene mode — check which tab is active
+        if (m_centerTabs && m_centerTabs->currentWidget() == m_scriptEditor) {
+            // Script tab is active — save scripts first (primary action)
+            m_scriptEditor->saveAll();
+        }
+        // Always save project and scene in scene mode
+        m_project->save();
+        m_sceneTree->saveCurrentScene();
+    }
+
+    // Always persist the project file
     m_project->save();
-    // Also save scene
-    m_sceneTree->saveCurrentScene();
-    // Save animation if in animation mode with unsaved changes
-    if (m_animatorPanel->hasUnsavedChanges())
-        m_animatorPanel->saveFile();
     m_statusLabel->setText("  Saved  |  " + m_project->name());
     updateTitle();  // clear dirty marker
 }
@@ -1167,9 +1181,15 @@ void KonEditor::rebuildViewport() {
         vn.x    = worldX;
         vn.y    = worldY;
 
-        // Default sizes
+        // Default sizes — check if tree item has parsed width/height (UserRole+5/+6)
         vn.w = (baseType == "CameraNode2D" || baseType == "Camera2D") ? 32 : 48;
         vn.h = vn.w;
+        {
+            QVariant vw = item->data(0, Qt::UserRole + 5);
+            QVariant vh = item->data(0, Qt::UserRole + 6);
+            if (vw.isValid()) vn.w = vw.toFloat();
+            if (vh.isValid()) vn.h = vh.toFloat();
+        }
 
         // For colliders, read actual width/height from the script's Ready() block
         if (baseType == "Collider2D" && !script.isEmpty() && QFile::exists(script)) {
