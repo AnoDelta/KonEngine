@@ -137,6 +137,13 @@ PreviewWidget::PreviewWidget(QWidget* parent) : QOpenGLWidget(parent) {
     m_zoomLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_zoomLabel->setVisible(false);
 
+    m_debugLabel = new QLabel(this);
+    m_debugLabel->setStyleSheet(
+        "color: rgba(180,220,255,200); background: rgba(0,0,0,120); "
+        "font-family: monospace; font-size: 8pt; padding: 4px;");
+    m_debugLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_debugLabel->setVisible(false);
+
     m_timer = new QTimer(this);
     m_timer->setInterval(16);
     connect(m_timer, &QTimer::timeout, this, &PreviewWidget::onTick);
@@ -240,6 +247,10 @@ void PreviewWidget::resizeEvent(QResizeEvent* e) {
     m_overlay->setGeometry(rect());
     m_zoomLabel->adjustSize();
     m_zoomLabel->move(width() - m_zoomLabel->width() - 6, 4);
+    if (m_debugLabel->isVisible()) {
+        m_debugLabel->adjustSize();
+        m_debugLabel->move(4, height() - m_debugLabel->height() - 4);
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -359,6 +370,40 @@ void PreviewWidget::paintGL() {
         m_zoomLabel->setVisible(true);
     } else {
         m_zoomLabel->setVisible(false);
+    }
+
+    // Show debug overlay with track values + active curve when playing
+    if (m_playing && m_clip && !m_clip->tracks.empty()) {
+        static const char* easeNames[] = {
+            "Linear","EaseIn","EaseOut","EaseInOut",
+            "EaseInCubic","EaseOutCubic","EaseInOutCubic",
+            "EaseInElastic","EaseOutElastic","EaseInOutElastic",
+            "EaseInBounce","EaseOutBounce","EaseInOutBounce",
+            "EaseInBack","EaseOutBack","EaseInOutBack",
+        };
+        QString dbg;
+        for (const auto& track : m_clip->tracks) {
+            float v = sampleKFTrack(track, m_elapsed);
+            // Find the active curve (from the keyframe just before current time)
+            QString curveName = "—";
+            for (int i = (int)track.keys.size()-1; i >= 0; --i) {
+                if (track.keys[i].time <= m_elapsed) {
+                    int ci = static_cast<int>(track.keys[i].curve);
+                    if (ci >= 0 && ci < 16) curveName = easeNames[ci];
+                    break;
+                }
+            }
+            dbg += QString("%1: %2  [%3]\n")
+                .arg(QString::fromStdString(track.name), -8)
+                .arg(v, 0, 'f', 3)
+                .arg(curveName);
+        }
+        m_debugLabel->setText(dbg.trimmed());
+        m_debugLabel->adjustSize();
+        m_debugLabel->move(4, height() - m_debugLabel->height() - 4);
+        m_debugLabel->setVisible(true);
+    } else {
+        m_debugLabel->setVisible(false);
     }
 }
 

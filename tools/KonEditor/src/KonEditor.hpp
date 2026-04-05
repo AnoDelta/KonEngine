@@ -16,6 +16,9 @@
 #include "AssetBrowser.hpp"
 #include "BuildPanel.hpp"
 #include "DebugConsole.hpp"
+#include <QTextEdit>
+#include <QTreeWidget>
+#include <QPushButton>
 
 class KonEditor : public QMainWindow {
     Q_OBJECT
@@ -35,6 +38,8 @@ private slots:
     void onGameProcessOutput();
     void onGameProcessFinished(int exitCode);
     void rebuildViewport();
+    void onOpenAnimFile(const QString& path);
+    void onPackAssets();
     void syncInspectorPosition(const QString& name);
     void writeInstancePosition(const QString& scenePath, const QString& varName, float x, float y);
 
@@ -61,6 +66,7 @@ private:
     QTabWidget*    m_centerTabs    = nullptr;
     Viewport*      m_viewport      = nullptr;
     ScriptEditor*  m_scriptEditor  = nullptr;
+    QLabel*        m_animPlaceholder = nullptr;  // Animation tab placeholder
 
     // Right panel
     Inspector*     m_inspector     = nullptr;
@@ -69,6 +75,10 @@ private:
     QTabWidget*    m_bottomTabs    = nullptr;
     BuildPanel*    m_buildPanel    = nullptr;
     DebugConsole*  m_debugConsole  = nullptr;
+    QWidget*       m_assetsTab     = nullptr;     // Asset pack tab
+    QTreeWidget*   m_assetTree     = nullptr;
+    QTextEdit*     m_packOutput    = nullptr;
+    QProcess*      m_packProcess   = nullptr;
 
     // Project
     ProjectManager* m_project      = nullptr;

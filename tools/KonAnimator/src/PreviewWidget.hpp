@@ -100,6 +100,7 @@ private:
     int    currentFrameForTime(float t) const;
 
     QString m_sheetPath;
-    QLabel* m_overlay   = nullptr;
-    QLabel* m_zoomLabel = nullptr;
+    QLabel* m_overlay    = nullptr;
+    QLabel* m_zoomLabel  = nullptr;
+    QLabel* m_debugLabel = nullptr;   // shows track values + curve during playback
 };

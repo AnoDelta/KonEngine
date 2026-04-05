@@ -21,6 +21,10 @@
 #include <QGroupBox>
 #include <QTextStream>
 #include <QDir>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QTextEdit>
+#include <QTimer>
 
 // ── Dark theme ────────────────────────────────────────────────────────────
 static void applyDarkTheme() {
@@ -206,12 +210,19 @@ void KonEditor::setupLayout() {
 
     m_rootSplitter->addWidget(m_leftPanel);
 
-    // ── Center: Script / Viewport ─────────────────────────────────────────
+    // ── Center: Script / Viewport / Animation ───────────────────────────
     m_centerTabs = new QTabWidget();
     m_viewport     = new Viewport();
     m_scriptEditor = new ScriptEditor();
     m_centerTabs->addTab(m_viewport,     "Viewport");
     m_centerTabs->addTab(m_scriptEditor, "Script");
+
+    // Animation tab — placeholder until user opens an .anim file
+    m_animPlaceholder = new QLabel("Open an .anim file from the file browser to edit animations");
+    m_animPlaceholder->setAlignment(Qt::AlignCenter);
+    m_animPlaceholder->setStyleSheet("QLabel { color: #666; font-size: 13px; }");
+    m_centerTabs->addTab(m_animPlaceholder, "Animation");
+
     m_rootSplitter->addWidget(m_centerTabs);
 
     // ── Right: Inspector ──────────────────────────────────────────────────
@@ -488,13 +499,65 @@ void KonEditor::setupLayout() {
     m_rootSplitter->setSizes({240, 900, 280});
     m_mainSplitter->addWidget(m_rootSplitter);
 
-    // ── Bottom: Build + Output ────────────────────────────────────────────
+    // ── Bottom: Build + Output + Assets ─────────────────────────────────
     m_bottomTabs = new QTabWidget();
     m_bottomTabs->setMaximumHeight(200);
     m_buildPanel   = new BuildPanel();
     m_debugConsole = new DebugConsole();
     m_bottomTabs->addTab(m_buildPanel,   "Build");
     m_bottomTabs->addTab(m_debugConsole, "Output");
+
+    // Assets tab — directory listing + Pack button
+    {
+        m_assetsTab = new QWidget();
+        auto* al = new QVBoxLayout(m_assetsTab);
+        al->setContentsMargins(4,4,4,4);
+        al->setSpacing(4);
+
+        auto* topRow = new QHBoxLayout();
+        auto* refreshBtn = new QPushButton("Refresh");
+        auto* packBtn = new QPushButton("Pack Assets (.konpak)");
+        topRow->addWidget(refreshBtn);
+        topRow->addWidget(packBtn);
+        topRow->addStretch();
+        al->addLayout(topRow);
+
+        m_assetTree = new QTreeWidget();
+        m_assetTree->setHeaderLabels({"File", "Size"});
+        m_assetTree->setColumnWidth(0, 300);
+        m_assetTree->setRootIsDecorated(false);
+        m_assetTree->setAlternatingRowColors(true);
+        al->addWidget(m_assetTree, 1);
+
+        m_packOutput = new QTextEdit();
+        m_packOutput->setReadOnly(true);
+        m_packOutput->setMaximumHeight(60);
+        m_packOutput->setStyleSheet("QTextEdit { background: #141414; color: #aaa; font-family: monospace; font-size: 10px; }");
+        al->addWidget(m_packOutput);
+
+        connect(refreshBtn, &QPushButton::clicked, [this]{
+            if (!m_project->isOpen()) return;
+            m_assetTree->clear();
+            QString assetsDir = m_project->rootDir() + "/assets";
+            QDir dir(assetsDir);
+            if (!dir.exists()) { m_packOutput->setText("No assets/ directory found."); return; }
+            QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
+            for (const auto& fi : files) {
+                auto* item = new QTreeWidgetItem();
+                item->setText(0, fi.fileName());
+                qint64 sz = fi.size();
+                QString sizeStr = sz < 1024 ? QString("%1 B").arg(sz)
+                    : sz < 1048576 ? QString("%1 KB").arg(sz / 1024.0, 0, 'f', 1)
+                    : QString("%1 MB").arg(sz / 1048576.0, 0, 'f', 2);
+                item->setText(1, sizeStr);
+                m_assetTree->addTopLevelItem(item);
+            }
+            m_packOutput->setText(QString("Found %1 files in assets/").arg(files.size()));
+        });
+        connect(packBtn, &QPushButton::clicked, this, &KonEditor::onPackAssets);
+        m_bottomTabs->addTab(m_assetsTab, "Assets");
+    }
+
     m_mainSplitter->addWidget(m_bottomTabs);
 
     m_mainSplitter->setStretchFactor(0, 1);
@@ -512,6 +575,9 @@ void KonEditor::setupLayout() {
                     m_sceneTree->loadScene(path);
                     m_leftTabs->setCurrentIndex(0);
                     m_statusLabel->setText("  Scene: " + QFileInfo(path).fileName());
+                } else if (path.endsWith(".anim") || path.endsWith(".konani")) {
+                    // Open animation file in Animation tab
+                    onOpenAnimFile(path);
                 } else if (path.endsWith(".ks")) {
                     m_scriptEditor->openFile(path);
                     m_centerTabs->setCurrentWidget(m_scriptEditor);
@@ -1093,4 +1159,125 @@ void KonEditor::onGameProcessFinished(int code) {
     updateRunButtons(false);
     m_statusLabel->setText(QString("  Finished (exit %1)").arg(code));
     m_gameProcess = nullptr;
+}
+
+// ── Animation tab — launch KonAnimator as external process ───────────
+void KonEditor::onOpenAnimFile(const QString& path) {
+    m_animPlaceholder->setText(QString("Opening: %1\n\nLaunching KonAnimator...")
+                               .arg(QFileInfo(path).fileName()));
+    m_centerTabs->setCurrentWidget(m_animPlaceholder);
+
+    // Try to find KonAnimator binary relative to this executable
+    QString animatorPath;
+    QStringList candidates = {
+        QApplication::applicationDirPath() + "/KonAnimator",
+        QApplication::applicationDirPath() + "/../KonAnimator/build/KonAnimator",
+        QApplication::applicationDirPath() + "/../../KonAnimator/build/KonAnimator",
+    };
+    for (const auto& c : candidates) {
+        if (QFile::exists(c)) { animatorPath = c; break; }
+    }
+
+    if (animatorPath.isEmpty()) {
+        m_animPlaceholder->setText(
+            QString("Animation file: %1\n\n"
+                    "KonAnimator not found.\n"
+                    "Build KonAnimator and place it alongside KonEditor,\n"
+                    "or open this file directly with KonAnimator.")
+            .arg(QFileInfo(path).fileName()));
+        m_statusLabel->setText("  KonAnimator not found");
+        return;
+    }
+
+    auto* proc = new QProcess(this);
+    proc->setProgram(animatorPath);
+    proc->setArguments({path});
+    connect(proc, static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+            this, [this, proc, path](int code, QProcess::ExitStatus) {
+                m_animPlaceholder->setText(
+                    QString("KonAnimator closed (exit %1).\n\n"
+                            "Open an .anim file from the file browser to edit animations.")
+                    .arg(code));
+                m_statusLabel->setText(QString("  KonAnimator exited (%1)").arg(code));
+                proc->deleteLater();
+            });
+    proc->start();
+    if (!proc->waitForStarted(3000)) {
+        m_animPlaceholder->setText(
+            QString("Failed to launch KonAnimator.\n\n"
+                    "Path: %1\nFile: %2")
+            .arg(animatorPath, path));
+        proc->deleteLater();
+    } else {
+        m_animPlaceholder->setText(
+            QString("Editing: %1\n\nKonAnimator is running in a separate window.\n"
+                    "Close it to return here.")
+            .arg(QFileInfo(path).fileName()));
+        m_statusLabel->setText("  KonAnimator running — " + QFileInfo(path).fileName());
+    }
+}
+
+// ── Assets tab — run konpak to create .konpak ────────────────────────
+void KonEditor::onPackAssets() {
+    if (!m_project->isOpen()) {
+        m_packOutput->setText("No project open.");
+        return;
+    }
+
+    QString assetsDir = m_project->rootDir() + "/assets";
+    if (!QDir(assetsDir).exists()) {
+        m_packOutput->setText("No assets/ directory found in project root.");
+        return;
+    }
+
+    // Try to find konpak binary
+    QString konpakPath;
+    QStringList candidates = {
+        QApplication::applicationDirPath() + "/konpak",
+        QApplication::applicationDirPath() + "/../KonPaktor/build/konpak",
+        QApplication::applicationDirPath() + "/../../KonPaktor/build/konpak",
+    };
+    for (const auto& c : candidates) {
+        if (QFile::exists(c)) { konpakPath = c; break; }
+    }
+
+    if (konpakPath.isEmpty()) {
+        m_packOutput->setText("konpak not found. Build KonPaktor first.");
+        return;
+    }
+
+    QString outFile = m_project->rootDir() + "/" + m_project->name() + ".konpak";
+    m_packOutput->setText("Packing assets...\n");
+    m_bottomTabs->setCurrentWidget(m_assetsTab);
+
+    m_packProcess = new QProcess(this);
+    m_packProcess->setProgram(konpakPath);
+    m_packProcess->setArguments({assetsDir, outFile});
+    m_packProcess->setWorkingDirectory(m_project->rootDir());
+    connect(m_packProcess, &QProcess::readyReadStandardOutput, [this]{
+        m_packOutput->append(m_packProcess->readAllStandardOutput());
+    });
+    connect(m_packProcess, &QProcess::readyReadStandardError, [this]{
+        m_packOutput->append("[err] " + m_packProcess->readAllStandardError());
+    });
+    connect(m_packProcess,
+        static_cast<void(QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+        this, [this, outFile](int code, QProcess::ExitStatus) {
+            if (code == 0) {
+                QFileInfo fi(outFile);
+                qint64 sz = fi.size();
+                QString sizeStr = sz < 1048576
+                    ? QString("%1 KB").arg(sz / 1024.0, 0, 'f', 1)
+                    : QString("%1 MB").arg(sz / 1048576.0, 0, 'f', 2);
+                m_packOutput->append(QString("\nDone! Created %1 (%2)")
+                                     .arg(fi.fileName(), sizeStr));
+                m_statusLabel->setText("  Packed: " + fi.fileName());
+            } else {
+                m_packOutput->append(QString("\nkonpak exited with code %1").arg(code));
+                m_statusLabel->setText("  Pack failed");
+            }
+            m_packProcess->deleteLater();
+            m_packProcess = nullptr;
+        });
+    m_packProcess->start();
 }

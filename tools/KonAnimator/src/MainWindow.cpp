@@ -469,6 +469,31 @@ QWidget* MainWindow::buildPreviewPanel() {
             gl->addWidget(new QLabel("Curve:"),r,0);
             m_kfCurve=new QComboBox;
             for (int i=0;i<kEaseCount;i++) m_kfCurve->addItem(kEaseNames[i]);
+            // Add descriptive tooltips to each curve item
+            {
+                static const char* kEaseDescs[] = {
+                    "Constant speed",
+                    "Start slow, end fast",
+                    "Start fast, end slow",
+                    "Slow at both ends",
+                    "Start slow (cubic), end fast",
+                    "Start fast, end slow (cubic)",
+                    "Slow at both ends (cubic)",
+                    "Start slow with elastic overshoot",
+                    "End with elastic overshoot",
+                    "Elastic overshoot at both ends",
+                    "Start slow with bounce",
+                    "End with bounce effect",
+                    "Bounce at both ends",
+                    "Start with slight pullback",
+                    "End with slight overshoot",
+                    "Pullback and overshoot",
+                };
+                for (int i=0;i<kEaseCount;i++)
+                    m_kfCurve->setItemData(i, QString(kEaseDescs[i]), Qt::ToolTipRole);
+            }
+            m_kfCurve->setToolTip("Interpolation curve FROM this keyframe TO the next.\n"
+                                  "The curve on the LAST keyframe has no effect.");
             connect(m_kfCurve,QOverload<int>::of(&QComboBox::currentIndexChanged),this,&MainWindow::onKFPropChanged);
             gl->addWidget(m_kfCurve,r++,1);
 
@@ -672,7 +697,19 @@ void MainWindow::onAddKeyframe() {
     pushUndo();
     const std::string& tn=c->tracks[m_trackIdx].name;
     float defVal=(tn=="scaleX"||tn=="scaleY"||tn=="alpha")?1.0f:0.0f;
-    c->tracks[m_trackIdx].keys.push_back({m_timeline->playhead(), defVal, Ease::EaseInOut});
+    // Copy curve from previous keyframe so the user's chosen curve propagates
+    Ease curve = Ease::EaseInOut;
+    auto& keys = c->tracks[m_trackIdx].keys;
+    if (!keys.empty()) {
+        // Find the keyframe just before the playhead (or the last one)
+        Ease prevCurve = keys.back().curve;
+        float ph = m_timeline->playhead();
+        for (int i = (int)keys.size()-1; i >= 0; --i) {
+            if (keys[i].time <= ph) { prevCurve = keys[i].curve; break; }
+        }
+        curve = prevCurve;
+    }
+    keys.push_back({m_timeline->playhead(), defVal, curve});
     c->tracks[m_trackIdx].sortKeys();
     m_proj.dirty=true;
     m_timeline->refreshClip();   // ← preserves playhead position
@@ -705,6 +742,31 @@ void MainWindow::onKFPropChanged() {
     kf.time=(float)m_kfTime->value();
     kf.value=(float)m_kfValue->value();
     kf.curve=static_cast<Ease>(m_kfCurve->currentIndex());
+
+    // Update curve tooltip with human-readable description
+    static const char* kCurveHints[] = {
+        "Linear (constant speed)",
+        "EaseIn (slow start \xe2\x86\x92 fast end)",
+        "EaseOut (fast start \xe2\x86\x92 slow end)",
+        "EaseInOut (slow at both ends)",
+        "EaseInCubic (slow start \xe2\x86\x92 fast end, cubic)",
+        "EaseOutCubic (fast start \xe2\x86\x92 slow end, cubic)",
+        "EaseInOutCubic (slow at both ends, cubic)",
+        "EaseInElastic (elastic overshoot at start)",
+        "EaseOutElastic (elastic overshoot at end)",
+        "EaseInOutElastic (elastic overshoot both ends)",
+        "EaseInBounce (bounce at start)",
+        "EaseOutBounce (bounce at end)",
+        "EaseInOutBounce (bounce both ends)",
+        "EaseInBack (pullback at start)",
+        "EaseOutBack (overshoot at end)",
+        "EaseInOutBack (pullback and overshoot)",
+    };
+    int ci = m_kfCurve->currentIndex();
+    if (ci >= 0 && ci < kEaseCount)
+        m_kfCurve->setToolTip(QString("Curve: %1\nInterpolates FROM this keyframe TO the next.")
+                              .arg(kCurveHints[ci]));
+
     m_proj.dirty=true; m_timeline->update(); m_preview->update(); updateTitle();
 }
 
