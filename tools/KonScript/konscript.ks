@@ -4826,35 +4826,32 @@ func main() -> I32 {
     let mut t0: F64 = 0.0;
 
     // Pre-process #include "file.ks" — inline included source before lexing
-    // Depth-first: when file A includes file B, B's content (and B's own
-    // dependencies) appear before A, ensuring types are defined in order.
+    // Uses a queue processed front-to-back. Each file's content is PREPENDED
+    // to full_src, so the last-processed file ends up first in output.
+    // This naturally produces correct dependency order.
     let mut included_files: [Str] = [""];
     let mut included_file_count: I32 = 0;
-    // Stack of texts to scan (depth-first traversal of include graph)
-    let mut inc_stack: [Str] = [""];
-    let mut inc_stack_top: I32 = 0;
-    // Push entry file source onto stack
-    inc_stack_top = inc_stack_top + 1;
-    inc_stack.push(src);
+    let mut inc_queue: [Str] = [""];
+    let mut inc_queue_count: I32 = 0;
+    // Seed queue with entry file
+    inc_queue_count = inc_queue_count + 1;
+    inc_queue.push(src);
     let mut full_src: Str = "";
-    while inc_stack_top > 0 {
-        let cur: Str = inc_stack[inc_stack_top];
-        inc_stack_top = inc_stack_top - 1;
+    let mut iq: I32 = 1;
+    while iq <= inc_queue_count {
+        let cur: Str = inc_queue[iq];
+        iq = iq + 1;
         // Scan this text for #include "file.ks" directives
-        // Collect all includes in this file, then push them in REVERSE order
-        // (so first include is processed first = appears first in output)
-        let mut inc_paths: [Str] = [""];
-        let mut inc_count: I32 = 0;
         let mut si: I32 = 0;
         let slen: I32 = cur.len();
         while si < slen {
-            // Skip // comment lines
+            // Skip // comments
             if cur.substr(si, 2) == "//" {
                 while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
                 si = si + 1;
                 continue;
             }
-            // Skip # comment lines (legacy)
+            // Skip # comments (not #include)
             if cur.substr(si, 1) == "#" && !(si + 7 < slen && cur.substr(si, 8) == "#include") {
                 while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
                 si = si + 1;
@@ -4868,49 +4865,40 @@ func main() -> I32 {
                 while qe < slen && cur.substr(qe, 1) != "\"" { qe = qe + 1; }
                 let inc_path: Str = cur.substr(qi, qe - qi);
                 if inc_path.ends(".ks") {
-                    inc_count = inc_count + 1;
-                    inc_paths.push(inc_path);
+                    // Normalize: strip leading "../segment/" and "./"
+                    let mut norm: Str = inc_path;
+                    let mut strip_again: Bool = true;
+                    while strip_again && norm.len() > 3 && norm.substr(0, 3) == "../" {
+                        let mut sl: I32 = 3;
+                        while sl < norm.len() && norm.substr(sl, 1) != "/" { sl = sl + 1; }
+                        if sl < norm.len() { norm = norm.substr(sl + 1, norm.len() - sl - 1); }
+                        else { strip_again = false; }
+                    }
+                    if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
+                    // Check if already included
+                    let mut already: Bool = false;
+                    let mut ai: I32 = 1;
+                    while ai <= included_file_count {
+                        if included_files[ai] == norm { already = true; }
+                        ai = ai + 1;
+                    }
+                    if !already {
+                        included_file_count = included_file_count + 1;
+                        included_files.push(norm);
+                        let inc_result: Result<Str> = File.read(inc_path);
+                        if inc_result.ok {
+                            inc_queue_count = inc_queue_count + 1;
+                            inc_queue.push(inc_result.value);
+                        } else {
+                            Print("warning: cannot read include '", inc_path, "'");
+                        }
+                    }
                 }
                 while si < slen && cur.substr(si, 1) != "\n" { si = si + 1; }
             }
             si = si + 1;
         }
-        // Push includes in REVERSE order so first include is on top of stack
-        let mut ri: I32 = inc_count;
-        while ri >= 1 {
-            let rp: Str = inc_paths[ri];
-            // Normalize: strip leading "../segment/" and "./"
-            let mut norm: Str = rp;
-            let mut strip_again: Bool = true;
-            while strip_again && norm.len() > 3 && norm.substr(0, 3) == "../" {
-                let mut sl: I32 = 3;
-                while sl < norm.len() && norm.substr(sl, 1) != "/" { sl = sl + 1; }
-                if sl < norm.len() { norm = norm.substr(sl + 1, norm.len() - sl - 1); }
-                else { strip_again = false; }
-            }
-            if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
-            // Check if already included
-            let mut already: Bool = false;
-            let mut ai: I32 = 1;
-            while ai <= included_file_count {
-                if included_files[ai] == norm { already = true; }
-                ai = ai + 1;
-            }
-            if !already {
-                included_file_count = included_file_count + 1;
-                included_files.push(norm);
-                let inc_result: Result<Str> = File.read(rp);
-                if inc_result.ok {
-                    // Push onto stack — will be scanned for ITS includes next
-                    inc_stack_top = inc_stack_top + 1;
-                    inc_stack.push(inc_result.value);
-                } else {
-                    Print("warning: cannot read include '", rp, "'");
-                }
-            }
-            ri = ri - 1;
-        }
-        // Prepend this text's content to full_src (dependencies already prepended above)
+        // Prepend this file to output (last processed = first in output)
         full_src = cur + "\n" + full_src;
     }
 
