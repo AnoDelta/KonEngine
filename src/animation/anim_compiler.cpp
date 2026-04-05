@@ -145,7 +145,7 @@ static CompileResult compile(const std::string& inputPath, const std::string& ou
             }
             ss >> curveStr;
             auto it = curveMap.find(toLower(curveStr));
-            Ease curve = (it != curveMap.end()) ? it->second : Ease::EaseInOut;
+            Ease curve = (it != curveMap.end()) ? it->second : Ease::Linear;
             findOrAddTrack(*cur, prop)->keys.push_back({ time, value, curve });
 
         } else if (token == "display") {
