@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QFileInfo>
 #include "KonEditor.hpp"
 #include "WelcomeScreen.hpp"
 
@@ -22,17 +23,27 @@ int main(int argc, char* argv[]) {
     dark.setColor(QPalette::HighlightedText, Qt::white);
     qApp->setPalette(dark);
 
-    // Show welcome screen
-    WelcomeScreen welcome;
-    if (welcome.exec() != QDialog::Accepted)
-        return 0; // user closed welcome screen
+    // Allow opening a .ks file directly from the command line
+    QString directFile;
+    if (argc > 1) {
+        QString arg = QString::fromLocal8Bit(argv[1]);
+        if (QFileInfo(arg).suffix().toLower() == "ks" && QFileInfo(arg).exists())
+            directFile = QFileInfo(arg).absoluteFilePath();
+    }
+
+    if (directFile.isEmpty()) {
+        // Show welcome screen
+        WelcomeScreen welcome;
+        if (welcome.exec() != QDialog::Accepted)
+            return 0; // user closed welcome screen
+        directFile = welcome.selectedProject();
+    }
 
     KonEditor editor;
     editor.show();
 
-    QString project = welcome.selectedProject();
-    if (!project.isEmpty())
-        editor.openProject(project);
+    if (!directFile.isEmpty())
+        editor.openProject(directFile);
 
     return app.exec();
 }

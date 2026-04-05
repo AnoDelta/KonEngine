@@ -28,6 +28,7 @@ protected:
 private slots:
     void onNewProject();
     void onOpenProject();
+    void onOpenFile();
     void onRecentDoubleClicked(QListWidgetItem* item);
     void onRemoveRecent();
     void onDeleteProject();

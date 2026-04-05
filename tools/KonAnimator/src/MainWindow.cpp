@@ -705,7 +705,7 @@ void MainWindow::onKFPropChanged() {
     kf.time=(float)m_kfTime->value();
     kf.value=(float)m_kfValue->value();
     kf.curve=static_cast<Ease>(m_kfCurve->currentIndex());
-    m_proj.dirty=true; m_timeline->update(); updateTitle();
+    m_proj.dirty=true; m_timeline->update(); m_preview->update(); updateTitle();
 }
 
 // -----------------------------------------------------------------------

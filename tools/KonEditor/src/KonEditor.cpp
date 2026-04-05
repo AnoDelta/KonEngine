@@ -562,10 +562,27 @@ void KonEditor::updateRunButtons(bool running) {
 }
 
 void KonEditor::openProject(const QString& path) {
-    if (!m_project->open(path)) {
+    // Detect if this is a standalone .ks file rather than a .konproj
+    bool isKsFile = QFileInfo(path).suffix().toLower() == "ks";
+    bool opened = isKsFile ? m_project->openKsFile(path) : m_project->open(path);
+    if (!opened) {
         QMessageBox::warning(this, "Error", "Failed to open: " + path);
         return;
     }
+
+    // For standalone .ks files, open directly in the script editor
+    if (isKsFile) {
+        updateTitle();
+        QString dir = QFileInfo(path).absolutePath();
+        m_assetBrowser->setRoot(dir);
+        m_scriptEditor->setProjectRoot(dir);
+        m_sceneTree->setProjectRoot(dir);
+        m_statusLabel->setText("  " + m_project->name() + " (file)  |  " + dir);
+        m_scriptEditor->openFile(QFileInfo(path).absoluteFilePath());
+        m_centerTabs->setCurrentWidget(m_scriptEditor);
+        return;
+    }
+
     updateTitle();
     QString dir = QFileInfo(path).absolutePath();
     m_assetBrowser->setRoot(dir);

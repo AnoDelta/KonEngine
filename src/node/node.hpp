@@ -5,6 +5,7 @@
 #include <functional>
 #include <unordered_map>
 #include <algorithm>
+#include <mutex>
 
 // Forward declare so Node can have OnCollisionEnter/Exit
 class Collider2D;
@@ -41,7 +42,10 @@ public:
         // Propagate the scene registration callback down
         if (_onChildAdded) node->_onChildAdded = _onChildAdded;
         T* ptr = node.get();
-        children.push_back(std::unique_ptr<Node>(std::move(node)));
+        {
+            std::lock_guard<std::mutex> lock(m_childMutex);
+            children.push_back(std::unique_ptr<Node>(std::move(node)));
+        }
         ptr->Ready();
         // Notify scene so it can register any colliders
         if (_onChildAdded) _onChildAdded(static_cast<Node*>(ptr));
@@ -49,6 +53,7 @@ public:
     }
 
     void RemoveChild(const std::string& childName) {
+        std::lock_guard<std::mutex> lock(m_childMutex);
         children.erase(
             std::remove_if(children.begin(), children.end(),
                 [&](const std::unique_ptr<Node>& n) { return n->name == childName; }),
@@ -82,6 +87,7 @@ public:
     }
 
     virtual void UpdateChildren(float dt) {
+        std::lock_guard<std::mutex> lock(m_childMutex);
         for (auto& child : children)
             if (child->active) {
                 child->Update(dt);
@@ -90,6 +96,7 @@ public:
     }
 
     virtual void DrawChildren() {
+        std::lock_guard<std::mutex> lock(m_childMutex);
         for (auto& child : children)
             if (child->active) {
                 child->Draw();
@@ -100,6 +107,7 @@ public:
     const std::vector<std::unique_ptr<Node>>& getChildren() const { return children; }
 
 protected:
+    mutable std::mutex m_childMutex;
     std::vector<std::unique_ptr<Node>> children;
     std::unordered_map<std::string, std::vector<std::function<void()>>> signals;
 };
