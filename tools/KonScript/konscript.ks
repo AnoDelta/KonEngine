@@ -4855,15 +4855,30 @@ func main() -> I32 {
                 while qe < slen && remaining.substr(qe, 1) != "\"" { qe = qe + 1; }
                 let inc_path: Str = remaining.substr(qi, qe - qi);
                 if inc_path.ends(".ks") {
-                    // Normalize path: collapse "foo/../bar" → "bar"
+                    // Normalize path for deduplication:
+                    // 1. Strip leading "../segment/" patterns (resolve parent traversals)
+                    // 2. Collapse internal "foo/../bar" → "bar"
+                    // 3. Strip leading "./"
                     let mut norm: Str = inc_path;
+                    // Strip leading "../xxx/" patterns
+                    let mut strip_again: Bool = true;
+                    while strip_again && norm.len() > 3 && norm.substr(0, 3) == "../" {
+                        // Find the next '/' after "../"
+                        let mut sl: I32 = 3;
+                        while sl < norm.len() && norm.substr(sl, 1) != "/" { sl = sl + 1; }
+                        if sl < norm.len() {
+                            norm = norm.substr(sl + 1, norm.len() - sl - 1);
+                        } else {
+                            strip_again = false;
+                        }
+                    }
+                    // Collapse internal "foo/../bar" → "bar"
                     let mut changed: Bool = true;
                     while changed {
                         changed = false;
                         let mut ni: I32 = 0;
                         while ni + 3 < norm.len() {
                             if norm.substr(ni, 3) == "/.." {
-                                // Find start of preceding segment
                                 let mut ps: I32 = ni - 1;
                                 while ps >= 0 && norm.substr(ps, 1) != "/" { ps = ps - 1; }
                                 if ps >= 0 {
@@ -4882,7 +4897,7 @@ func main() -> I32 {
                             }
                         }
                     }
-                    // Also strip leading "./"
+                    // Strip leading "./"
                     if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
                     // Check if already included (using normalized path)
                     let mut already: Bool = false;
