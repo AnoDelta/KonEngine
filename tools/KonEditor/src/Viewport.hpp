@@ -39,7 +39,6 @@ signals:
     void nodeMovedFinal(const QString& name, float x, float y);
 
 protected:
-    bool event(QEvent* e) override;
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
@@ -50,7 +49,7 @@ protected:
 private:
     QPointF worldToScreen(float x, float y) const;
     QPointF screenToWorld(float x, float y) const;
-    ViewportNode* nodeAt(QPointF screenPos);
+    int nodeIdxAt(QPointF screenPos);
     void drawGrid(QPainter& p);
     void drawNode(QPainter& p, ViewportNode& n);
     void drawCameraFrame(QPainter& p, const ViewportNode& cam);
@@ -77,7 +76,7 @@ private:
     bool   m_panning     = false;
     QPointF m_dragStart;
     QPointF m_dragNodeOrigin;
-    ViewportNode* m_dragNode = nullptr;
+    int     m_dragIdx     = -1;   // index into m_nodes (safe across QList COW)
 
     // Overlay toggle button (top-right corner)
     QPushButton* m_previewBtn = nullptr;

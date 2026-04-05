@@ -67,16 +67,6 @@ Viewport::Viewport(QWidget* parent) : QWidget(parent) {
     });
 }
 
-bool Viewport::event(QEvent* e) {
-    // Debug: track what event type fires (only after drag starts)
-    static bool debugEvents = false;
-    if (m_dragging) debugEvents = true;
-    if (debugEvents && e->type() != QEvent::Paint && e->type() != QEvent::MouseMove
-        && e->type() != QEvent::Timer && e->type() != QEvent::UpdateRequest)
-        fprintf(stderr, "[Viewport] event type=%d\n", (int)e->type());
-    return QWidget::event(e);
-}
-
 void Viewport::setCameraPreview(bool on) {
     m_cameraPreview = on;
     m_previewBtn->setChecked(on);
@@ -115,12 +105,9 @@ void Viewport::updatePreviewButton() {
 }
 
 void Viewport::setNodes(const QList<ViewportNode>& nodes) {
-    // Invalidate drag pointer — m_dragNode pointed into the old list
-    if (m_dragging) {
-        m_dragging = false;
-        m_dragNode = nullptr;
-        setCursor(Qt::ArrowCursor);
-    }
+    // Invalidate drag — list is being replaced
+    m_dragging = false;
+    m_dragIdx  = -1;
     m_nodes = nodes;
     syncCameraFromNodes();
     update();
@@ -187,7 +174,7 @@ QPointF Viewport::screenToWorld(float x, float y) const {
 }
 
 // ── Hit testing ───────────────────────────────────────────────────────────
-ViewportNode* Viewport::nodeAt(QPointF sp) {
+int Viewport::nodeIdxAt(QPointF sp) {
     for (int i = m_nodes.size()-1; i >= 0; i--) {
         auto& n = m_nodes[i];
         QPointF s = worldToScreen(n.x, n.y);
@@ -201,9 +188,9 @@ ViewportNode* Viewport::nodeAt(QPointF sp) {
         }
         if (sp.x() >= s.x()-hw && sp.x() <= s.x()+hw &&
             sp.y() >= s.y()-hh && sp.y() <= s.y()+hh)
-            return &n;
+            return i;
     }
-    return nullptr;
+    return -1;
 }
 
 // ── Game bounds rectangle ─────────────────────────────────────────────────
@@ -262,9 +249,6 @@ void Viewport::drawGameBounds(QPainter& p) {
 
 // ── Paint ─────────────────────────────────────────────────────────────────
 void Viewport::paintEvent(QPaintEvent*) {
-    static int paintCount = 0;
-    if (++paintCount <= 5 || paintCount % 100 == 0)
-        fprintf(stderr, "[Viewport] paintEvent #%d nodes=%d\n", paintCount, m_nodes.size());
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
@@ -273,34 +257,24 @@ void Viewport::paintEvent(QPaintEvent*) {
 
     // Grid
     drawGrid(p);
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: grid done\n");
 
-    // Origin cross (world 0,0)
+// Origin cross (world 0,0)
     drawOriginCross(p);
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: origin done\n");
 
-    // Game / camera bounds + dim
+// Game / camera bounds + dim
     drawGameBounds(p);
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: bounds done\n");
 
-    // In scene view: draw camera frustum rects behind nodes
+// In scene view: draw camera frustum rects behind nodes
     if (!m_cameraPreview) {
         for (auto& n : m_nodes)
             if (n.type == "Camera2D" || n.type == "CameraNode2D")
                 drawCameraFrame(p, n);
     }
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: cameraFrames done\n");
 
     // Draw all non-camera nodes
-    for (int ni = 0; ni < m_nodes.size(); ni++) {
-        auto& n = m_nodes[ni];
-        if (n.type != "Camera2D" && n.type != "CameraNode2D") {
-            if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: drawNode[%d] '%s' type='%s' sel=%d\n",
-                    ni, n.name.toUtf8().constData(), n.type.toUtf8().constData(), n.selected);
+    for (auto& n : m_nodes)
+        if (n.type != "Camera2D" && n.type != "CameraNode2D")
             drawNode(p, n);
-        }
-    }
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: nodes done\n");
 
     // Camera nodes on top (as icons) in scene view
     if (!m_cameraPreview) {
@@ -308,7 +282,6 @@ void Viewport::paintEvent(QPaintEvent*) {
             if (n.type == "Camera2D" || n.type == "CameraNode2D")
                 drawNode(p, n);
     }
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: cam icons done\n");
 
     // Info overlay
     p.setPen(QColor(70, 70, 70));
@@ -327,8 +300,6 @@ void Viewport::paintEvent(QPaintEvent*) {
             .arg(m_nodes.size());
     }
     p.drawText(8, height() - 8, info);
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paint: info overlay done\n");
-    if (paintCount <= 6) fprintf(stderr, "[Viewport] paintEvent #%d COMPLETE\n", paintCount);
 }
 
 void Viewport::drawGrid(QPainter& p) {
@@ -429,7 +400,6 @@ void Viewport::drawCameraFrame(QPainter& p, const ViewportNode& cam) {
 
 // ── Input ─────────────────────────────────────────────────────────────────
 void Viewport::mousePressEvent(QMouseEvent* e) {
-    fprintf(stderr, "[Viewport] mousePress btn=%d nodes=%d\n", (int)e->button(), m_nodes.size());
     if (e->button() == Qt::MiddleButton ||
         e->button() == Qt::RightButton  ||
         (e->button() == Qt::LeftButton && e->modifiers() & Qt::AltModifier)) {
@@ -440,16 +410,16 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
     }
 
     if (e->button() == Qt::LeftButton) {
-        ViewportNode* hit = nodeAt(e->pos());
+        int hitIdx = nodeIdxAt(e->pos());
         for (auto& n : m_nodes) n.selected = false;
 
-        if (hit) {
-            hit->selected    = true;
+        if (hitIdx >= 0) {
+            m_nodes[hitIdx].selected = true;
             m_dragging       = true;
-            m_dragNode       = hit;
+            m_dragIdx        = hitIdx;
             m_dragStart      = e->pos();
-            m_dragNodeOrigin = { hit->x, hit->y };
-            emit nodeSelected(hit->name);
+            m_dragNodeOrigin = { m_nodes[hitIdx].x, m_nodes[hitIdx].y };
+            emit nodeSelected(m_nodes[hitIdx].name);
             setCursor(Qt::SizeAllCursor);
         } else {
             emit nodeSelected("");
@@ -459,9 +429,6 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent* e) {
-    static int moveCount = 0;
-    fprintf(stderr, "[Viewport] mouseMoveEvent #%d dragging=%d dragNode=%p\n",
-            ++moveCount, m_dragging, (void*)m_dragNode);
     if (m_panning) {
         QPointF delta = e->pos() - m_dragStart;
         m_panX += delta.x();
@@ -471,45 +438,37 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
         return;
     }
 
-    if (m_dragging && m_dragNode) {
-        fprintf(stderr, "[Viewport] mouseMove drag: %s dragging=%d dragNode=%p\n",
-                m_dragNode->name.toUtf8().constData(), m_dragging, (void*)m_dragNode);
+    if (m_dragging && m_dragIdx >= 0 && m_dragIdx < m_nodes.size()) {
         QPointF delta = e->pos() - m_dragStart;
         float scale = (m_cameraPreview && m_hasCamera)
             ? m_zoom * m_camZoom
             : m_zoom;
         if (std::fabs(scale) < 0.0001f) scale = 0.0001f;
-        m_dragNode->x = m_dragNodeOrigin.x() + delta.x() / scale;
-        m_dragNode->y = m_dragNodeOrigin.y() + delta.y() / scale;
-        // Cache values before emit — handler runs synchronously and could
-        // invalidate m_dragNode via setNodes()
-        QString dragName = m_dragNode->name;
-        QString dragType = m_dragNode->type;
-        float   dragX    = m_dragNode->x;
-        float   dragY    = m_dragNode->y;
-        emit nodeMoved(dragName, dragX, dragY);
-        fprintf(stderr, "[Viewport] mouseMove: after emit, dragging=%d dragNode=%p\n",
-                m_dragging, (void*)m_dragNode);
-        // After emit, m_dragNode may be invalid if setNodes() was called
-        if (!m_dragging || !m_dragNode) { fprintf(stderr, "[Viewport] mouseMove: drag invalidated, return\n"); return; }
+        float newX = m_dragNodeOrigin.x() + delta.x() / scale;
+        float newY = m_dragNodeOrigin.y() + delta.y() / scale;
+        // Update node position via index (safe across QList COW)
+        m_nodes[m_dragIdx].x = newX;
+        m_nodes[m_dragIdx].y = newY;
+        QString dragName = m_nodes[m_dragIdx].name;
+        QString dragType = m_nodes[m_dragIdx].type;
+        emit nodeMoved(dragName, newX, newY);
+        // After emit, m_dragIdx may be invalidated by setNodes()
+        if (!m_dragging || m_dragIdx < 0) return;
         // Keep camera state in sync when moving camera node
         if (dragType == "Camera2D" || dragType == "CameraNode2D") {
-            m_camX = dragX;
-            m_camY = dragY;
+            m_camX = newX;
+            m_camY = newY;
         }
-        fprintf(stderr, "[Viewport] mouseMove: calling update()\n");
         update();
-        fprintf(stderr, "[Viewport] mouseMove: done\n");
     }
 }
 
 void Viewport::mouseReleaseEvent(QMouseEvent*) {
-    fprintf(stderr, "[Viewport] mouseRelease dragging=%d dragNode=%p\n", m_dragging, (void*)m_dragNode);
-    if (m_dragging && m_dragNode)
-        emit nodeMovedFinal(m_dragNode->name, m_dragNode->x, m_dragNode->y);
+    if (m_dragging && m_dragIdx >= 0 && m_dragIdx < m_nodes.size())
+        emit nodeMovedFinal(m_nodes[m_dragIdx].name, m_nodes[m_dragIdx].x, m_nodes[m_dragIdx].y);
     m_dragging = false;
     m_panning  = false;
-    m_dragNode = nullptr;
+    m_dragIdx  = -1;
     setCursor(Qt::ArrowCursor);
 }
 
