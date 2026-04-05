@@ -15,9 +15,10 @@ namespace KonPak { struct Pack; }
 class AssetManager {
 public:
     // Call once at startup before loading any assets.
-    //   AssetManager::init("assets/");     -- dev: loose files
-    //   AssetManager::init("game.konpak"); -- release: encrypted pack
-    static void init(const std::string& pathOrRoot);
+    //   AssetManager::init("assets/");              -- dev: loose files
+    //   AssetManager::init("game.konpak");           -- release: pack (no password)
+    //   AssetManager::init("game.konpak", "secret"); -- release: encrypted pack
+    static void init(const std::string& pathOrRoot, const std::string& password = "");
 
     // Returns raw bytes of an asset. Works in both modes.
     static std::vector<uint8_t> readFile(const std::string& assetPath);

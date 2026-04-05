@@ -41,11 +41,10 @@ AssetManager& AssetManager::get() {
 // -----------------------------------------------------------------------
 // Init
 // -----------------------------------------------------------------------
-void AssetManager::init(const std::string& pathOrRoot) {
+void AssetManager::init(const std::string& pathOrRoot, const std::string& password) {
     auto& am = get();
     am.m_root    = pathOrRoot;
 #ifdef _WIN32
-    // On Windows use %TEMP% or a fallback
     const char* tmp = getenv("TEMP");
     if (!tmp) tmp = getenv("TMP");
     if (!tmp) tmp = "C:\\Temp";
@@ -61,7 +60,10 @@ void AssetManager::init(const std::string& pathOrRoot) {
 #ifdef KON_USE_PACK
         am.m_pack = std::make_unique<KonPak::Pack>();
         try {
-            am.m_pack->openWithBuiltinKey(pathOrRoot);
+            if (!password.empty())
+                am.m_pack->open(pathOrRoot, password);
+            else
+                am.m_pack->openWithBuiltinKey(pathOrRoot);
             am.m_packMode = true;
             std::cout << "[AssetManager] Loaded pack: " << pathOrRoot
                       << " (" << am.m_pack->index.size() << " files)\n";
