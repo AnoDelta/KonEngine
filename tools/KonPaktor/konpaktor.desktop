@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=KonPaktor
+Comment=KonEngine asset packer and manager
+Exec=KonPaktor
+Icon=konpaktor
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+Keywords=assets;packer;konengine;

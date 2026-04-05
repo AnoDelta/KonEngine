@@ -103,11 +103,8 @@ KonEditor::KonEditor(QWidget* parent) : QMainWindow(parent) {
     setupLayout();
     setupStatusBar();
 
-    // Restore last project
-    QSettings s("AnoDelta", "KonEditor");
-    QString last = s.value("lastProject").toString();
-    if (!last.isEmpty() && QFile::exists(last))
-        openProject(last);
+    // Note: project is opened by main.cpp after the welcome screen.
+    // Do NOT auto-open here — it would race with the welcome screen's openProject call.
 }
 
 KonEditor::~KonEditor() {

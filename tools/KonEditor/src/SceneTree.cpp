@@ -590,7 +590,7 @@ void SceneTree::loadScene(const QString& path) {
         rootItem->setData(0,Qt::UserRole,"Scene"); rootItem->setData(0,Qt::UserRole+1,rootName);
         rootItem->setExpanded(true);
         jsonToTree(rootItem, root.value("children").toArray());
-        m_sceneLoaded = true; emit sceneLoaded(path); return;
+        m_sceneLoaded = true; m_loading = false; emit sceneLoaded(path); return;
     }
 
     QString src = QString::fromUtf8(data);
@@ -679,6 +679,7 @@ void SceneTree::loadScene(const QString& path) {
 void SceneTree::saveScene(const QString& path) {
     auto* root = m_tree->topLevelItem(0);
     if (!root) return;
+    if (m_projectRoot.isEmpty()) return; // can't save without a project root
 
     QString sceneName = root->data(0,Qt::UserRole+1).toString();
     if (sceneName.isEmpty()) sceneName = "Main";
