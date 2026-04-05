@@ -533,7 +533,8 @@ void SceneTree::updateNodePosition(const QString& name, float x, float y) {
     if (!m_tree->topLevelItemCount()) return;
     if (auto* found = find(m_tree->topLevelItem(0))) {
         found->setData(0,Qt::UserRole+3,x); found->setData(0,Qt::UserRole+4,y);
-        autoSaveScene();
+        // Don't autoSave here — called on every mouse move during drag.
+        // Scene is saved on drag release via nodeMovedFinal → writeInstancePosition.
     }
 }
 
@@ -672,8 +673,11 @@ void SceneTree::loadScene(const QString& path) {
     parseSource(src, path, rootItem);
 
     rootItem->setExpanded(true);
-    m_sceneLoaded = true; m_loading = false;
+    m_sceneLoaded = true;
+    // Keep m_loading true during the signal emission so autoSave is blocked.
+    // Reset it after the signal chain completes.
     emit sceneLoaded(path);
+    m_loading = false;
 }
 
 void SceneTree::saveScene(const QString& path) {
@@ -691,6 +695,7 @@ void SceneTree::saveScene(const QString& path) {
     QStringList includes;
     std::function<void(QTreeWidgetItem*)> collectIncludes;
     collectIncludes = [&](QTreeWidgetItem* item) {
+        if (!item) return;
         QString script = item->data(0,Qt::UserRole+2).toString();
         if (!script.isEmpty()) {
             QString rel = QDir(m_projectRoot).relativeFilePath(script);
@@ -720,6 +725,7 @@ void SceneTree::saveScene(const QString& path) {
     // writeNode passes parentVar so nested children use parentVar.add() not this.add()
     std::function<void(QTreeWidgetItem*,int,const QString&)> writeNode;
     writeNode = [&](QTreeWidgetItem* item, int depth, const QString& parentVar) {
+        if (!item) return;
         QString name = item->data(0,Qt::UserRole+1).toString();
         QString type = item->data(0,Qt::UserRole).toString();
         if (type == "Scene" || name.isEmpty()) {
@@ -772,6 +778,7 @@ void SceneTree::saveScene(const QString& path) {
     // writePositions: looks up nameToVar — never re-derives independently
     std::function<void(QTreeWidgetItem*)> writePositions;
     writePositions = [&](QTreeWidgetItem* item) {
+        if (!item) return;
         QString name = item->data(0,Qt::UserRole+1).toString();
         QString type = item->data(0,Qt::UserRole).toString();
         if (type == "Scene" || name.isEmpty()) {

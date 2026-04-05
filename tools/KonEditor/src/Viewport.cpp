@@ -449,11 +449,19 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
         if (std::fabs(scale) < 0.0001f) scale = 0.0001f;
         m_dragNode->x = m_dragNodeOrigin.x() + delta.x() / scale;
         m_dragNode->y = m_dragNodeOrigin.y() + delta.y() / scale;
-        emit nodeMoved(m_dragNode->name, m_dragNode->x, m_dragNode->y);
+        // Cache values before emit — handler runs synchronously and could
+        // invalidate m_dragNode via setNodes()
+        QString dragName = m_dragNode->name;
+        QString dragType = m_dragNode->type;
+        float   dragX    = m_dragNode->x;
+        float   dragY    = m_dragNode->y;
+        emit nodeMoved(dragName, dragX, dragY);
+        // After emit, m_dragNode may be invalid if setNodes() was called
+        if (!m_dragging || !m_dragNode) return;
         // Keep camera state in sync when moving camera node
-        if (m_dragNode->type == "Camera2D" || m_dragNode->type == "CameraNode2D") {
-            m_camX = m_dragNode->x;
-            m_camY = m_dragNode->y;
+        if (dragType == "Camera2D" || dragType == "CameraNode2D") {
+            m_camX = dragX;
+            m_camY = dragY;
         }
         update();
     }
