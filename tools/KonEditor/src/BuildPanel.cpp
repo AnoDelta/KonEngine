@@ -26,19 +26,6 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     auto* clearBtn = new QPushButton("Clear");
     clearBtn->setFixedHeight(22);
     clearBtn->setFixedWidth(60);
-    connect(clearBtn, &QPushButton::clicked, [this]{ m_log->clear(); });
-    connect(m_log, &QPlainTextEdit::customContextMenuRequested, [this](const QPoint& pos) {
-        QMenu* menu = new QMenu(this);
-        auto* copyAll = menu->addAction("Copy All");
-        auto* copySel = menu->addAction("Copy Selected");
-        auto* clear   = menu->addAction("Clear");
-        copySel->setEnabled(m_log->textCursor().hasSelection());
-        connect(copyAll, &QAction::triggered, [this]{ qApp->clipboard()->setText(m_log->toPlainText()); });
-        connect(copySel, &QAction::triggered, [this]{ m_log->copy(); });
-        connect(clear,   &QAction::triggered, [this]{ m_log->clear(); });
-        menu->exec(m_log->mapToGlobal(pos));
-        delete menu;
-    });
     bar->addWidget(clearBtn);
 
     m_cancelBtn = new QPushButton("Cancel");
@@ -67,6 +54,7 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     m_progress->hide();
     layout->addWidget(m_progress);
 
+    // m_log must be created BEFORE connecting signals that reference it
     m_log = new QPlainTextEdit();
     m_log->setReadOnly(true);
     m_log->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -75,6 +63,21 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     m_log->setStyleSheet("background: #111; color: #ccc; border: none;");
     m_log->setMaximumBlockCount(5000);
     layout->addWidget(m_log);
+
+    // Wire up signals now that m_log exists
+    connect(clearBtn, &QPushButton::clicked, [this]{ m_log->clear(); });
+    connect(m_log, &QPlainTextEdit::customContextMenuRequested, [this](const QPoint& pos) {
+        QMenu* menu = new QMenu(this);
+        auto* copyAll = menu->addAction("Copy All");
+        auto* copySel = menu->addAction("Copy Selected");
+        auto* clear   = menu->addAction("Clear");
+        copySel->setEnabled(m_log->textCursor().hasSelection());
+        connect(copyAll, &QAction::triggered, [this]{ qApp->clipboard()->setText(m_log->toPlainText()); });
+        connect(copySel, &QAction::triggered, [this]{ m_log->copy(); });
+        connect(clear,   &QAction::triggered, [this]{ m_log->clear(); });
+        menu->exec(m_log->mapToGlobal(pos));
+        delete menu;
+    });
 }
 
 void BuildPanel::appendLog(const QString& text) {
