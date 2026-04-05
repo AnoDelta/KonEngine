@@ -60,10 +60,12 @@ void AssetManager::init(const std::string& pathOrRoot, const std::string& passwo
 #ifdef KON_USE_PACK
         am.m_pack = std::make_unique<KonPak::Pack>();
         try {
-            if (!password.empty())
-                am.m_pack->open(pathOrRoot, password);
-            else
+            if (!password.empty()) {
+                am.m_pack->password = password;
+                am.m_pack->load(pathOrRoot);
+            } else {
                 am.m_pack->openWithBuiltinKey(pathOrRoot);
+            }
             am.m_packMode = true;
             std::cout << "[AssetManager] Loaded pack: " << pathOrRoot
                       << " (" << am.m_pack->index.size() << " files)\n";
