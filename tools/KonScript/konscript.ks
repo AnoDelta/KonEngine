@@ -5109,9 +5109,10 @@ func main() -> I32 {
     // Always add -lm
     if !is_windows { link_flags = link_flags + " -lm"; }
 
-    // KonPak support: add -DKON_PACK_SUPPORT if --pack flag or source uses AssetManager
+    // KonPak support: add define and link libraries
     if pack_support || src.contains("AssetManager") {
         cxx_flags = cxx_flags + " -DKON_USE_PACK";
+        link_flags = link_flags + " -lssl -lcrypto -lz";
     }
 
     // Build final command

@@ -113,7 +113,7 @@ INCLUDES=(
     -I"${ENGINE_ROOT}/libs/glm"
 )
 
-CXXFLAGS=(-std=c++17 -O2 -fPIC -DNDEBUG "${INCLUDES[@]}")
+CXXFLAGS=(-std=c++17 -O2 -fPIC -DNDEBUG -DKON_USE_PACK "${INCLUDES[@]}")
 CFLAGS=(-O2 -fPIC -DNDEBUG "${INCLUDES[@]}")
 
 # ── Linux64 ───────────────────────────────────────────────────────────────
