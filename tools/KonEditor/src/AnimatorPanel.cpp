@@ -329,7 +329,7 @@ void AnimatorPanel::onAddTrack() {
 
     clip.getOrAddTrack(name.toStdString());
     m_project.dirty = true;
-    m_timelineWidget->refreshClip();
+    m_timelineWidget->setClip(&clip);
 }
 
 void AnimatorPanel::onAddKeyframe() {
@@ -342,10 +342,22 @@ void AnimatorPanel::onAddKeyframe() {
     if (trackIdx >= (int)clip.tracks.size()) trackIdx = 0;
 
     float t = m_timelineWidget->playhead();
-    clip.tracks[trackIdx].keys.push_back({t, 0.0f, Ease::Linear});
+    // Copy curve from previous keyframe so the user's chosen curve propagates
+    Ease curve = Ease::Linear;
+    auto& keys = clip.tracks[trackIdx].keys;
+    if (!keys.empty()) {
+        Ease prevCurve = keys.back().curve;
+        for (int i = (int)keys.size()-1; i >= 0; --i) {
+            if (keys[i].time <= t) { prevCurve = keys[i].curve; break; }
+        }
+        curve = prevCurve;
+    }
+    const std::string& tn = clip.tracks[trackIdx].name;
+    float defVal = (tn == "scaleX" || tn == "scaleY" || tn == "alpha") ? 1.0f : 0.0f;
+    keys.push_back({t, defVal, curve});
     clip.tracks[trackIdx].sortKeys();
     m_project.dirty = true;
-    m_timelineWidget->refreshClip();
+    m_timelineWidget->setClip(&clip);
 }
 
 void AnimatorPanel::onPlayStop() {

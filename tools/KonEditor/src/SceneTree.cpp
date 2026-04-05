@@ -618,24 +618,92 @@ void SceneTree::loadScene(const QString& path) {
 
     if (isMonolithic) {
         // ── Monolithic file: parse node definitions and scene.add() calls ──
+
+        // Step 1: Scan for const declarations and build a lookup map.
+        // Matches patterns like: const screenWidth = 900;
+        QMap<QString, float> constMap;
+        {
+            QRegularExpression reConst(R"(const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*([^;]+);)");
+            auto itConst = reConst.globalMatch(src);
+            while (itConst.hasNext()) {
+                auto cm = itConst.next();
+                QString name = cm.captured(1).trimmed();
+                QString val  = cm.captured(2).trimmed();
+                bool ok = false;
+                float v = val.toFloat(&ok);
+                if (ok) constMap[name] = v;
+            }
+        }
+        // Also extract InitWindow(w, h, ...) arguments as screenWidth/screenHeight
+        {
+            QRegularExpression reInit(R"(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,)");
+            auto im = reInit.match(src);
+            if (im.hasMatch()) {
+                if (!constMap.contains("screenWidth"))
+                    constMap["screenWidth"] = im.captured(1).toFloat();
+                if (!constMap.contains("screenHeight"))
+                    constMap["screenHeight"] = im.captured(2).toFloat();
+            }
+        }
+
         // First, collect all node definitions: node Name : Base { ... }
         QRegularExpression reAllNodes(R"(node\s+(\w+)\s*:\s*(\w+)\s*\{)");
         auto itNodes = reAllNodes.globalMatch(src);
         QMap<QString, QTreeWidgetItem*> nodeItems; // typeName → tree item
 
-        // Helper: try to parse a numeric literal from a value string.
-        // Returns true and sets *out if the value is a plain number.
-        // Returns false if it contains operators or identifiers (e.g. "screenWidth / 2").
-        auto tryParseNumeric = [](const QString& val, float* out) -> bool {
+        // Helper: try to evaluate a value expression to a float.
+        // Handles:
+        //   - Plain numeric literals: "450" -> 450
+        //   - Simple binary expressions with one const: "screenWidth / 2" -> 450
+        //   - Simple binary expressions with two literals: "700 / 1.5" -> 466.67
+        // Returns false if the expression is too complex.
+        auto tryParseNumeric = [&constMap](const QString& val, float* out) -> bool {
             QString trimmed = val.trimmed();
             if (trimmed.isEmpty()) return false;
-            // Reject if it contains letters (identifiers) or operators other than unary minus
-            static QRegularExpression reNonNumeric(R"([a-zA-Z_/\*\+%])");
-            if (reNonNumeric.match(trimmed).hasMatch()) return false;
-            bool ok = false;
-            float v = trimmed.toFloat(&ok);
-            if (ok && out) *out = v;
-            return ok;
+
+            // Try plain numeric literal first
+            {
+                bool ok = false;
+                float v = trimmed.toFloat(&ok);
+                if (ok) { if (out) *out = v; return true; }
+            }
+
+            // Try simple binary expression: operand op operand
+            // where each operand is a number or a known const
+            static QRegularExpression reBinOp(R"(^(\w[\w.]*)\s*([+\-\*/])\s*(\w[\w.]*)$)");
+            auto m = reBinOp.match(trimmed);
+            if (!m.hasMatch()) return false;
+
+            QString lhs = m.captured(1).trimmed();
+            QChar   op  = m.captured(2).at(0);
+            QString rhs = m.captured(3).trimmed();
+
+            // Resolve each operand to a float
+            auto resolveOperand = [&constMap](const QString& s, float* v) -> bool {
+                bool ok = false;
+                float f = s.toFloat(&ok);
+                if (ok) { *v = f; return true; }
+                if (constMap.contains(s)) { *v = constMap[s]; return true; }
+                return false;
+            };
+
+            float lVal = 0, rVal = 0;
+            if (!resolveOperand(lhs, &lVal) || !resolveOperand(rhs, &rVal))
+                return false;
+
+            float result = 0;
+            if      (op == '+') result = lVal + rVal;
+            else if (op == '-') result = lVal - rVal;
+            else if (op == '*') result = lVal * rVal;
+            else if (op == '/') {
+                if (rVal == 0.0f) return false;
+                result = lVal / rVal;
+            } else {
+                return false;
+            }
+
+            if (out) *out = result;
+            return true;
         };
 
         while (itNodes.hasNext()) {
