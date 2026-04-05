@@ -843,7 +843,11 @@ void SceneTree::loadScene(const QString& path) {
                 while (itTex.hasNext()) {
                     auto tm = itTex.next();
                     texVarToPath[tm.captured(1)] = tm.captured(2);
+                    fprintf(stderr, "[SceneTree] Texture var: %s → %s\n",
+                            tm.captured(1).toUtf8().constData(), tm.captured(2).toUtf8().constData());
                 }
+                if (texVarToPath.isEmpty())
+                    fprintf(stderr, "[SceneTree] No LoadTexture calls found in main()\n");
             }
             // Step 2: nodeVar.SetTexture(texVar) → associate node with texture path
             {
@@ -853,9 +857,16 @@ void SceneTree::loadScene(const QString& path) {
                     auto sm = itSetTex.next();
                     QString nodeVar = sm.captured(1);
                     QString texVar  = sm.captured(2);
-                    if (!texVarToPath.contains(texVar)) continue;
+                    fprintf(stderr, "[SceneTree] SetTexture: %s.SetTexture(%s)\n",
+                            nodeVar.toUtf8().constData(), texVar.toUtf8().constData());
+                    if (!texVarToPath.contains(texVar)) {
+                        fprintf(stderr, "[SceneTree]   texVar '%s' not in texVarToPath\n", texVar.toUtf8().constData());
+                        continue;
+                    }
                     // Find the tree item for this nodeVar
                     QString nodeType = varToType.value(nodeVar);
+                    fprintf(stderr, "[SceneTree]   nodeVar '%s' → type '%s'\n",
+                            nodeVar.toUtf8().constData(), nodeType.toUtf8().constData());
                     QTreeWidgetItem* item = nodeItems.value(nodeType, nullptr);
                     if (!item) {
                         for (int i = 0; i < rootItem->childCount(); i++) {
@@ -863,8 +874,15 @@ void SceneTree::loadScene(const QString& path) {
                                 item = rootItem->child(i);
                         }
                     }
-                    if (item)
+                    if (item) {
                         item->setData(0, Qt::UserRole+7, texVarToPath[texVar]);
+                        fprintf(stderr, "[SceneTree]   → set texture '%s' on '%s'\n",
+                                texVarToPath[texVar].toUtf8().constData(),
+                                item->data(0, Qt::UserRole+1).toString().toUtf8().constData());
+                    } else {
+                        fprintf(stderr, "[SceneTree]   → no tree item found for type '%s'\n",
+                                nodeType.toUtf8().constData());
+                    }
                 }
             }
         }

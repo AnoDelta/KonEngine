@@ -313,15 +313,17 @@ void KonEditor::setupLayout() {
                     }
                     m_viewport->setNodes(nodes);
                     // Write LOCAL position to the correct script file
-                    QString scenePath = m_sceneTree->scenePath();
-                    if (!scenePath.isEmpty()) {
-                        QString targetScript = scenePath;
-                        if (parentItem) {
-                            QString parentScript = parentItem->data(0, Qt::UserRole+2).toString();
-                            if (!parentScript.isEmpty())
-                                targetScript = parentScript;
+                    if (!m_sceneTree->isReadOnly()) {
+                        QString scenePath = m_sceneTree->scenePath();
+                        if (!scenePath.isEmpty()) {
+                            QString targetScript = scenePath;
+                            if (parentItem) {
+                                QString parentScript = parentItem->data(0, Qt::UserRole+2).toString();
+                                if (!parentScript.isEmpty())
+                                    targetScript = parentScript;
+                            }
+                            writeInstancePosition(targetScript, node.toLower(), localX, localY);
                         }
-                        writeInstancePosition(targetScript, node.toLower(), localX, localY);
                     }
                 } else {
                     // Any other property change — autosave scene and rebuild viewport
