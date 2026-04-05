@@ -6,17 +6,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$SCRIPT_DIR/build"
 
 if [ ! -f "$BUILD/KonAnimator" ]; then
-    echo "Error: KonAnimator not built. Run ./build-tools.sh first."
-    exit 1
-fi
-if [ ! -f "$BUILD/anim_compiler" ]; then
-    echo "Error: anim_compiler not built. Run ./build-tools.sh first."
+    echo "Error: KonAnimator not built. Run ./build.sh first."
     exit 1
 fi
 
-echo "Installing KonAnimator and anim_compiler..."
-sudo install -m 755 "$BUILD/KonAnimator"    /usr/local/bin/KonAnimator
-sudo install -m 755 "$BUILD/anim_compiler"  /usr/local/bin/anim_compiler
+echo "Installing KonAnimator..."
+sudo install -m 755 "$BUILD/KonAnimator" /usr/local/bin/KonAnimator
+if [ -f "$BUILD/anim_compiler" ]; then
+    sudo install -m 755 "$BUILD/anim_compiler" /usr/local/bin/anim_compiler
+fi
 
 # Desktop entry
 if [ -d /usr/share/applications ]; then
@@ -38,5 +36,5 @@ command -v update-desktop-database >/dev/null 2>&1 && \
 echo ""
 echo "Done!"
 echo "  KonAnimator   -> /usr/local/bin/KonAnimator"
-echo "  anim_compiler -> /usr/local/bin/anim_compiler"
+[ -f "$BUILD/anim_compiler" ] && echo "  anim_compiler -> /usr/local/bin/anim_compiler"
 echo "  Desktop       -> /usr/share/applications/konanimator.desktop"
