@@ -252,6 +252,9 @@ void Viewport::drawGameBounds(QPainter& p) {
 
 // ── Paint ─────────────────────────────────────────────────────────────────
 void Viewport::paintEvent(QPaintEvent*) {
+    static int paintCount = 0;
+    if (++paintCount <= 5 || paintCount % 100 == 0)
+        fprintf(stderr, "[Viewport] paintEvent #%d nodes=%d\n", paintCount, m_nodes.size());
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
@@ -443,6 +446,8 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
     }
 
     if (m_dragging && m_dragNode) {
+        fprintf(stderr, "[Viewport] mouseMove drag: %s dragging=%d dragNode=%p\n",
+                m_dragNode->name.toUtf8().constData(), m_dragging, (void*)m_dragNode);
         QPointF delta = e->pos() - m_dragStart;
         float scale = (m_cameraPreview && m_hasCamera)
             ? m_zoom * m_camZoom
@@ -457,18 +462,23 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
         float   dragX    = m_dragNode->x;
         float   dragY    = m_dragNode->y;
         emit nodeMoved(dragName, dragX, dragY);
+        fprintf(stderr, "[Viewport] mouseMove: after emit, dragging=%d dragNode=%p\n",
+                m_dragging, (void*)m_dragNode);
         // After emit, m_dragNode may be invalid if setNodes() was called
-        if (!m_dragging || !m_dragNode) return;
+        if (!m_dragging || !m_dragNode) { fprintf(stderr, "[Viewport] mouseMove: drag invalidated, return\n"); return; }
         // Keep camera state in sync when moving camera node
         if (dragType == "Camera2D" || dragType == "CameraNode2D") {
             m_camX = dragX;
             m_camY = dragY;
         }
+        fprintf(stderr, "[Viewport] mouseMove: calling update()\n");
         update();
+        fprintf(stderr, "[Viewport] mouseMove: done\n");
     }
 }
 
 void Viewport::mouseReleaseEvent(QMouseEvent*) {
+    fprintf(stderr, "[Viewport] mouseRelease dragging=%d dragNode=%p\n", m_dragging, (void*)m_dragNode);
     if (m_dragging && m_dragNode)
         emit nodeMovedFinal(m_dragNode->name, m_dragNode->x, m_dragNode->y);
     m_dragging = false;
