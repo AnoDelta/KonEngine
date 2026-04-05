@@ -363,6 +363,12 @@ func lex(src: Str) -> I32 {
             continue;
         }
 
+        // ── # comment (legacy) — skip to end of line ────────────────
+        if c == "#" && !(i + 7 < n && src.substr(i, 8) == "#include") {
+            while i < n && src.substr(i, 1) != "\n" { i += 1; col += 1; }
+            continue;
+        }
+
         // ── #include directive ─────────────────────────────────────
         if c == "#" && i + 7 < n && src.substr(i, 8) == "#include" {
             let tok_col: I32 = col;
@@ -4849,16 +4855,45 @@ func main() -> I32 {
                 while qe < slen && remaining.substr(qe, 1) != "\"" { qe = qe + 1; }
                 let inc_path: Str = remaining.substr(qi, qe - qi);
                 if inc_path.ends(".ks") {
-                    // Check if already included
+                    // Normalize path: collapse "foo/../bar" → "bar"
+                    let mut norm: Str = inc_path;
+                    let mut changed: Bool = true;
+                    while changed {
+                        changed = false;
+                        let mut ni: I32 = 0;
+                        while ni + 3 < norm.len() {
+                            if norm.substr(ni, 3) == "/.." {
+                                // Find start of preceding segment
+                                let mut ps: I32 = ni - 1;
+                                while ps >= 0 && norm.substr(ps, 1) != "/" { ps = ps - 1; }
+                                if ps >= 0 {
+                                    norm = norm.substr(0, ps) + norm.substr(ni + 3, norm.len() - ni - 3);
+                                    changed = true;
+                                    ni = 0;
+                                } else if ni > 0 {
+                                    norm = norm.substr(ni + 4, norm.len() - ni - 4);
+                                    changed = true;
+                                    ni = 0;
+                                } else {
+                                    ni = ni + 1;
+                                }
+                            } else {
+                                ni = ni + 1;
+                            }
+                        }
+                    }
+                    // Also strip leading "./"
+                    if norm.len() > 2 && norm.substr(0, 2) == "./" { norm = norm.substr(2, norm.len() - 2); }
+                    // Check if already included (using normalized path)
                     let mut already: Bool = false;
                     let mut ai: I32 = 1;
                     while ai <= included_file_count {
-                        if included_files[ai] == inc_path { already = true; }
+                        if included_files[ai] == norm { already = true; }
                         ai = ai + 1;
                     }
                     if !already {
                         included_file_count = included_file_count + 1;
-                        included_files.push(inc_path);
+                        included_files.push(norm);
                         let inc_result: Result<Str> = File.read(inc_path);
                         if inc_result.ok {
                             prepend = prepend + inc_result.value + "\n";
