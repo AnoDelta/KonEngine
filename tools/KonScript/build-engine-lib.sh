@@ -191,7 +191,7 @@ if [ "$DO_WINDOWS" = "1" ]; then
         if [[ "$src" == *.c ]]; then
             "$WIN_CC" "${WIN_INCLUDES[@]}" -O2 -DNDEBUG -x c -c "$src" -o "$obj" 2>/dev/null || true
         else
-            "$WIN_CXX" "${WIN_INCLUDES[@]}" -std=c++17 -O2 -DNDEBUG -c "$src" -o "$obj" 2>/dev/null || true
+            "$WIN_CXX" "${WIN_INCLUDES[@]}" -std=c++17 -O2 -DNDEBUG -DKON_USE_PACK -c "$src" -o "$obj" 2>/dev/null || true
         fi
         [ -f "$obj" ] && OBJS_WIN+=("$obj")
     done

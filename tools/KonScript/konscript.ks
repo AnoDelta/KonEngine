@@ -5112,7 +5112,9 @@ func main() -> I32 {
     // KonPak support: add define and link libraries
     if pack_support || src.contains("AssetManager") {
         cxx_flags = cxx_flags + " -DKON_USE_PACK";
-        link_flags = link_flags + " -lssl -lcrypto -lz";
+        if !is_windows {
+            link_flags = link_flags + " -lssl -lcrypto -lz";
+        }
     }
 
     // Build final command
@@ -5139,6 +5141,9 @@ func main() -> I32 {
         cm = cm + "project(KsGame CXX C)\n";
         cm = cm + "set(CMAKE_CXX_STANDARD 17)\n";
         cm = cm + "add_definitions(-DGLM_FORCE_PURE -D_WIN32)\n";
+        if pack_support || src.contains("AssetManager") {
+            cm = cm + "add_definitions(-DKON_USE_PACK)\n";
+        }
         // Source files — include runtime .c source directly (CMake compiles it)
         let mut rt_src_path: Str = _ks_self_dir() + "/_ks_runtime.c";
         if !File.exists(rt_src_path) { rt_src_path = "_ks_runtime.c"; }
@@ -5157,9 +5162,32 @@ func main() -> I32 {
                 cm = cm + "target_include_directories(game PRIVATE " + einc + " " + einc + "/glad/include " + einc + "/stb";
                 if File.exists(einc + "/glm/glm/glm.hpp") { cm = cm + " " + einc + "/glm"; }
                 cm = cm + ")\n";
+                // When --pack is used, compile asset_manager.cpp from source
+                // with KON_USE_PACK so it overrides the one in the pre-built lib
+                if pack_support || src.contains("AssetManager") {
+                    let mut am_src: Str = "";
+                    let mut engine_root: Str = _ks_self_dir() + "/../..";
+                    if File.exists(engine_root + "/src/asset_manager.cpp") {
+                        am_src = engine_root + "/src/asset_manager.cpp";
+                    } else if File.exists("../../src/asset_manager.cpp") {
+                        am_src = "../../src/asset_manager.cpp";
+                        engine_root = "../..";
+                    }
+                    if am_src.len() > 0 {
+                        cm = cm + "target_sources(game PRIVATE \"" + am_src + "\")\n";
+                        cm = cm + "target_include_directories(game PRIVATE \"" + engine_root + "/src\")\n";
+                        // Add miniz for compression support on Windows
+                        let miniz_dir: Str = engine_root + "/tools/KonPaktor/third_party";
+                        if File.exists(miniz_dir + "/miniz.h") {
+                            cm = cm + "target_sources(game PRIVATE \"" + engine_root + "/src/miniz_impl.cpp\")\n";
+                            cm = cm + "target_include_directories(game PRIVATE \"" + miniz_dir + "\")\n";
+                            cm = cm + "target_compile_definitions(game PRIVATE KONPAK_USE_MINIZ)\n";
+                        }
+                    }
+                }
                 cm = cm + "target_link_libraries(game PRIVATE " + eng + "/libKonEngine.a";
                 if File.exists(eng + "/libglfw3.a") { cm = cm + " " + eng + "/libglfw3.a"; }
-                cm = cm + " opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+                cm = cm + " opengl32 gdi32 winmm ws2_32 bcrypt -static-libstdc++ -static-libgcc)\n";
             } else {
                 // No pre-built windows64 toolchain — try building engine from repo source
                 let mut engine_root: Str = _ks_self_dir() + "/../..";
@@ -5195,7 +5223,7 @@ func main() -> I32 {
                     cm = cm + "set(GLFW_BUILD_TESTS OFF CACHE BOOL \"\" FORCE)\n";
                     cm = cm + "set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL \"\" FORCE)\n";
                     cm = cm + "add_subdirectory(\"" + engine_root + "/libs/glfw\" \"${CMAKE_BINARY_DIR}/glfw_build\")\n";
-                    cm = cm + "target_link_libraries(game PRIVATE glfw opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+                    cm = cm + "target_link_libraries(game PRIVATE glfw opengl32 gdi32 winmm ws2_32 bcrypt -static-libstdc++ -static-libgcc)\n";
                 } else {
                     Print("error: Windows engine toolchain not found.");
                     Print("  Option 1: cd tools/KonScript && ./build-engine-lib.sh --windows");
