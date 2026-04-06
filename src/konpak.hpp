@@ -33,7 +33,7 @@
    // miniz.c amalgamated defines these zlib-compat names:
    // If the include worked, compress2/Z_OK etc. are available.
 #  define KONPAK_HAS_COMPRESS
-#elif !defined(_WIN32) || !defined(__MINGW32__)
+#elif !(defined(_WIN32) && (defined(__MINGW32__) || defined(__MINGW64__)))
 #  include <zlib.h>
 #  define KONPAK_HAS_COMPRESS
 #endif

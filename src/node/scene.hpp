@@ -17,8 +17,11 @@ public:
         auto node = std::make_unique<T>(nodeName, std::forward<Args>(args)...);
         node->name = nodeName;
         T* ptr = node.get();
+        // Give the node access to the collision world for physics queries
+        ptr->_world = &collisionWorld;
         // Set up child-added callback so colliders added in Ready() get registered
         ptr->_onChildAdded = [this](Node* n) {
+            n->_world = &collisionWorld;
             if (auto* col = dynamic_cast<Collider2D*>(n))
                 collisionWorld.Add(col);
         };

@@ -32,38 +32,46 @@ public:
         return col;
     }
 
+    // Convenience: auto-generates collider name
+    Collider2D* AddCollider(float w = 32.0f, float h = 32.0f) {
+        return AddCollider("collider_" + std::to_string(m_colCounter++), w, h);
+    }
+
     // MoveAndCollide — attempt to move by (dx, dy), resolve overlaps with
-    // static bodies, and return the actual displacement applied.
-    // `world` must be the scene's CollisionWorld so we can query colliders.
-    Vector2 MoveAndCollide(float dx, float dy, CollisionWorld& world) {
+    // static bodies using fresh MTV checks (not stale contact lists).
+    // Uses the CollisionWorld set by Scene automatically.
+    Vector2 MoveAndCollide(float dx, float dy) {
         // 1. Apply the tentative move
         x += dx;
         y += dy;
 
+        if (!_world) return Vector2(dx, dy);
+
         Vector2 totalPush(0.0f, 0.0f);
 
-        // 2. For each of our collider children, check against all static colliders
+        // 2. For each of our collider children, sweep-resolve against all statics
         ForEachDescendant([&](Node* n) {
             auto* mover = dynamic_cast<Collider2D*>(n);
             if (!mover || !mover->active) return;
 
-            // Resolve may need multiple iterations (corner cases)
-            for (int iter = 0; iter < 4; ++iter) {
-                bool pushed = false;
-                for (auto* other : mover->GetContacts()) {
-                    if (!other->staticBody) continue;
-                    Vector2 push = world.ResolveOverlap(mover, other);
-                    totalPush.x += push.x;
-                    totalPush.y += push.y;
-                    if (push.x != 0.0f || push.y != 0.0f) pushed = true;
-                }
-                // Also do a fresh MTV check in case contacts list is stale
-                // (contacts are rebuilt each CollisionWorld::Update)
-                if (!pushed) break;
-            }
+            glm::vec2 push = _world->SweepResolve(mover);
+            totalPush.x += push.x;
+            totalPush.y += push.y;
         });
 
-        // The actual movement is the requested delta + any push-back
+        // Push the parent body by the same amount the colliders were pushed
+        x += totalPush.x;
+        y += totalPush.y;
+
         return Vector2(dx + totalPush.x, dy + totalPush.y);
     }
+
+    // Overload accepting an explicit CollisionWorld (backwards compatible)
+    Vector2 MoveAndCollide(float dx, float dy, CollisionWorld& world) {
+        _world = &world;
+        return MoveAndCollide(dx, dy);
+    }
+
+private:
+    int m_colCounter = 0;
 };

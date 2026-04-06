@@ -75,6 +75,38 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - VSync off by default, uncapped FPS when no `SetTargetFPS()` is called
 - MSVC compatibility fix in test suite (nested brace-init for `std::vector`)
 
+### v0.9.1 -- API Polish + Performance
+- `ClearBackground(Color)` overload — use color presets like `ClearBackground(BLACK)`
+- Color overload threaded through entire API: IRenderer, OpenGLRenderer, Window, global functions
+- KonScript typechecker updated to accept `ClearBackground(Color)` in addition to `(r, g, b)`
+- **Physics usability fixes:**
+  - `CollisionWorld*` auto-propagated to all nodes via `Scene::Add()`
+  - `MoveAndCollide(dx, dy)` no longer requires passing `CollisionWorld&` manually
+  - `RigidBody2D` auto-runs physics in `Update()` — no manual `PhysicsUpdate()` call needed
+  - `RigidBody2D::onFloor` flag — true when touching a static body below
+  - `AddCollider(w, h)` convenience overload — auto-generates collider name
+  - `SweepResolve()` — fresh MTV checks against all statics (fixes stale contacts bug)
+- **Rendering performance:**
+  - Line batching — all `DrawLine` calls batched into one `glDrawArrays(GL_LINES)` per flush
+  - Glyph batching — all `DrawGlyph` calls batched per atlas, single draw per font atlas
+  - `FlushAll()` ensures correct draw order across batch types
+  - Debug grid (hundreds of lines) now renders in 1-2 draw calls instead of hundreds
+- **Collision performance:**
+  - AABB broad-phase rejection before SAT narrow-phase
+  - `SweepResolve` also uses broad-phase for fast kinematic/rigid body resolution
+- **Cross-compilation fixes:**
+  - `windows-toolchain.cmake` uses `MXE_ROOT` for correct MXE compiler paths
+  - `build-windows.sh --pack` flag for KonPak support during cross-compile
+  - `build-windows.sh --pack-key=KEY` for compile-time key baking
+  - Fixed `konpak.hpp` preprocessor guard for `__MINGW64__` toolchains
+  - MXE sysroot added to bcrypt include search paths
+- Updated C++ example (`examples/cpp_example/`) showcasing:
+  - Color presets, `ClearBackground(BLACK)`
+  - KinematicBody2D with `MoveAndCollide`, StaticBody2D walls
+  - Camera2D follow, zoom, world mouse coordinates
+  - Collision enter/exit callbacks, text rendering, debug mode
+- Comprehensive DOCS.md rewrite with dual KonScript + C++ examples for every feature
+
 ---
 
 ## Upcoming

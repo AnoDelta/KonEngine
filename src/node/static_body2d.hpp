@@ -28,7 +28,13 @@ public:
         return col;
     }
 
+    // Convenience: auto-generates collider name
+    Collider2D* AddCollider(float w = 32.0f, float h = 32.0f) {
+        return AddCollider("collider_" + std::to_string(m_colCounter++), w, h);
+    }
+
 private:
+    int m_colCounter = 0;
     void MarkColliders() {
         ForEachDescendant([](Node* n) {
             if (auto* col = dynamic_cast<Collider2D*>(n)) {

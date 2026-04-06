@@ -4,6 +4,8 @@
 # Usage:
 #   ./build-windows.sh              # engine library only
 #   ./build-windows.sh --tools      # engine + KonAnimator + anim_compiler
+#   ./build-windows.sh --pack       # engine with KonPak asset encryption
+#   ./build-windows.sh --pack --tools
 #
 # One-time MXE setup (~30-60 min):
 #   git clone https://github.com/mxe/mxe.git ~/mxe
@@ -13,10 +15,14 @@
 set -e
 
 BUILD_TOOLS=OFF
+KON_PACK=OFF
+KON_PACK_KEY=""
 for arg in "$@"; do
-    if [ "$arg" = "--tools" ]; then
-        BUILD_TOOLS=ON
-    fi
+    case "$arg" in
+        --tools) BUILD_TOOLS=ON ;;
+        --pack)  KON_PACK=ON ;;
+        --pack-key=*) KON_PACK_KEY="${arg#--pack-key=}"; KON_PACK=ON ;;
+    esac
 done
 
 # ---- Locate MXE ----
@@ -46,17 +52,28 @@ fi
 
 echo "MXE root   : $MXE_ROOT"
 echo "Build tools: $BUILD_TOOLS"
+echo "KonPak     : $KON_PACK"
 echo ""
 
 BUILD_DIR="build-windows"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-cmake .. \
-    -DCMAKE_TOOLCHAIN_FILE=../windows-toolchain.cmake \
-    -DMXE_ROOT="$MXE_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release \
+CMAKE_ARGS=(
+    -DCMAKE_TOOLCHAIN_FILE=../windows-toolchain.cmake
+    -DMXE_ROOT="$MXE_ROOT"
+    -DCMAKE_BUILD_TYPE=Release
     -DKON_BUILD_TOOLS="$BUILD_TOOLS"
+)
+
+if [ "$KON_PACK" = "ON" ]; then
+    CMAKE_ARGS+=(-DKON_PACK_SUPPORT=ON)
+    if [ -n "$KON_PACK_KEY" ]; then
+        CMAKE_ARGS+=(-DKON_PACK_KEY="$KON_PACK_KEY")
+    fi
+fi
+
+cmake .. "${CMAKE_ARGS[@]}"
 
 if [ "$BUILD_TOOLS" = "ON" ]; then
     make -j"$(nproc)" KonAnimator anim_compiler
@@ -73,5 +90,8 @@ else
     echo ""
     echo "==================================================="
     echo " Done!  ->  $BUILD_DIR/libKonEngine.a"
+    if [ "$KON_PACK" = "ON" ]; then
+        echo " KonPak support: ENABLED"
+    fi
     echo "==================================================="
 fi

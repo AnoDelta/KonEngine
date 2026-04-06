@@ -565,7 +565,7 @@ private:
         reg("WindowShouldClose", {}, Bool);
         reg("Present",       {}, Void);
         reg("PollEvents",    {}, Void);
-        reg("ClearBackground", {F64, F64, F64}, Void);
+        reg("ClearBackground", {}, Void);  // overloaded: (r,g,b) or (Color)
         reg("SetTargetFPS",  {I32}, Void);
         reg("GetDeltaTime",  {}, F64);
         reg("GetFPS",        {}, I32);
