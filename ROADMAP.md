@@ -100,6 +100,8 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
   - `build-windows.sh --pack-key=KEY` for compile-time key baking
   - Fixed `konpak.hpp` preprocessor guard for `__MINGW64__` toolchains
   - MXE sysroot added to bcrypt include search paths
+  - Fixed `konscript --target windows --pack`: now passes `-DKON_USE_PACK` to CMake and links `bcrypt`
+  - `build-engine-lib.sh` Windows path now compiles with `-DKON_USE_PACK`
 - Updated C++ example (`examples/cpp_example/`) showcasing:
   - Color presets, `ClearBackground(BLACK)`
   - KinematicBody2D with `MoveAndCollide`, StaticBody2D walls
