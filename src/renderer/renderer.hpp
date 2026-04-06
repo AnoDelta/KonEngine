@@ -12,6 +12,7 @@ public:
 	virtual void Init() = 0;
 	virtual void Present() = 0;
 	virtual void Clear(float r, float g, float b) = 0;
+	virtual void Clear(Color color) = 0;
 
 	// 2D Drawing Operations
 	virtual void DrawRectangle(float x, float y, float width, float height, 

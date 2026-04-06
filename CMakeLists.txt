@@ -71,7 +71,11 @@ if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
             # Cross-compile (MXE): bcrypt is always available.
             # For zlib/compression: use bundled miniz if present, otherwise
             # build without compression (store-only mode).
+            # Check for miniz in KonPaktor third_party or engine src
             set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/KonPaktor/third_party")
+            if(NOT EXISTS "${MINIZ_DIR}/miniz.h")
+                set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            endif()
             if(EXISTS "${MINIZ_DIR}/miniz.h")
                 file(SIZE "${MINIZ_DIR}/miniz.h" MINIZ_SIZE)
                 if(MINIZ_SIZE GREATER 10000)
@@ -88,6 +92,7 @@ if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
             find_path(BCRYPT_INCLUDE_DIR bcrypt.h
                 HINTS ${CMAKE_FIND_ROOT_PATH}/include
                       /usr/lib/mingw64-toolchain/x86_64-w64-mingw32/include
+                      ${MXE_ROOT}/usr/x86_64-w64-mingw32.static/include
                 NO_DEFAULT_PATH)
             if(BCRYPT_INCLUDE_DIR)
                 target_include_directories(KonEngine PRIVATE ${BCRYPT_INCLUDE_DIR})

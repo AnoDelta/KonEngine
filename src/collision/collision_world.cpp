@@ -48,6 +48,9 @@ void CollisionWorld::Update() {
             if (!b->active) continue;
             if (!LayersOverlap(a, b)) continue;
 
+            // Broad-phase: cheap AABB rejection before expensive SAT
+            if (!AABBOverlap(a, b)) continue;
+
             MTV mtv = GetMTV(a, b);
             if (!mtv.hit) continue;
 
@@ -140,6 +143,35 @@ glm::vec2 CollisionWorld::ResolveOverlap(Collider2D* mover, Collider2D* wall) {
     return push;
 }
 
+glm::vec2 CollisionWorld::SweepResolve(Collider2D* mover) {
+    glm::vec2 totalPush(0.0f, 0.0f);
+
+    // Multiple iterations to handle corner cases (wedged between two walls)
+    for (int iter = 0; iter < 4; ++iter) {
+        bool pushed = false;
+        for (auto* other : colliders) {
+            if (other == mover || !other->active || !other->staticBody) continue;
+            if (!LayersOverlap(mover, other)) continue;
+            if (!AABBOverlap(mover, other)) continue;
+
+            MTV mtv = GetMTV(mover, other);
+            if (!mtv.hit || mtv.depth <= 0.0f) continue;
+
+            constexpr float slop = 0.01f;
+            float d = std::max(mtv.depth - slop, 0.0f);
+            if (d == 0.0f) continue;
+
+            glm::vec2 push = mtv.normal * d;
+            mover->x += push.x;
+            mover->y += push.y;
+            totalPush += push;
+            pushed = true;
+        }
+        if (!pushed) break;
+    }
+    return totalPush;
+}
+
 bool CollisionWorld::Overlaps(Collider2D* a, Collider2D* b) {
     return GetMTV(a, b).hit;
 }
@@ -163,6 +195,55 @@ MTV CollisionWorld::GetMTV(Collider2D* a, Collider2D* b) {
 
     return SATPolygonVsPolygon(a->GetWorldPoints(), b->GetWorldPoints(),
                                 a->worldCenter(),    b->worldCenter());
+}
+
+// ── Broad-phase AABB ──────────────────────────────────────────────────────
+
+bool CollisionWorld::AABBOverlap(Collider2D* a, Collider2D* b) {
+    // For circles: use center +/- radius as bounding box
+    // For rectangles/polygons: use the world top-left + size
+    float ax, ay, aw, ah;
+    float bx, by, bw, bh;
+
+    if (a->shape == ColliderShape::Circle) {
+        auto c = a->worldCenter();
+        ax = c.x - a->radius; ay = c.y - a->radius;
+        aw = a->radius * 2; ah = a->radius * 2;
+    } else {
+        auto tl = a->computeWorldTopLeft();
+        float wsx = std::fabs(a->scaleX), wsy = std::fabs(a->scaleY);
+        Node* p = a->parent;
+        while (p) {
+            auto* p2d = dynamic_cast<Node2D*>(p);
+            if (!p2d) break;
+            wsx *= std::fabs(p2d->scaleX);
+            wsy *= std::fabs(p2d->scaleY);
+            p = p2d->parent;
+        }
+        ax = tl.x; ay = tl.y;
+        aw = a->width * wsx; ah = a->height * wsy;
+    }
+
+    if (b->shape == ColliderShape::Circle) {
+        auto c = b->worldCenter();
+        bx = c.x - b->radius; by = c.y - b->radius;
+        bw = b->radius * 2; bh = b->radius * 2;
+    } else {
+        auto tl = b->computeWorldTopLeft();
+        float wsx = std::fabs(b->scaleX), wsy = std::fabs(b->scaleY);
+        Node* p = b->parent;
+        while (p) {
+            auto* p2d = dynamic_cast<Node2D*>(p);
+            if (!p2d) break;
+            wsx *= std::fabs(p2d->scaleX);
+            wsy *= std::fabs(p2d->scaleY);
+            p = p2d->parent;
+        }
+        bx = tl.x; by = tl.y;
+        bw = b->width * wsx; bh = b->height * wsy;
+    }
+
+    return !(ax + aw < bx || bx + bw < ax || ay + ah < by || by + bh < ay);
 }
 
 // ── SAT helpers ───────────────────────────────────────────────────────────

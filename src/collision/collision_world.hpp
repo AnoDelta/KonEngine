@@ -34,6 +34,14 @@ public:
     // Useful for KinematicBody2D::MoveAndCollide and RigidBody2D physics.
     static glm::vec2 ResolveOverlap(Collider2D* mover, Collider2D* wall);
 
+    // SweepResolve — resolve `mover` against ALL static colliders in the world.
+    // Unlike GetContacts() (which is from the last Update()), this does fresh
+    // MTV checks against the mover's current position. Returns total push.
+    glm::vec2 SweepResolve(Collider2D* mover);
+
+    // Access the registered collider list (read-only)
+    const std::vector<Collider2D*>& GetColliders() const { return colliders; }
+
 private:
     std::mutex m_mutex;
     std::vector<Collider2D*> colliders;
@@ -46,6 +54,9 @@ private:
     static MTV SATCircleVsPolygon (glm::vec2 center, float radius,
                                     const std::vector<glm::vec2>& poly);
     static MTV SATCircleVsCircle  (Collider2D* a, Collider2D* b);
+
+    // AABB broad-phase: cheap rejection before expensive SAT
+    static bool AABBOverlap(Collider2D* a, Collider2D* b);
 
     static void ProjectOntoAxis(const std::vector<glm::vec2>& pts,
                                  glm::vec2 axis, float& mn, float& mx);

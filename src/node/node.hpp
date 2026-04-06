@@ -9,12 +9,16 @@
 
 // Forward declare so Node can have OnCollisionEnter/Exit
 class Collider2D;
+class CollisionWorld;
 
 class Node {
 public:
     std::string name;
     bool active = true;
     Node* parent = nullptr;
+
+    // Set by Scene::Add — gives body nodes access to collision queries
+    CollisionWorld* _world = nullptr;
 
     // Optional callback set by Scene so dynamically added collider children
     // get registered with the CollisionWorld automatically, no Scan() needed.
@@ -39,8 +43,9 @@ public:
         auto node = std::make_unique<T>(childName, std::forward<Args>(args)...);
         node->name   = childName;
         node->parent = this;
-        // Propagate the scene registration callback down
+        // Propagate scene pointers down to children
         if (_onChildAdded) node->_onChildAdded = _onChildAdded;
+        if (_world) node->_world = _world;
         T* ptr = node.get();
         {
             std::lock_guard<std::mutex> lock(m_childMutex);

@@ -109,6 +109,9 @@ int  Window::getHeight() { int w,h; glfwGetFramebufferSize(impl->handle,&w,&h); 
 void Window::clearBackground(float r, float g, float b) {
 	impl->clearR=r; impl->clearG=g; impl->clearB=b; renderer->Clear(r,g,b);
 }
+void Window::clearBackground(Color color) {
+	clearBackground(color.r, color.g, color.b);
+}
 void Window::setVsync(bool e) { impl->vsyncEnabled=e; glfwSwapInterval(e?1:0); }
 
 static Window* window = nullptr;
@@ -287,6 +290,9 @@ void ClearBackground(float r, float g, float b) {
     } else {
         window->clearBackground(r, g, b);
     }
+}
+void ClearBackground(Color color) {
+    ClearBackground(color.r, color.g, color.b);
 }
 int  GetWindowWidth()  {
     if (s_letterboxEnabled && s_designW > 0) return s_designW;

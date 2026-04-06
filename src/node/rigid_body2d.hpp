@@ -7,10 +7,14 @@
 // RigidBody2D — Physics-driven body with velocity and gravity.
 // After moving each frame it resolves collisions with static bodies and
 // zeroes the velocity component along the collision normal.
+//
+// Physics runs automatically each frame via Update(). If you override
+// Update(), call RigidBody2D::Update(dt) or PhysicsStep(dt) manually.
 class RigidBody2D : public Node2D {
 public:
     Vector2 velocity = Vector2::Zero();
     float   gravity  = 980.0f;           // pixels / s^2, positive = downward
+    bool    onFloor  = false;            // true if touching a static body below
 
     RigidBody2D(const std::string& name = "RigidBody2D") : Node2D(name) {}
 
@@ -34,8 +38,21 @@ public:
         return col;
     }
 
-    // Call once per frame with dt = GetDeltaTime() and the scene's CollisionWorld.
-    void PhysicsUpdate(float dt, CollisionWorld& world) {
+    // Convenience: auto-generates collider name
+    Collider2D* AddCollider(float w = 32.0f, float h = 32.0f) {
+        return AddCollider("collider_" + std::to_string(m_colCounter++), w, h);
+    }
+
+    // Auto-run physics each frame
+    void Update(float dt) override {
+        PhysicsStep(dt);
+    }
+
+    // PhysicsStep — apply gravity, move, resolve collisions.
+    // Uses the CollisionWorld set by Scene automatically.
+    void PhysicsStep(float dt) {
+        if (!_world) return;
+
         // 1. Apply gravity
         velocity.y += gravity * dt;
 
@@ -45,30 +62,39 @@ public:
         x += dx;
         y += dy;
 
-        // 3. Resolve overlaps with static bodies and cancel velocity on collision axis
+        onFloor = false;
+
+        // 3. Resolve overlaps with static bodies using fresh MTV checks
         ForEachDescendant([&](Node* n) {
             auto* col = dynamic_cast<Collider2D*>(n);
             if (!col || !col->active) return;
 
-            for (int iter = 0; iter < 4; ++iter) {
-                bool pushed = false;
-                for (auto* other : col->GetContacts()) {
-                    if (!other->staticBody) continue;
-                    Vector2 push = world.ResolveOverlap(col, other);
-                    if (push.x != 0.0f || push.y != 0.0f) {
-                        // Zero velocity along the push (collision normal) direction
-                        Vector2 normal = push.Normalized();
-                        float dot = velocity.Dot(normal);
-                        if (dot < 0.0f) {
-                            // Only cancel if velocity is going INTO the wall
-                            velocity.x -= normal.x * dot;
-                            velocity.y -= normal.y * dot;
-                        }
-                        pushed = true;
-                    }
+            glm::vec2 push = _world->SweepResolve(col);
+            if (push.x != 0.0f || push.y != 0.0f) {
+                // Push parent body by same amount
+                x += push.x;
+                y += push.y;
+
+                // Cancel velocity along the push direction
+                Vector2 normal = Vector2(push.x, push.y).Normalized();
+                float dot = velocity.Dot(normal);
+                if (dot < 0.0f) {
+                    velocity.x -= normal.x * dot;
+                    velocity.y -= normal.y * dot;
                 }
-                if (!pushed) break;
+
+                // Detect floor (push has upward component)
+                if (push.y < -0.01f) onFloor = true;
             }
         });
     }
+
+    // Backwards-compatible overload accepting explicit CollisionWorld
+    void PhysicsUpdate(float dt, CollisionWorld& world) {
+        _world = &world;
+        PhysicsStep(dt);
+    }
+
+private:
+    int m_colCounter = 0;
 };
