@@ -955,14 +955,28 @@ private:
 
     ExprPtr parseNullCoal() {
         int l = peek().line, c = peek().col;
-        auto left = parseOr();
+        auto left = parseTernary();
         while (check(TokenType::NullCoal)) {
             advance();
-            auto right = parseOr();
+            auto right = parseTernary();
             left = std::make_unique<NullCoalExpr>(
                 std::move(left), std::move(right), l, c);
         }
         return left;
+    }
+
+    ExprPtr parseTernary() {
+        int l = peek().line, c = peek().col;
+        auto cond = parseOr();
+        if (check(TokenType::Question)) {
+            advance();
+            auto trueVal = parseOr();
+            expect(TokenType::Colon, "expected ':' in ternary expression");
+            auto falseVal = parseTernary(); // right-associative
+            return std::make_unique<TernaryExpr>(
+                std::move(cond), std::move(trueVal), std::move(falseVal), l, c);
+        }
+        return cond;
     }
 
     ExprPtr parseOr() {

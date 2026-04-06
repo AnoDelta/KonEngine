@@ -1261,6 +1261,17 @@ private:
             case Expr::Kind::NullCoal:
                 genNullCoal(static_cast<const NullCoalExpr*>(e));
                 break;
+            case Expr::Kind::Ternary: {
+                auto* te = static_cast<const TernaryExpr*>(e);
+                write("(");
+                genExpr(te->condition.get());
+                write(" ? ");
+                genExpr(te->trueVal.get());
+                write(" : ");
+                genExpr(te->falseVal.get());
+                write(")");
+                break;
+            }
             case Expr::Kind::ForceUnwrap:
                 genExpr(static_cast<const ForceUnwrapExpr*>(e)->value.get());
                 write(".value()");

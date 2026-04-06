@@ -405,9 +405,23 @@ x <= y   x >= y
 x && y   x || y   !x
 ```
 
+### Ternary
+```ks
+x ? y : z        # y if x is true, else z
+```
+
 ### Cast
 ```ks
 let f: F64 = 10 as F64;
+```
+
+### Ternary conditional
+```ks
+let val: Str = condition ? "yes" : "no";
+let max: I32 = a > b ? a : b;
+
+# Right-associative chaining
+let tier: Str = score > 90 ? "A" : score > 80 ? "B" : "C";
 ```
 
 ### Null coalescing
