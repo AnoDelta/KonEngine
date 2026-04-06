@@ -624,6 +624,7 @@ const NK_REF_MUT:   I32 = 36;
 const NK_DEREF:     I32 = 37;
 const NK_FUNC_EXPR: I32 = 38;
 const NK_NODE:      I32 = 39;  // str="Name|Base", a=fields/methods list, b=body
+const NK_TERNARY:   I32 = 41;  // a=condition, b=trueVal, c=falseVal
 
 // ── AST storage — parallel arrays, index 0 is the null node ─────────────
 let mut node_kinds: [I32] = [0];
@@ -789,7 +790,7 @@ func parse_primary() -> I32 {
 
     // Parenthesised expression
     if mat(TK_LPAREN) {
-        let inner: I32 = parse_or();
+        let inner: I32 = parse_ternary();
         eat(TK_RPAREN, "')'");
         return inner;
     }
@@ -909,12 +910,24 @@ func parse_or() -> I32 {
     return left;
 }
 
+func parse_ternary() -> I32 {
+    let mut cond: I32 = parse_or();
+    if chk(TK_QUESTION) {
+        adv();
+        let true_val: I32 = parse_or();
+        eat(TK_COLON, "':'");
+        let false_val: I32 = parse_ternary();
+        cond = alloc_node(NK_TERNARY, cond, true_val, false_val, "");
+    }
+    return cond;
+}
+
 func parse_expr() -> I32 {
-    let left: I32 = parse_or();
+    let left: I32 = parse_ternary();
     // Assignment operators
     if chk(TK_EQ) || chk(TK_PLUSEQ) || chk(TK_MINUSEQ) || chk(TK_STAREQ) || chk(TK_SLASHEQ) {
         let op: Str = pk_val(); adv();
-        let right: I32 = parse_or();
+        let right: I32 = parse_ternary();
         return alloc_node(NK_ASSIGN, left, right, 0, op);
     }
     return left;
@@ -1240,6 +1253,7 @@ func node_kind_name(k: I32) -> Str {
     if k == NK_BOOL      { return "bool"; }
     if k == NK_STR_LIT   { return "str"; }
     if k == NK_IDENT     { return "ident"; }
+    if k == NK_TERNARY   { return "ternary"; }
     if k == NK_BINARY    { return "binary"; }
     if k == NK_UNARY     { return "unary"; }
     if k == NK_CALL      { return "call"; }
@@ -1427,6 +1441,12 @@ func tc_expr(idx: I32) -> Str {
     if k == NK_IDENT {
         let t: Str = tc_lookup(node_str[idx]);
         node_types[idx] = t; return t;
+    }
+    if k == NK_TERNARY {
+        tc_expr(node_a[idx]);
+        let tt: Str = tc_expr(node_b[idx]);
+        tc_expr(node_c[idx]);
+        node_types[idx] = tt; return tt;
     }
     if k == NK_BINARY {
         let lt: Str = tc_expr(node_a[idx]);
@@ -2156,6 +2176,19 @@ func ir_gen_expr(idx: I32) -> Str {
         return ir_val("0", "i32");
     }
 
+    if k == NK_TERNARY {
+        // Ternary in LLVM IR: use select or phi — emit as select for simplicity
+        let cvt: Str = ir_gen_expr(node_a[idx]);
+        let tvt: Str = ir_gen_expr(node_b[idx]);
+        let fvt: Str = ir_gen_expr(node_c[idx]);
+        let cv: Str  = ir_get_v(cvt);
+        let tv: Str  = ir_get_v(tvt);
+        let fv: Str  = ir_get_v(fvt);
+        let tt: Str  = ir_get_t(tvt);
+        let t: I32   = ir_tmp_id();
+        ir_emit("  %t" + ToString(t) + " = select i1 " + cv + ", " + tt + " " + tv + ", " + tt + " " + fv);
+        return ir_val("%t" + ToString(t), tt);
+    }
     if k == NK_BINARY {
         let lvt: Str  = ir_gen_expr(node_a[idx]);
         let rvt: Str  = ir_gen_expr(node_b[idx]);
@@ -3509,6 +3542,12 @@ func cg_gen_expr(idx: I32) -> Str {
         return iname;
     }
 
+    if k == NK_TERNARY {
+        let cond: Str = cg_gen_expr(node_a[idx]);
+        let true_val: Str = cg_gen_expr(node_b[idx]);
+        let false_val: Str = cg_gen_expr(node_c[idx]);
+        return "(" + cond + " ? " + true_val + " : " + false_val + ")";
+    }
     if k == NK_BINARY {
         let left: Str = cg_gen_expr(node_a[idx]);
         let right: Str = cg_gen_expr(node_b[idx]);
