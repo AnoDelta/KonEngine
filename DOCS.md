@@ -548,6 +548,45 @@ public:
 };
 ```
 
+### Standalone Collision Checks
+
+For quick collision tests outside the node system, use these functions with `Rectangle` and `Circle` structs.
+
+**KonScript:**
+```ks
+let a: Rectangle = Rectangle(10.0, 10.0, 50.0, 50.0);  # x, y, w, h
+let b: Rectangle = Rectangle(40.0, 40.0, 50.0, 50.0);
+
+if CheckCollisionRecs(a, b) {
+    Print("Rectangles overlap!");
+}
+
+let c1: Circle = Circle(100.0, 100.0, 25.0);   # x, y, radius
+let c2: Circle = Circle(120.0, 110.0, 20.0);
+
+if CheckCollisionCircles(c1, c2) {
+    Print("Circles overlap!");
+}
+
+if CheckCollisionCircleRec(c1, a) {
+    Print("Circle hits rectangle!");
+}
+```
+
+**C++:**
+```cpp
+Rectangle a(10, 10, 50, 50);
+Rectangle b(40, 40, 50, 50);
+
+if (CheckCollisionRecs(a, b)) { /* overlap */ }
+
+Circle c1(100, 100, 25);
+Circle c2(120, 110, 20);
+
+if (CheckCollisionCircles(c1, c2)) { /* overlap */ }
+if (CheckCollisionCircleRec(c1, a)) { /* overlap */ }
+```
+
 ### Scene Registration
 
 Colliders added during `Ready()` are registered with the `CollisionWorld` automatically. If you add colliders later (e.g., in `Update`), call `scene.scan()` to register them.
@@ -637,28 +676,52 @@ int main() {
 }
 ```
 
-### Camera Utilities (C++ only)
+### Camera Utilities
 
-These free functions operate on the `Camera2D` struct directly:
+These free functions operate on the `Camera2D` struct directly.
 
+**KonScript:**
+```ks
+let mut cam: Camera2D = Camera2D(400.0, 300.0, 1.0, 0.0);
+
+# Smooth follow — speed 0.1 (slow) to 0.9 (fast)
+Camera2DFollow(cam, player.x, player.y, 0.5, dt);
+
+# Clamp to world bounds (never show outside the map)
+Camera2DClamp(cam, 0.0, 0.0, worldW, worldH,
+              GetWindowWidth() as F64, GetWindowHeight() as F64);
+
+# Screen shake — decay magnitude each frame
+Camera2DShake(cam, shakeMag);
+shakeMag *= 0.9;
+
+# Interpolate between two cameras
+let blended: Camera2D = Camera2DLerp(camA, camB, 0.5);
+
+# Manual camera control (without CameraNode2D)
+BeginCamera2D(cam);
+# ... draw world here ...
+EndCamera2D();
+```
+
+**C++:**
 ```cpp
 Camera2D cam(400, 300, 1.0f, 0.0f);
 
-// Smooth follow — speed 0.1 (slow) to 0.9 (fast)
 Camera2DFollow(cam, player->x, player->y, 0.5f, dt);
-
-// Clamp to world bounds (never show outside the map)
 Camera2DClamp(cam, 0, 0, worldWidth, worldHeight,
               GetWindowWidth(), GetWindowHeight());
 
-// Screen shake — decay magnitude each frame for effect
 static float shakeMag = 0.0f;
 if (hitTaken) shakeMag = 8.0f;
 Camera2DShake(cam, shakeMag);
 shakeMag *= 0.9f;
 
-// Interpolate between two cameras
 Camera2D blended = Camera2DLerp(camA, camB, 0.5f);
+
+BeginCamera2D(cam);
+// ... draw world here ...
+EndCamera2D();
 ```
 
 ---
@@ -671,9 +734,16 @@ Short one-shot sounds loaded fully into memory.
 
 **KonScript:**
 ```ks
-PlaySound("assets/jump.wav");
-StopSound("assets/jump.wav");
-SetSoundVolume(0.8);
+let snd: Sound = LoadSound("assets/jump.wav");
+PlaySound(snd);
+StopSound(snd);
+PauseSound(snd);
+ResumeSound(snd);
+SetSoundVolume(snd, 0.8);
+
+if IsSoundPlaying(snd) { Print("playing"); }
+
+UnloadSound(snd);
 ```
 
 **C++:**
@@ -681,16 +751,12 @@ SetSoundVolume(0.8);
 Sound jump = LoadSound("assets/jump.wav");
 PlaySound(jump);
 StopSound(jump);
-SetSoundVolume(jump, 0.8f);
-
-// Check state
-if (IsSoundPlaying(jump)) { /* ... */ }
-
-// Pause / Resume
 PauseSound(jump);
 ResumeSound(jump);
+SetSoundVolume(jump, 0.8f);
 
-// Cleanup
+if (IsSoundPlaying(jump)) { /* ... */ }
+
 UnloadSound(jump);
 ```
 
@@ -700,11 +766,22 @@ Long tracks streamed from disk. Call `UpdateMusic()` each frame to keep the stre
 
 **KonScript:**
 ```ks
-PlayMusic("assets/bgm.ogg");
-SetMusicVolume(0.5);
+let bgm: Music = LoadMusic("assets/bgm.ogg");
+PlayMusic(bgm);
+SetMusicVolume(bgm, 0.5);
+SetMusicLooping(bgm, true);
 
 # In game loop:
-# Music updates are handled automatically in KonScript
+UpdateMusic(bgm);
+
+# Query state
+if IsMusicPlaying(bgm) { Print("music on"); }
+
+# Controls
+PauseMusic(bgm);
+ResumeMusic(bgm);
+StopMusic(bgm);
+UnloadMusic(bgm);
 ```
 
 **C++:**
@@ -717,20 +794,22 @@ SetMusicVolume(bgm, 0.5f);
 // In game loop — required each frame
 UpdateMusic(bgm);
 
-// Controls
+if (IsMusicPlaying(bgm)) { /* ... */ }
+
 PauseMusic(bgm);
 ResumeMusic(bgm);
 StopMusic(bgm);
 SetMusicLooping(bgm, false);
-
-// Cleanup
 UnloadMusic(bgm);
 ```
 
 ### Master Volume
 
+```ks
+SetMasterVolume(0.7);   # KonScript
+```
 ```cpp
-SetMasterVolume(0.7f);  // affects all sounds and music
+SetMasterVolume(0.7f);  // C++ — affects all sounds and music
 ```
 
 **Supported formats:** `.wav`, `.ogg`, `.mp3` (via miniaudio)
@@ -783,22 +862,35 @@ float dx = GetMouseDeltaX(), dy = GetMouseDeltaY();
 float scroll = GetMouseScroll();
 ```
 
-### Gamepad (C++ only)
+### Gamepad
 
-Supports multiple gamepads for local multiplayer.
+Supports multiple gamepads for local multiplayer (player index 0-3).
 
+**KonScript:**
+```ks
+if GamepadConnected(0) {
+    # Buttons
+    if GamepadPressed(0, Gamepad.A) { jump(); }
+    if GamepadDown(0, Gamepad.RightBumper) { sprint(); }
+
+    # Analog sticks (-1.0 to 1.0)
+    let moveX: F64 = GamepadAxis(0, Gamepad.LeftX);
+    let moveY: F64 = GamepadAxis(0, Gamepad.LeftY);
+
+    # Triggers (0.0 to 1.0)
+    let brake: F64 = GamepadAxis(0, Gamepad.LeftTrigger);
+    let gas: F64   = GamepadAxis(0, Gamepad.RightTrigger);
+}
+```
+
+**C++:**
 ```cpp
-// Check connection (player index 0-3)
 if (IsGamepadConnected(0)) {
-    // Buttons
     if (IsGamepadButtonPressed(0, Gamepad::A)) jump();
     if (IsGamepadButtonDown(0, Gamepad::RightBumper)) sprint();
 
-    // Analog sticks (-1.0 to 1.0)
     float moveX = GetGamepadAxis(0, Gamepad::LeftX);
     float moveY = GetGamepadAxis(0, Gamepad::LeftY);
-
-    // Triggers (0.0 to 1.0)
     float brake = GetGamepadAxis(0, Gamepad::LeftTrigger);
     float gas   = GetGamepadAxis(0, Gamepad::RightTrigger);
 }
@@ -837,6 +929,13 @@ DrawTextF(10, 100, 32, YELLOW, "FPS: %d", GetFPS());
 
 ### Custom Fonts
 
+**KonScript:**
+```ks
+let font: Font = LoadFont("assets/myfont.ttf", 24);
+# Use with DrawText by passing the font object
+UnloadFont(font);
+```
+
 **C++:**
 ```cpp
 Font myFont = LoadFont("assets/myfont.ttf", 24);
@@ -852,6 +951,23 @@ Font& cached = GetCachedFont("assets/myfont.ttf", 32);
 ## Tilemap Helpers
 
 `TileGrid` provides coordinate conversion and debug visualization for tile-based games.
+
+**KonScript:**
+```ks
+let grid: TileGrid = TileGrid(32, 32);  # tileW, tileH
+
+# Convert world position to tile coordinates
+let tc: TileCoord = grid.WorldToTile(mouseX, mouseY);
+
+# Convert tile back to world position
+let wp: WorldPos = grid.TileToWorld(tc.x, tc.y);
+
+# Snap world position to nearest tile corner
+let snapped: WorldPos = grid.Snap(mouseX, mouseY);
+
+# Debug visualization
+grid.DrawGrid(0.0, 0.0, 25, 19);
+```
 
 **C++:**
 ```cpp
@@ -899,14 +1015,35 @@ Available in both KonScript and C++:
 | `GRAY` | (0.5, 0.5, 0.5, 1) |
 | `BLANK` | (0, 0, 0, 0) |
 
-Custom colors in C++: `Color myColor(0.2f, 0.8f, 1.0f, 1.0f);`
+Custom colors:
+```ks
+let myColor: Color = Color(0.2, 0.8, 1.0, 1.0);   # KonScript
+```
+```cpp
+Color myColor(0.2f, 0.8f, 1.0f, 1.0f);             // C++
+```
 
 ---
 
-## Vector2 & Random (C++)
+## Vector2 & Random
 
 ### Vector2
 
+**KonScript:**
+```ks
+let pos: Vec2 = Vec2(100.0, 200.0);
+let vel: Vec2 = Vec2(1.0, 0.0);
+
+# Vec2 methods work directly
+let len: F64   = vel.Length();
+let dir: Vec2  = vel.Normalized();
+let d: F64     = pos.Distance(other);
+let dot: F64   = vel.Dot(other);
+let r: Vec2    = vel.Reflected(wallNormal);
+let rot: Vec2  = vel.Rotated(0.785);  # radians (pi/4)
+```
+
+**C++:**
 ```cpp
 Vector2 pos(100, 200);
 Vector2 vel(1, 0);
@@ -916,7 +1053,7 @@ Vector2 dir = vel.Normalized();
 float d     = pos.Distance(other);
 float dot   = vel.Dot(other);
 Vector2 r   = vel.Reflected(wallNormal);
-Vector2 rot = vel.Rotated(3.14159f / 4);  // radians
+Vector2 rot = vel.Rotated(3.14159f / 4);
 
 // Interpolation
 Vector2 mid = Vector2::Lerp(a, b, 0.5f);
@@ -927,21 +1064,46 @@ Vector2 up    = Vector2::Up();     // (0, -1)
 Vector2 right = Vector2::Right();  // (1, 0)
 ```
 
+**Vec2 methods:** `Length()`, `LengthSq()`, `Normalized()`, `Dot(other)`, `Distance(other)`, `DistanceSq(other)`, `Rotated(angle)`, `Reflected(normal)`
+
+**Static methods (C++):** `Vector2::Lerp(a, b, t)`, `Vector2::Zero()`, `Vector2::One()`, `Vector2::Up()`, `Vector2::Down()`, `Vector2::Left()`, `Vector2::Right()`
+
 ### Random
 
+**KonScript:**
+```ks
+Random.Seed();                     # random seed from clock
+Random.Seed(42);                   # deterministic seed
+
+let r: I32  = Random.Range(1, 6);       # 1-6 inclusive
+let f: F64  = Random.RangeF(0.5, 1.5);  # float range
+let v: F64  = Random.Value();            # 0.0 - 1.0
+let b: Bool = Random.Bool(0.3);          # 30% chance true
+```
+
+**C++:**
 ```cpp
-Random::Seed();                  // random seed
-Random::Seed(42);                // deterministic seed
+Random::Seed();
+Random::Seed(42);
 
-int r   = Random::Range(1, 6);          // 1-6 inclusive
-float f = Random::RangeF(0.5f, 1.5f);   // float range
-float v = Random::Value();               // 0.0 - 1.0
-bool b  = Random::Bool(0.3f);           // 30% chance true
+int r   = Random::Range(1, 6);
+float f = Random::RangeF(0.5f, 1.5f);
+float v = Random::Value();
+bool b  = Random::Bool(0.3f);
 
-// Random element from a vector
+// Random element from a vector (C++ only)
 std::vector<std::string> names = {"Alice", "Bob", "Carol"};
 std::string pick = Random::From(names);
 ```
+
+| Function | Description |
+|----------|-------------|
+| `Random.Seed()` / `Random.Seed(n)` | Seed the RNG (call once at startup) |
+| `Random.Range(min, max)` | Random integer in [min, max] inclusive |
+| `Random.RangeF(min, max)` | Random float in [min, max] |
+| `Random.Value()` | Random float 0.0 to 1.0 |
+| `Random.Bool(probability)` | Random bool (0.0 = never, 1.0 = always) |
+| `Random.From(vec)` | Random element from a vector (C++ only) |
 
 ---
 
@@ -994,13 +1156,34 @@ When `InitWindow` is called with `canResize = true`, the engine maintains your d
 **KonScript:**
 ```ks
 InitWindow(800, 600, "My Game", true);  # resizable with letterboxing
+
+# Query design resolution and scaling info
+let dw: I32  = GetDesignWidth();
+let dh: I32  = GetDesignHeight();
+let scale: F64 = GetLetterboxScale();
+
+# Get mouse position in game (design-resolution) coordinates
+let gmx: F64 = GetGameMouseX();
+let gmy: F64 = GetGameMouseY();
+
+SetVsync(true);
 ```
 
 **C++:**
 ```cpp
 InitWindow(800, 600, "My Game", true);
-// Mouse input is automatically transformed to game coordinates
-// DrawRectangle(0, 0, 800, 600, RED) always fills the game area
+
+int dw = GetDesignWidth();
+int dh = GetDesignHeight();
+float scale = GetLetterboxScale();
+float offX  = GetLetterboxOffsetX();
+float offY  = GetLetterboxOffsetY();
+
+// Mouse in game coordinates
+float gmx = GetGameMouseX();
+float gmy = GetGameMouseY();
+
+SetVsync(true);
 ```
 
 ---
