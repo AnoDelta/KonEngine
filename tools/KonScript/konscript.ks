@@ -5112,7 +5112,9 @@ func main() -> I32 {
     // KonPak support: add define and link libraries
     if pack_support || src.contains("AssetManager") {
         cxx_flags = cxx_flags + " -DKON_USE_PACK";
-        link_flags = link_flags + " -lssl -lcrypto -lz";
+        if !is_windows {
+            link_flags = link_flags + " -lssl -lcrypto -lz";
+        }
     }
 
     // Build final command
@@ -5139,6 +5141,9 @@ func main() -> I32 {
         cm = cm + "project(KsGame CXX C)\n";
         cm = cm + "set(CMAKE_CXX_STANDARD 17)\n";
         cm = cm + "add_definitions(-DGLM_FORCE_PURE -D_WIN32)\n";
+        if pack_support || src.contains("AssetManager") {
+            cm = cm + "add_definitions(-DKON_USE_PACK)\n";
+        }
         // Source files — include runtime .c source directly (CMake compiles it)
         let mut rt_src_path: Str = _ks_self_dir() + "/_ks_runtime.c";
         if !File.exists(rt_src_path) { rt_src_path = "_ks_runtime.c"; }
@@ -5159,7 +5164,7 @@ func main() -> I32 {
                 cm = cm + ")\n";
                 cm = cm + "target_link_libraries(game PRIVATE " + eng + "/libKonEngine.a";
                 if File.exists(eng + "/libglfw3.a") { cm = cm + " " + eng + "/libglfw3.a"; }
-                cm = cm + " opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+                cm = cm + " opengl32 gdi32 winmm ws2_32 bcrypt -static-libstdc++ -static-libgcc)\n";
             } else {
                 // No pre-built windows64 toolchain — try building engine from repo source
                 let mut engine_root: Str = _ks_self_dir() + "/../..";
@@ -5195,7 +5200,7 @@ func main() -> I32 {
                     cm = cm + "set(GLFW_BUILD_TESTS OFF CACHE BOOL \"\" FORCE)\n";
                     cm = cm + "set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL \"\" FORCE)\n";
                     cm = cm + "add_subdirectory(\"" + engine_root + "/libs/glfw\" \"${CMAKE_BINARY_DIR}/glfw_build\")\n";
-                    cm = cm + "target_link_libraries(game PRIVATE glfw opengl32 gdi32 winmm ws2_32 -static-libstdc++ -static-libgcc)\n";
+                    cm = cm + "target_link_libraries(game PRIVATE glfw opengl32 gdi32 winmm ws2_32 bcrypt -static-libstdc++ -static-libgcc)\n";
                 } else {
                     Print("error: Windows engine toolchain not found.");
                     Print("  Option 1: cd tools/KonScript && ./build-engine-lib.sh --windows");
