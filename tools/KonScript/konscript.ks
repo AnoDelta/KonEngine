@@ -5162,6 +5162,29 @@ func main() -> I32 {
                 cm = cm + "target_include_directories(game PRIVATE " + einc + " " + einc + "/glad/include " + einc + "/stb";
                 if File.exists(einc + "/glm/glm/glm.hpp") { cm = cm + " " + einc + "/glm"; }
                 cm = cm + ")\n";
+                // When --pack is used, compile asset_manager.cpp from source
+                // with KON_USE_PACK so it overrides the one in the pre-built lib
+                if pack_support || src.contains("AssetManager") {
+                    let mut am_src: Str = "";
+                    let mut engine_root: Str = _ks_self_dir() + "/../..";
+                    if File.exists(engine_root + "/src/asset_manager.cpp") {
+                        am_src = engine_root + "/src/asset_manager.cpp";
+                    } else if File.exists("../../src/asset_manager.cpp") {
+                        am_src = "../../src/asset_manager.cpp";
+                        engine_root = "../..";
+                    }
+                    if am_src.len() > 0 {
+                        cm = cm + "target_sources(game PRIVATE \"" + am_src + "\")\n";
+                        cm = cm + "target_include_directories(game PRIVATE \"" + engine_root + "/src\")\n";
+                        // Add miniz for compression support on Windows
+                        let miniz_dir: Str = engine_root + "/tools/KonPaktor/third_party";
+                        if File.exists(miniz_dir + "/miniz.h") {
+                            cm = cm + "target_sources(game PRIVATE \"" + engine_root + "/src/miniz_impl.cpp\")\n";
+                            cm = cm + "target_include_directories(game PRIVATE \"" + miniz_dir + "\")\n";
+                            cm = cm + "target_compile_definitions(game PRIVATE KONPAK_USE_MINIZ)\n";
+                        }
+                    }
+                }
                 cm = cm + "target_link_libraries(game PRIVATE " + eng + "/libKonEngine.a";
                 if File.exists(eng + "/libglfw3.a") { cm = cm + " " + eng + "/libglfw3.a"; }
                 cm = cm + " opengl32 gdi32 winmm ws2_32 bcrypt -static-libstdc++ -static-libgcc)\n";
