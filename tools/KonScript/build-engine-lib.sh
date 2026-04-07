@@ -54,7 +54,7 @@ ok "ar → ${AR}"
 
 # ── Collect engine sources ─────────────────────────────────────────────────
 ENGINE_SRCS=()
-for dir in window renderer/opengl time input font audio collision animation; do
+for dir in window renderer/opengl time input font audio collision animation node ui; do
     while IFS= read -r -d '' f; do
         [[ "$f" == *"anim_compiler"* ]] && continue
         [[ "$f" == *"imgui"* ]] && continue
