@@ -1,13 +1,34 @@
 #include <QApplication>
 #include <QFileInfo>
+#include <QIcon>
+#include <QDir>
 #include "KonEditor.hpp"
 #include "WelcomeScreen.hpp"
+
+// Try to find logo.png in known locations relative to the binary
+static QString findLogo() {
+    QStringList candidates = {
+        QCoreApplication::applicationDirPath() + "/logo.png",
+        QCoreApplication::applicationDirPath() + "/../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../../logo.png",
+        "logo.png",
+    };
+    for (auto& p : candidates)
+        if (QFileInfo(p).exists()) return p;
+    return QString();
+}
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("KonEditor");
     app.setOrganizationName("AnoDelta");
     app.setApplicationVersion("0.1.0");
+
+    // Set window icon from logo.png if available
+    QString logoPath = findLogo();
+    if (!logoPath.isEmpty())
+        app.setWindowIcon(QIcon(logoPath));
 
     // Dark theme before welcome screen
     qApp->setStyle("Fusion");

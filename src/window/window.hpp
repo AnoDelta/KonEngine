@@ -25,6 +25,7 @@ public:
 	int getHeight();
 	int getWidth();
 	void setVsync(bool enabled);
+	void setIcon(const char* path);
 
 	Texture loadTexture(const char* path);
 	void unloadTexture(Texture& texture);
@@ -56,6 +57,7 @@ void ClearBackground(float r, float g, float b);
 void ClearBackground(Color color);
 
 void SetVsync(bool enabled);
+void SetWindowIcon(const char* path);
 
 int GetWindowWidth();
 int GetWindowHeight();

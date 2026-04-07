@@ -8,6 +8,7 @@
 #include "../renderer/opengl/opengl_renderer.hpp"
 #include "../time/time.hpp"
 #include <functional>
+#include <cstdio>
 #include "../input/input.hpp"
 #include "../camera/camera.hpp"
 #include "../font/font.hpp"
@@ -114,6 +115,23 @@ void Window::clearBackground(Color color) {
 }
 void Window::setVsync(bool e) { impl->vsyncEnabled=e; glfwSwapInterval(e?1:0); }
 
+void Window::setIcon(const char* path) {
+    // stb_image is already linked (implementation in opengl_renderer.cpp)
+    extern unsigned char* stbi_load(const char*, int*, int*, int*, int);
+    extern void stbi_image_free(void*);
+
+    int w, h, channels;
+    unsigned char* pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (!pixels) return;
+
+    GLFWimage icon;
+    icon.width  = w;
+    icon.height = h;
+    icon.pixels = pixels;
+    glfwSetWindowIcon(impl->handle, 1, &icon);
+    stbi_image_free(pixels);
+}
+
 static Window* window = nullptr;
 void InitWindow(int w, int h, const std::string& t, bool r) {
     s_designW = w;
@@ -123,6 +141,9 @@ void InitWindow(int w, int h, const std::string& t, bool r) {
         RecalcLetterbox(w, h);
     }
     window = new Window(w,h,t,r);
+    // Auto-load window icon from logo.png if it exists
+    FILE* f = fopen("logo.png", "rb");
+    if (f) { fclose(f); SetWindowIcon("logo.png"); }
 }
 bool WindowShouldClose() { return window && window->shouldClose(); }
 
@@ -310,6 +331,8 @@ void DrawRectangle(float x,float y,float w,float h,float r,float g,float b,float
 void DrawCircle(float x,float y,float r2,float r,float g,float b,float a){if(window)window->drawCircle(x,y,r2,r,g,b,a);}
 void DrawLine(float x1,float y1,float x2,float y2,float r,float g,float b,float a){if(window)window->drawLine(x1,y1,x2,y2,r,g,b,a);}
 void SetVsync(bool e){if(window)window->setVsync(e);}
+
+void SetWindowIcon(const char* path) { if(window)window->setIcon(path); }
 
 Texture Window::loadTexture(const char* p){return renderer->LoadTexture(p);}
 void    Window::unloadTexture(Texture& t){renderer->UnloadTexture(t);}

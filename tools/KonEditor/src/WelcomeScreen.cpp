@@ -88,9 +88,22 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     side->setContentsMargins(20, 28, 20, 20);
     side->setSpacing(0);
 
-    // Logo — replace :/logo.png resource to customize
+    // Logo — try filesystem logo.png first, then Qt resource, then fallback
     auto* logo = new QLabel();
-    QPixmap px(":/logo.png");
+    QPixmap px;
+    // Try filesystem paths (logo.png in repo root)
+    QStringList logoPaths = {
+        QCoreApplication::applicationDirPath() + "/logo.png",
+        QCoreApplication::applicationDirPath() + "/../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../../logo.png",
+        "logo.png",
+        ":/logo.png",  // Qt resource fallback
+    };
+    for (auto& p : logoPaths) {
+        px = QPixmap(p);
+        if (!px.isNull()) break;
+    }
     if (px.isNull()) {
         logo->setText(QString::fromUtf8("\xe2\xac\xa1")); // ⬡ fallback
         logo->setStyleSheet("color: #0078d7; font-size: 36px; background: transparent;");

@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QStyleFactory>
 #include <QPalette>
+#include <QIcon>
+#include <QFileInfo>
 #include "MainWindow.hpp"
 
 int main(int argc, char* argv[]) {
@@ -8,6 +10,18 @@ int main(int argc, char* argv[]) {
     app.setApplicationName("KonAnimator");
     app.setApplicationVersion("0.1.0");
     app.setOrganizationName("KonEngine");
+
+    // Set window icon from logo.png if available
+    QStringList logoPaths = {
+        QCoreApplication::applicationDirPath() + "/logo.png",
+        QCoreApplication::applicationDirPath() + "/../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../../logo.png",
+        "logo.png",
+    };
+    for (auto& p : logoPaths) {
+        if (QFileInfo(p).exists()) { app.setWindowIcon(QIcon(p)); break; }
+    }
 
     // Dark Fusion theme
     app.setStyle(QStyleFactory::create("Fusion"));

@@ -1436,6 +1436,7 @@ private:
             {"GetGameMouseY",      "GetGameMouseY"},
             // Window
             {"SetVsync",           "SetVsync"},
+            {"SetWindowIcon",      "SetWindowIcon"},
             // Gamepad input
             {"GamepadConnected",   "IsGamepadConnected"},
             // Text measurement
