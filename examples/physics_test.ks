@@ -3,10 +3,6 @@
 // ═══════════════════════════════════════════════════════════════════════
 // Physics Test — monolithic file to test all physics features
 //
-// Tests: RigidBody2D gravity, KinematicBody2D movement, StaticBody2D
-// walls, collision enter/exit signals, floor detection, jumping,
-// multiple colliders, layer/mask filtering
-//
 // Controls:
 //   WASD / Arrows = move player
 //   Space         = jump (double jump!)
@@ -28,6 +24,7 @@ node Player : KinematicBody2D {
     func Ready() {
         x = 100.0;
         y = 400.0;
+        // Collider centered on position (origin 0.5 default)
         let col: Collider2D = this.add(Collider2D, "body");
         col.width = 28.0;
         col.height = 44.0;
@@ -55,21 +52,20 @@ node Player : KinematicBody2D {
             vy = 0.0; onGround = false; jumpCount = 0;
         }
 
-        // Move with collision — check return value for floor detection
+        // Move with collision
         let actual: Vec2 = MoveAndCollide(dx, dy);
 
-        // If we were pushed upward (actual.y < dy), we hit the ground
-        if dy > 0.0 && actual.y < dy - 0.01 {
+        // Floor detection: if we were falling and got pushed up
+        if dy > 0.1 && actual.y < dy - 0.1 {
             onGround = true;
             vy = 0.0;
             jumpCount = 0;
-        } else if dy > 0.0 && actual.y >= dy - 0.01 {
-            // Still falling, not on ground
+        } else if dy > 0.1 {
             onGround = false;
         }
 
-        // If we were pushed downward (hit ceiling)
-        if dy < 0.0 && actual.y > dy + 0.01 {
+        // Ceiling detection: if we were moving up and got pushed down
+        if dy < -0.1 && actual.y > dy + 0.1 {
             vy = 0.0;
         }
     }
@@ -86,6 +82,7 @@ node Player : KinematicBody2D {
         }
     }
 
+    // Player draws centered on position (matches origin 0.5 collider)
     func Draw() {
         if touchingWall {
             DrawRectangle(x - 14.0, y - 22.0, 28.0, 44.0, Color(1.0, 0.3, 0.3, 1.0));
@@ -98,6 +95,7 @@ node Player : KinematicBody2D {
 // ── Crate (RigidBody2D) ─────────────────────────────────────────────
 node Crate : RigidBody2D {
     func Ready() {
+        // Centered collider (origin 0.5 default)
         let col: Collider2D = this.add(Collider2D, "crate_col");
         col.width = 24.0;
         col.height = 24.0;
@@ -109,36 +107,42 @@ node Crate : RigidBody2D {
     }
 }
 
-// ── Floor — full width static body ──────────────────────────────────
+// ── Wall nodes — origin 0,0 so position = top-left corner ───────────
+// IMPORTANT: collider origin must be (0,0) to match DrawRectangle(x,y,w,h)
+
 node Floor : StaticBody2D {
     func Ready() {
         let col: Collider2D = this.add(Collider2D, "wall_col");
         col.width = 800.0;
         col.height = 32.0;
+        col.originX = 0.0;
+        col.originY = 0.0;
     }
     func Draw() {
         DrawRectangle(x, y, 800.0, 32.0, Color(0.3, 0.3, 0.35, 1.0));
     }
 }
 
-// ── SideWall — tall vertical static body ────────────────────────────
 node SideWall : StaticBody2D {
     func Ready() {
         let col: Collider2D = this.add(Collider2D, "wall_col");
         col.width = 20.0;
         col.height = 600.0;
+        col.originX = 0.0;
+        col.originY = 0.0;
     }
     func Draw() {
         DrawRectangle(x, y, 20.0, 600.0, Color(0.3, 0.3, 0.35, 1.0));
     }
 }
 
-// ── Platform — medium sized static body ─────────────────────────────
 node Platform1 : StaticBody2D {
     func Ready() {
         let col: Collider2D = this.add(Collider2D, "wall_col");
         col.width = 150.0;
         col.height = 16.0;
+        col.originX = 0.0;
+        col.originY = 0.0;
     }
     func Draw() {
         DrawRectangle(x, y, 150.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
@@ -150,6 +154,8 @@ node Platform2 : StaticBody2D {
         let col: Collider2D = this.add(Collider2D, "wall_col");
         col.width = 120.0;
         col.height = 16.0;
+        col.originX = 0.0;
+        col.originY = 0.0;
     }
     func Draw() {
         DrawRectangle(x, y, 120.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
@@ -161,6 +167,8 @@ node Platform3 : StaticBody2D {
         let col: Collider2D = this.add(Collider2D, "wall_col");
         col.width = 180.0;
         col.height = 16.0;
+        col.originX = 0.0;
+        col.originY = 0.0;
     }
     func Draw() {
         DrawRectangle(x, y, 180.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
@@ -172,6 +180,8 @@ node Platform4 : StaticBody2D {
         let col: Collider2D = this.add(Collider2D, "wall_col");
         col.width = 100.0;
         col.height = 16.0;
+        col.originX = 0.0;
+        col.originY = 0.0;
     }
     func Draw() {
         DrawRectangle(x, y, 100.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
@@ -186,10 +196,9 @@ func main() {
 
     let scene: Scene = Scene();
 
-    // Player
     let player: Player = scene.add(Player, "player");
 
-    // Floor
+    // Floor spans full width at bottom
     let floor: Floor = scene.add(Floor, "floor");
     floor.x = 0.0; floor.y = 568.0;
 
@@ -215,13 +224,13 @@ func main() {
 
     // Crates
     let crate1: Crate = scene.add(Crate, "crate1");
-    crate1.x = 250.0; crate1.y = 100.0;
+    crate1.x = 270.0; crate1.y = 100.0;
 
     let crate2: Crate = scene.add(Crate, "crate2");
-    crate2.x = 280.0; crate2.y = 50.0;
+    crate2.x = 300.0; crate2.y = 50.0;
 
     let crate3: Crate = scene.add(Crate, "crate3");
-    crate3.x = 500.0; crate3.y = 150.0;
+    crate3.x = 520.0; crate3.y = 150.0;
 
     scene.scan();
 
