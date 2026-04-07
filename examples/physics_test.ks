@@ -54,7 +54,6 @@ node Player : KinematicBody2D {
     func OnCollisionExit(other: Collider2D) {
         onGround = false;
     }
-    }
 
     func Draw() {
         DrawRectangle(x - 14.0, y - 22.0, 28.0, 44.0, Color(0.2, 0.6, 1.0, 1.0));
