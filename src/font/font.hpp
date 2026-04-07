@@ -2,6 +2,7 @@
 
 #include "../color/color.hpp"
 #include <cstdarg>
+#include <string>
 
 // -----------------------------------------------------------------------
 // GlyphInfo -- one character's metrics inside a baked atlas
@@ -57,6 +58,14 @@ void DrawText(Font& font, const char* text, float x, float y, Color color);
 // -----------------------------------------------------------------------
 void DrawText(const char* text, float x, float y, Color color);
 void DrawText(const char* text, float x, float y, int fontSize, Color color);
+
+// std::string overloads (used by KonScript ternary and f-strings)
+inline void DrawText(const std::string& text, float x, float y, Color color) {
+    DrawText(text.c_str(), x, y, color);
+}
+inline void DrawText(const std::string& text, float x, float y, int fontSize, Color color) {
+    DrawText(text.c_str(), x, y, fontSize, color);
+}
 
 // -----------------------------------------------------------------------
 // DrawTextF -- printf-style formatted text

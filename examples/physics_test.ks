@@ -184,11 +184,9 @@ func main() {
         DrawText("Physics Test", 10.0, 10.0, 20, WHITE);
         DrawText("WASD/Arrows: move | Space: jump (double!) | R: reset | F1: debug", 10.0, 35.0, 14, GRAY);
 
-        if player.onGround {
-            DrawText("On Ground", 10.0, 55.0, 14, GREEN);
-        } else {
-            DrawText("In Air", 10.0, 55.0, 14, YELLOW);
-        }
+        let groundText: Str = player.onGround ? "On Ground" : "In Air";
+        let groundColor: Color = player.onGround ? GREEN : YELLOW;
+        DrawText(groundText, 10.0, 55.0, 14, groundColor);
 
         if player.touchingWall {
             DrawText("Touching Wall", 10.0, 72.0, 14, RED);
