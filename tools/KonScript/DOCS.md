@@ -739,6 +739,20 @@ grid.TileCenter(tileX: I32, tileY: I32)     -> WorldPos
 grid.DrawGrid(originX: F64, originY: F64, cols: I32, rows: I32)
 ```
 
+### Timer
+```ks
+Timer.Create(id: Str, duration: F64, repeating: Bool, callback: func())
+Timer.UpdateAll(dt: F64)
+Timer.Pause(id: Str)
+Timer.Resume(id: Str)
+Timer.Reset(id: Str)
+Timer.Remove(id: Str)
+Timer.RemoveAll()
+Timer.Exists(id: Str)     -> Bool
+Timer.Finished(id: Str)   -> Bool
+Timer.Remaining(id: Str)  -> F64
+```
+
 ### UI
 ```ks
 UI.AddButton(id: Str, text: Str, x: F64, y: F64)
@@ -747,6 +761,7 @@ UI.AddPanel(id: Str, x: F64, y: F64, w: F64, h: F64)
 UI.AddImage(id: Str, tex: Texture, x: F64, y: F64, w: F64, h: F64)
 UI.PanelAddChild(panelId: Str, childId: Str)
 UI.OnClick(id: Str, callback: func())
+UI.AddTextBox(id: Str, text: Str, x: F64, y: F64, w: F64, h: F64, typewriter: Bool, charsPerSec: F64)
 UI.Connect(id: Str, signal: Str, callback: func())
 UI.Update()
 UI.Draw()

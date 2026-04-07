@@ -1410,6 +1410,131 @@ std::string pick = Random::From(names);
 
 ---
 
+## Timers
+
+Frame-rate independent timers for gameplay events. Uses delta time so behavior is consistent regardless of FPS.
+
+**KonScript:**
+```ks
+# One-shot timer: fires once after 2 seconds
+Timer.Create("explode", 2.0, false, func() {
+    Print("BOOM!");
+});
+
+# Repeating timer: fires every 0.5 seconds
+Timer.Create("spawn", 0.5, true, func() {
+    spawnEnemy();
+});
+
+# In game loop — MUST call this each frame
+Timer.UpdateAll(GetDeltaTime());
+
+# Controls
+Timer.Pause("spawn");
+Timer.Resume("spawn");
+Timer.Reset("spawn");       # restart from 0
+Timer.Remove("spawn");      # delete timer
+Timer.RemoveAll();           # delete all timers
+
+# Queries
+let exists: Bool = Timer.Exists("spawn");
+let done: Bool = Timer.Finished("explode");
+let remaining: F64 = Timer.Remaining("explode");
+```
+
+**C++:**
+```cpp
+// One-shot
+TimerCreate("explode", 2.0f, false, []{ printf("BOOM!\n"); });
+
+// Repeating
+TimerCreate("spawn", 0.5f, true, [&]{ spawnEnemy(); });
+
+// In game loop
+TimerUpdateAll(GetDeltaTime());
+
+// Controls
+TimerPause("spawn");
+TimerResume("spawn");
+TimerReset("spawn");
+TimerRemove("spawn");
+
+// Queries
+bool exists = TimerExists("spawn");
+float remaining = TimerRemaining("explode");
+```
+
+| Function | Description |
+|----------|-------------|
+| `Timer.Create(id, duration, repeating, callback)` | Create a timer |
+| `Timer.UpdateAll(dt)` | Tick all timers (call each frame) |
+| `Timer.Pause(id)` / `Resume(id)` | Pause/resume a timer |
+| `Timer.Reset(id)` | Restart timer from 0 |
+| `Timer.Remove(id)` / `RemoveAll()` | Delete timers |
+| `Timer.Exists(id)` | Check if timer exists |
+| `Timer.Finished(id)` | True if one-shot timer has fired |
+| `Timer.Remaining(id)` | Seconds left until next fire |
+
+---
+
+## Text Boxes (Dialogue)
+
+`UITextBox` provides word-wrapped text with an optional typewriter effect — characters appear one at a time, perfect for dialogue boxes.
+
+**KonScript:**
+```ks
+# Simple text box (instant, word-wrapped)
+UI.AddTextBox("desc", "This is a long description that will automatically wrap words to fit within the box width.", 50.0, 400.0, 700.0, 120.0);
+
+# Dialogue box with typewriter effect
+UI.AddTextBox("dialogue", "Hello, adventurer! Welcome to the village. The elder would like to speak with you about a quest...", 50.0, 450.0, 700.0, 100.0, true, 40.0);
+
+# Connect to finished signal
+UI.Connect("dialogue", "finished", func() {
+    Print("Dialogue finished typing!");
+});
+
+# In game loop
+UI.Update();
+UI.Draw();
+
+# Skip typewriter (e.g. on button press)
+if KeyPressed(Key.Space) {
+    # Get the element and call Skip — or just set a new text
+}
+```
+
+**C++:**
+```cpp
+// Simple wrapped text
+UIAddTextBox("desc", "Long text here...", 50, 400, 700, 120);
+
+// Typewriter dialogue box (40 chars/sec)
+auto* dlg = UIAddTextBox("dialogue",
+    "Hello, adventurer! Welcome to the village...",
+    50, 450, 700, 100, true, 40.0f);
+
+// Connect to finished signal
+UIConnect("dialogue", "finished", []{ printf("Done typing!\n"); });
+
+// Skip typewriter on keypress
+if (IsKeyPressed(Key::Space) && dlg->IsTyping()) {
+    dlg->Skip();
+}
+
+// Change text (resets typewriter)
+dlg->SetText("New dialogue line here...");
+
+// Style
+dlg->backgroundColor = Color(0.0f, 0.0f, 0.0f, 0.85f);
+dlg->textColor = WHITE;
+dlg->fontSize = 20;
+dlg->paddingX = 16;
+dlg->paddingY = 12;
+```
+
+---
+
 ## Signals
 
 Nodes have a lightweight signal system for decoupled communication. Connect callbacks to named signals, then emit them from anywhere.

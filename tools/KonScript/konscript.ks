@@ -3655,6 +3655,9 @@ func cg_gen_expr(idx: I32) -> Str {
                 if method == "WantsInput" { ui_method = "WantsInput"; }
                 return "UI" + ui_method + "(" + args + ")";
             }
+            if obj == "Timer" {
+                return "Timer" + method + "(" + args + ")";
+            }
             // Collection methods — use .size() for vectors, _ks_len for strings
             if method == "len"     { return "(int)" + obj + ".size()"; }
             if method == "isEmpty" { return obj + ".empty()"; }

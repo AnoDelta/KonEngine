@@ -4,6 +4,7 @@
 #include "../font/font.hpp"
 #include "../window/window.hpp"
 #include "../renderer/texture.hpp"
+#include "../time/time.hpp"
 #include <string>
 #include <vector>
 #include <functional>
@@ -254,6 +255,135 @@ public:
             DrawLine(x, y + height, x + width, y + height, borderColor);
             DrawLine(x, y, x, y + height, borderColor);
             DrawLine(x + width, y, x + width, y + height, borderColor);
+        }
+    }
+};
+
+// ---------------------------------------------------------------------------
+// UITextBox -- word-wrapped text with optional typewriter effect.
+// Perfect for dialogue boxes, descriptions, tutorials.
+//
+// Features:
+//   - Automatic word wrapping to fit within width
+//   - Typewriter mode: characters appear one at a time
+//   - Configurable typing speed (chars per second)
+//   - Background and border (like a panel)
+//   - Padding for text inset
+//   - IsTyping() / IsFinished() for gameplay integration
+//   - Skip() to instantly show all text
+//
+// Signals:
+//   "finished" -- fired when typewriter finishes typing all text
+// ---------------------------------------------------------------------------
+class UITextBox : public UIElement {
+public:
+    std::string text;
+    int fontSize = 18;
+    Color textColor = WHITE;
+
+    Color backgroundColor = Color(0.08f, 0.08f, 0.12f, 0.92f);
+    Color borderColor     = Color(0.4f, 0.4f, 0.45f, 1.0f);
+
+    float paddingX = 12.0f;
+    float paddingY = 10.0f;
+
+    // Typewriter settings
+    bool  typewriter    = false;  // enable typewriter effect
+    float charsPerSec   = 30.0f;  // typing speed
+    float typeElapsed   = 0.0f;
+    int   visibleChars  = 0;
+    bool  typeFinished  = false;
+
+    UITextBox(const std::string& id) : UIElement(id) {}
+
+    void SetText(const std::string& newText) {
+        text = newText;
+        typeElapsed  = 0.0f;
+        visibleChars = 0;
+        typeFinished = false;
+    }
+
+    void Skip() {
+        visibleChars = (int)text.size();
+        typeFinished = true;
+    }
+
+    bool IsTyping() const { return typewriter && !typeFinished; }
+    bool IsFinished() const { return !typewriter || typeFinished; }
+
+    void Update(float mouseX, float mouseY, bool mouseDown, bool mousePressed) override {
+        if (!visible || !typewriter || typeFinished) return;
+
+        typeElapsed += GetDeltaTime();
+        int target = (int)(typeElapsed * charsPerSec);
+        if (target >= (int)text.size()) {
+            visibleChars = (int)text.size();
+            if (!typeFinished) {
+                typeFinished = true;
+                Emit("finished");
+            }
+        } else {
+            visibleChars = target;
+        }
+    }
+
+    void Draw() override {
+        if (!visible) return;
+
+        // Background
+        DrawRectangle(x, y, width, height, backgroundColor);
+
+        // Border
+        DrawLine(x, y, x + width, y, borderColor);
+        DrawLine(x, y + height, x + width, y + height, borderColor);
+        DrawLine(x, y, x, y + height, borderColor);
+        DrawLine(x + width, y, x + width, y + height, borderColor);
+
+        // Word-wrapped text with optional typewriter
+        std::string displayText = typewriter
+            ? text.substr(0, (size_t)visibleChars)
+            : text;
+
+        float maxW = width - paddingX * 2;
+        float curX = x + paddingX;
+        float curY = y + paddingY;
+        float lineH = (float)fontSize * 1.2f;
+
+        // Word wrap
+        std::string word;
+        float lineWidth = 0;
+        float spaceW = MeasureTextWidth(" ", fontSize);
+
+        for (size_t i = 0; i <= displayText.size(); i++) {
+            char c = (i < displayText.size()) ? displayText[i] : ' ';
+
+            if (c == '\n') {
+                if (!word.empty()) {
+                    DrawText(word.c_str(), curX + lineWidth, curY, fontSize, textColor);
+                    word.clear();
+                }
+                curY += lineH;
+                lineWidth = 0;
+                continue;
+            }
+
+            if (c == ' ' || i == displayText.size()) {
+                if (!word.empty()) {
+                    float wordW = MeasureTextWidth(word.c_str(), fontSize);
+                    if (lineWidth + wordW > maxW && lineWidth > 0) {
+                        curY += lineH;
+                        lineWidth = 0;
+                    }
+                    DrawText(word.c_str(), curX + lineWidth, curY, fontSize, textColor);
+                    lineWidth += wordW;
+                    word.clear();
+                }
+                if (c == ' ' && i < displayText.size()) {
+                    lineWidth += spaceW;
+                }
+            } else {
+                word += c;
+            }
         }
     }
 };

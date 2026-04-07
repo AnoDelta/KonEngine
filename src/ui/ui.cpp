@@ -72,6 +72,21 @@ UIImage* UIAddImage(const std::string& id, Texture tex, float x, float y,
     return ptr;
 }
 
+UITextBox* UIAddTextBox(const std::string& id, const std::string& text,
+                        float x, float y, float w, float h,
+                        bool typewriter, float charsPerSec) {
+    auto tb = std::make_unique<UITextBox>(id);
+    tb->text = text;
+    tb->x = x; tb->y = y;
+    tb->width = w; tb->height = h;
+    tb->typewriter = typewriter;
+    tb->charsPerSec = charsPerSec;
+    if (!typewriter) tb->visibleChars = (int)text.size();
+    UITextBox* ptr = tb.get();
+    g_ui.elements.push_back(std::move(tb));
+    return ptr;
+}
+
 void UIPanelAddChild(const std::string& panelId, const std::string& childId) {
     UIElement* el = FindElement(panelId);
     if (!el) return;

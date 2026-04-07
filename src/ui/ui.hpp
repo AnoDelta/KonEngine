@@ -23,8 +23,11 @@ UIButton* UIAddButton(const std::string& id, const std::string& text, float x, f
 UILabel*  UIAddLabel(const std::string& id, const std::string& text, float x, float y,
                      int fontSize = 20, Color color = WHITE);
 UIPanel*  UIAddPanel(const std::string& id, float x, float y, float w, float h);
-UIImage*  UIAddImage(const std::string& id, Texture tex, float x, float y,
-                     float w = 0, float h = 0);
+UIImage*   UIAddImage(const std::string& id, Texture tex, float x, float y,
+                      float w = 0, float h = 0);
+UITextBox* UIAddTextBox(const std::string& id, const std::string& text,
+                        float x, float y, float w, float h,
+                        bool typewriter = false, float charsPerSec = 30.0f);
 
 // Add a child element to a panel (child position becomes relative to panel)
 void UIPanelAddChild(const std::string& panelId, const std::string& childId);

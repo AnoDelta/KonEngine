@@ -1441,6 +1441,17 @@ private:
             {"GamepadConnected",   "IsGamepadConnected"},
             // Text measurement
             {"MeasureTextWidth",   "MeasureTextWidth"},
+            // Timer system
+            {"TimerCreate",        "TimerCreate"},
+            {"TimerRemove",        "TimerRemove"},
+            {"TimerRemoveAll",     "TimerRemoveAll"},
+            {"TimerPause",         "TimerPause"},
+            {"TimerResume",        "TimerResume"},
+            {"TimerReset",         "TimerReset"},
+            {"TimerExists",        "TimerExists"},
+            {"TimerFinished",      "TimerFinished"},
+            {"TimerRemaining",     "TimerRemaining"},
+            {"TimerUpdateAll",     "TimerUpdateAll"},
         };
         auto it = builtins.find(e->name);
         if (it != builtins.end()) {
@@ -1758,6 +1769,7 @@ private:
                         {"Update", "UIUpdate"}, {"Clear", "UIClear"},
                         {"AddButton", "UIAddButton"}, {"AddLabel", "UIAddLabel"},
                         {"AddPanel", "UIAddPanel"}, {"AddImage", "UIAddImage"},
+                        {"AddTextBox", "UIAddTextBox"},
                         {"PanelAddChild", "UIPanelAddChild"},
                         {"Remove", "UIRemove"}, {"OnClick", "UIOnClick"},
                         {"Connect", "UIConnect"}, {"GetElement", "UIGetElement"},
