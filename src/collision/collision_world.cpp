@@ -97,30 +97,6 @@ void CollisionWorld::Update() {
 //   b static only → push a the full amount
 //   both static   → do nothing (shouldn't collide, but be safe)
 
-// Helper: find the body node that owns this collider (parent that isn't a collider)
-static Node2D* FindBody(Collider2D* col) {
-    Node* p = col->parent;
-    while (p) {
-        if (auto* body = dynamic_cast<Node2D*>(p))
-            if (!dynamic_cast<Collider2D*>(body))
-                return body;
-        p = p->parent;
-    }
-    return nullptr;
-}
-
-// Push a collider's owning body (or the collider itself if no parent body)
-static void PushNode(Collider2D* col, float px, float py) {
-    Node2D* body = FindBody(col);
-    if (body) {
-        body->x += px;
-        body->y += py;
-    } else {
-        col->x += px;
-        col->y += py;
-    }
-}
-
 void CollisionWorld::Resolve(Collider2D* a, Collider2D* b, const MTV& mtv) {
     if (a->staticBody && b->staticBody) return;
 
@@ -131,12 +107,16 @@ void CollisionWorld::Resolve(Collider2D* a, Collider2D* b, const MTV& mtv) {
     glm::vec2 push = mtv.normal * d;
 
     if (!a->staticBody && !b->staticBody) {
-        PushNode(a,  push.x * 0.5f,  push.y * 0.5f);
-        PushNode(b, -push.x * 0.5f, -push.y * 0.5f);
+        a->x += push.x * 0.5f;
+        a->y += push.y * 0.5f;
+        b->x -= push.x * 0.5f;
+        b->y -= push.y * 0.5f;
     } else if (a->staticBody) {
-        PushNode(b, -push.x, -push.y);
+        b->x -= push.x;
+        b->y -= push.y;
     } else {
-        PushNode(a,  push.x,  push.y);
+        a->x += push.x;
+        a->y += push.y;
     }
 }
 
