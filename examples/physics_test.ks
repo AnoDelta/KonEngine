@@ -40,12 +40,16 @@ node Player : KinematicBody2D {
 
         if KeyPressed(Key.R) { x = 400.0; y = 300.0; vy = 0.0; }
 
-        let actual: Vec2 = MoveAndCollide(0.0, dy);
+        let beforeY: F64 = y;
+        MoveAndCollide(0.0, dy);
+        let afterY: F64 = y;
+        let actualDy: F64 = afterY - beforeY;
 
-        if dy > 0.5 && actual.y < dy - 0.5 {
+        // Floor detection: if we moved less than we wanted (got pushed back)
+        if dy > 0.001 && actualDy < dy - 0.001 {
             onGround = true;
             vy = 0.0;
-        } else if dy > 0.5 {
+        } else if dy > 0.001 {
             onGround = false;
         }
     }
