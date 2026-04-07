@@ -117,8 +117,8 @@ node Player : Sprite2D {
     }
 
     func Update(dt: F64) {
-        if IsKeyDown(KEY_D) { x = x + speed * dt; }
-        if IsKeyDown(KEY_A) { x = x - speed * dt; }
+        if KeyDown(Key.D) { x = x + speed * dt; }
+        if KeyDown(Key.A) { x = x - speed * dt; }
     }
 }
 ```
@@ -197,8 +197,8 @@ node Player : KinematicBody2D {
     func Update(dt: F64) {
         let mut dx: F64 = 0;
         let mut dy: F64 = 0;
-        if IsKeyDown(KEY_D) { dx = speed * dt; }
-        if IsKeyDown(KEY_A) { dx = -speed * dt; }
+        if KeyDown(Key.D) { dx = speed * dt; }
+        if KeyDown(Key.A) { dx = -speed * dt; }
         MoveAndCollide(dx, dy);
     }
 }
@@ -819,49 +819,150 @@ SetMasterVolume(0.7f);  // C++ — affects all sounds and music
 
 ## Input System
 
-### Keyboard
+### Input States
 
-Three states: **down** (held), **pressed** (just this frame), **released** (just let go).
+Every input source (keyboard, mouse, gamepad) has three states:
+
+| State | Meaning | Use for |
+|-------|---------|---------|
+| **Down** | Held right now | Movement, continuous actions |
+| **Pressed** | Just pressed this frame | Jump, attack, menu select |
+| **Released** | Just let go this frame | Release charge, stop sprint |
+
+### Keyboard
 
 **KonScript:**
 ```ks
-if KeyDown(Key.D)      { x += speed * dt; }   # held
-if KeyPressed(Key.Space) { jump(); }            # just pressed
-if KeyReleased(Key.Shift) { stopSprint(); }     # just released
+# Movement (held every frame)
+if KeyDown(Key.D) { x += speed * dt; }
+if KeyDown(Key.A) { x -= speed * dt; }
+if KeyDown(Key.W) { y -= speed * dt; }
+if KeyDown(Key.S) { y += speed * dt; }
+
+# One-shot actions (fires once on press)
+if KeyPressed(Key.Space) { jump(); }
+if KeyPressed(Key.Enter) { confirm(); }
+if KeyPressed(Key.Esc)   { pauseMenu(); }
+
+# Release detection
+if KeyReleased(Key.Shift) { stopSprint(); }
 ```
 
 **C++:**
 ```cpp
-if (IsKeyDown(Key::D))        x += speed * dt;
+if (IsKeyDown(Key::D)) x += speed * dt;
+if (IsKeyDown(Key::A)) x -= speed * dt;
+if (IsKeyDown(Key::W)) y -= speed * dt;
+if (IsKeyDown(Key::S)) y += speed * dt;
+
 if (IsKeyPressed(Key::Space)) jump();
+if (IsKeyPressed(Key::Enter)) confirm();
+if (IsKeyPressed(Key::Escape)) pauseMenu();
+
 if (IsKeyReleased(Key::Shift)) stopSprint();
 ```
 
-**Key constants:** `A`-`Z`, `Num0`-`Num9`, `Right`/`Left`/`Down`/`Up`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Shift`, `Ctrl`, `Alt`, `F1`-`F12`
+**Key constants:**
+
+| Category | Keys |
+|----------|------|
+| Letters | `A` - `Z` |
+| Numbers | `Num0` - `Num9` |
+| Arrows | `Up`, `Down`, `Left`, `Right` |
+| Actions | `Space`, `Enter`, `Escape` (or `Esc`), `Tab`, `Backspace` |
+| Modifiers | `Shift`, `Ctrl`, `Alt` |
+| Function | `F1` - `F12` |
+
+Access as `Key.Space` in KonScript, `Key::Space` in C++.
 
 ### Mouse
 
 **KonScript:**
 ```ks
-if MouseDown(Mouse.Left)    { shoot(); }
+# Click detection
+if MouseDown(Mouse.Left)     { shoot(); }       # held (auto-fire)
+if MousePressed(Mouse.Left)  { singleShot(); }  # just clicked
+if MouseReleased(Mouse.Left) { releaseCharge(); }
 if MousePressed(Mouse.Right) { aim(); }
 
+# Screen-space mouse position (design resolution coordinates)
 let mx: F64 = GetMouseX();
 let my: F64 = GetMouseY();
-let dx: F64 = GetMouseDeltaX();   # per-frame movement
+
+# Per-frame movement delta
+let dx: F64 = GetMouseDeltaX();
 let dy: F64 = GetMouseDeltaY();
+
+# Scroll wheel (positive = up, negative = down)
 let scroll: F64 = GetMouseScroll();
 ```
 
 **C++:**
 ```cpp
-if (IsMouseButtonDown(Mouse::Left))    shoot();
-if (IsMouseButtonPressed(Mouse::Right)) aim();
+if (IsMouseButtonDown(Mouse::Left))     shoot();
+if (IsMouseButtonPressed(Mouse::Left))  singleShot();
+if (IsMouseButtonReleased(Mouse::Left)) releaseCharge();
 
 float mx = GetMouseX(), my = GetMouseY();
 float dx = GetMouseDeltaX(), dy = GetMouseDeltaY();
 float scroll = GetMouseScroll();
 ```
+
+**Mouse buttons:** `Mouse.Left`, `Mouse.Right`, `Mouse.Middle` (KonScript) / `Mouse::Left`, etc. (C++)
+
+### World-Space Mouse (Clicking Game Objects)
+
+`GetMouseX/Y()` returns screen coordinates. To click on things in the game world (affected by camera pan/zoom), use `GetWorldMouseX/Y(camera)`:
+
+**KonScript:**
+```ks
+let cam: Camera2D = Camera2D(400.0, 300.0, 1.0, 0.0);
+
+# Screen mouse — for UI, HUD, menus
+let screenX: F64 = GetMouseX();
+let screenY: F64 = GetMouseY();
+
+# World mouse — for clicking game objects, tiles, enemies
+let worldX: F64 = GetWorldMouseX(cam);
+let worldY: F64 = GetWorldMouseY(cam);
+
+# Example: click to place a block at the mouse's world position
+if MousePressed(Mouse.Left) {
+    spawnBlock(worldX, worldY);
+}
+
+# Example: check if clicking near the player
+let dist: F64 = Distance(worldX, worldY, player.x, player.y);
+if dist < 32.0 && MousePressed(Mouse.Left) {
+    Print("Clicked on player!");
+}
+```
+
+**C++:**
+```cpp
+Camera2D cam(400, 300, 1.0f, 0.0f);
+
+// Screen-space (for UI)
+float screenX = GetMouseX();
+float screenY = GetMouseY();
+
+// World-space (for game objects)
+float worldX = GetWorldMouseX(cam);
+float worldY = GetWorldMouseY(cam);
+
+// Click to place at world position
+if (IsMouseButtonPressed(Mouse::Left)) {
+    spawnBlock(worldX, worldY);
+}
+```
+
+**When to use which:**
+
+| Function | Coordinate space | Use for |
+|----------|-----------------|---------|
+| `GetMouseX/Y()` | Screen (design resolution) | UI buttons, HUD, menus |
+| `GetGameMouseX/Y()` | Screen (letterbox-corrected) | Same as above, with letterbox |
+| `GetWorldMouseX/Y(cam)` | World (camera-transformed) | Clicking game objects, tiles, placing items |
 
 ### Gamepad
 
