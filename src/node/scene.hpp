@@ -72,12 +72,12 @@ public:
     }
 
     void Update(float dt) {
-        collisionWorld.Update();
         for (auto& node : nodes)
             if (node->active) {
                 node->Update(dt);
                 node->UpdateChildren(dt);
             }
+        collisionWorld.Update();
     }
 
     void Draw() {
