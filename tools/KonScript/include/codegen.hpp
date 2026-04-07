@@ -815,7 +815,7 @@ private:
         if (!n->fields.empty()) line("");
 
         for (auto& m : n->methods)
-            genNodeMethod(m.get(), n->name);
+            genNodeMethod(m.get(), n->base);
 
         // Remove field ptrs so they don't leak to other nodes/methods
         for (auto& name : addedFieldPtrs)
@@ -826,7 +826,7 @@ private:
         line("");
     }
 
-    void genNodeMethod(const FuncDecl* f, const std::string&) {
+    void genNodeMethod(const FuncDecl* f, const std::string& base) {
         struct MethodMap { std::string ks, sig; };
         static const std::vector<MethodMap> builtinMethods = {
             {"Ready",            "void Ready() override"},
@@ -839,6 +839,11 @@ private:
             if (f->name == bm.ks) {
                 line(bm.sig + " {");
                 indent();
+                // Call super so base body types initialize properly
+                if (f->name == "Ready")
+                    line(base + "::Ready();");
+                else if (f->name == "Update")
+                    line(base + "::Update(dt);");
                 // Register pointer params so genMember uses -> inside the body.
                 // OnCollisionEnter/Exit take Collider2D* other — must use ->.
                 // Update takes float dt — not a pointer, harmless to skip.

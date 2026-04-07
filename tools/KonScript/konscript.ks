@@ -4353,6 +4353,10 @@ func cg_gen_node(idx: I32) {
                     cg_mark_ptr("other");
                 }
                 cg_emit(lifecycle + " {");
+                // Call super for Ready/Update so base body types initialize properly
+                // (e.g. StaticBody2D::Ready marks colliders as solid+static)
+                if mname == "Ready" { cg_emit("    " + base + "::Ready();"); }
+                if mname == "Update" { cg_emit("    " + base + "::Update(dt);"); }
             } else {
                 // Regular method
                 let mut mparams: Str = "";
