@@ -287,6 +287,7 @@ private:
     const std::unordered_set<std::string> m_engineValueTypes = {
         "Camera2D", "Sound", "Music", "Texture", "Scene",
         "Rectangle", "Circle", "Font", "Color", "TileGrid",
+        "Tilemap", "TileCoord", "IsometricGrid", "IsoTilemap",
         "Vector2", "Vec2"
     };
 
@@ -1669,13 +1670,24 @@ private:
             }
 
             // TileGrid(tileW, tileH) -> TileGrid{tileW, tileH}
-            if (id->name == "TileGrid") {
-                write("TileGrid{");
+            if (id->name == "TileGrid" || id->name == "IsometricGrid") {
+                write(id->name + "{");
                 for (size_t i = 0; i < e->args.size(); i++) {
                     if (i > 0) write(", ");
                     genExpr(e->args[i].get());
                 }
                 write("}");
+                return;
+            }
+
+            // Tilemap(cols, rows, tileW, tileH) -> Tilemap(cols, rows, tileW, tileH)
+            if (id->name == "Tilemap" || id->name == "IsoTilemap") {
+                write(id->name + "(");
+                for (size_t i = 0; i < e->args.size(); i++) {
+                    if (i > 0) write(", ");
+                    genExpr(e->args[i].get());
+                }
+                write(")");
                 return;
             }
 

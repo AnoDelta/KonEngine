@@ -1765,6 +1765,7 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("cg_is_engine_node", "Bool");
     tc_def_fn("cg_is_user_node", "Bool");
     tc_def_fn("cg_is_ptr_type", "Bool");
+    tc_def_fn("cg_is_engine_val_type", "Bool");
     tc_def_fn("cg_lifecycle_sig", "Str");
     tc_def_fn("cg_engine_func", "Str");
     tc_def_fn("cg_scene_method", "Str");
@@ -3510,7 +3511,7 @@ func cg_type(t: Str) -> Str {
 func cg_is_node_type(t: Str) -> Bool {
     if t == "Node2D" || t == "Sprite2D" || t == "Collider2D" { return true; }
     if t == "AnimatedSprite2D" || t == "AnimationPlayer" { return true; }
-    if t == "CameraNode2D" || t == "Camera2D" { return true; }
+    if t == "CameraNode2D" { return true; }
     return false;
 }
 
@@ -3631,6 +3632,10 @@ func cg_gen_expr(idx: I32) -> Str {
             if fname == "Vec2" { cg_last_type = "Vec2"; return "Vector2{" + args + "}"; }
             if fname == "Camera2D" { cg_last_type = "Camera2D"; return "Camera2D{" + args + "}"; }
             if fname == "Scene" { cg_last_type = "Scene"; return "Scene()"; }
+            if fname == "Tilemap" { cg_last_type = "Tilemap"; return "Tilemap(" + args + ")"; }
+            if fname == "TileGrid" { cg_last_type = "TileGrid"; return "TileGrid{" + args + "}"; }
+            if fname == "IsometricGrid" { cg_last_type = "IsometricGrid"; return "IsometricGrid{" + args + "}"; }
+            if fname == "IsoTilemap" { cg_last_type = "IsoTilemap"; return "IsoTilemap(" + args + ")"; }
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
             if fname == "_ks_self_dir"   { return "std::string(_ks_self_dir())"; }
@@ -3717,6 +3722,22 @@ func cg_gen_expr(idx: I32) -> Str {
                     return "this->AddChild<" + add_type + ">(" + add_args + ")";
                 }
                 return obj + ".Add<" + add_type + ">(" + add_args + ")";
+            }
+            // Tilemap methods
+            if obj_type == "Tilemap" || obj_type == "IsoTilemap" {
+                if method == "Set" { return obj + ".Set(" + args + ")"; }
+                if method == "Get" { cg_last_type = "I32"; return obj + ".Get(" + args + ")"; }
+                if method == "InBounds" { cg_last_type = "Bool"; return obj + ".InBounds(" + args + ")"; }
+                if method == "WorldToTile" { cg_last_type = "TileCoord"; return obj + ".WorldToTile(" + args + ")"; }
+                if method == "TileToWorld" { cg_last_type = "Vec2"; return obj + ".TileToWorld(" + args + ")"; }
+                if method == "Fill" { return obj + ".Fill(" + args + ")"; }
+                if method == "Clear" { return obj + ".Clear()"; }
+                if method == "Draw" { return obj + ".Draw(" + args + ")"; }
+            }
+            if obj_type == "TileGrid" || obj_type == "IsometricGrid" {
+                if method == "DrawGrid" { return obj + ".DrawGrid(" + args + ")"; }
+                if method == "Snap" { cg_last_type = "Vec2"; return obj + ".Snap(" + args + ")"; }
+                if method == "CellAt" { cg_last_type = "TileCoord"; return obj + ".CellAt(" + args + ")"; }
             }
             // Node methods: use -> for pointer types, . for values
             let mut call_is_ptr: Bool = cg_is_ptr(obj) || cg_type_is_ptr(obj_type);
@@ -3884,6 +3905,9 @@ func cg_gen_stmt(idx: I32) {
                     // User/engine node type annotation → emit pointer declaration
                     cg_emit(type_ann + "* " + name + " = " + val + ";");
                     cg_mark_ptr(name);
+                } else if cg_is_engine_val_type(type_ann) {
+                    // Engine value type annotation → emit explicit type
+                    cg_emit(type_ann + " " + name + " = " + val + ";");
                 } else {
                     cg_emit("auto " + name + " = " + val + ";");
                     // Track pointer vars (scene.Add, AddChild return pointers)
@@ -4075,7 +4099,7 @@ func cg_gen_struct(idx: I32) {
 func cg_is_engine_node(t: Str) -> Bool {
     if t == "Node2D" || t == "Sprite2D" || t == "Collider2D" { return true; }
     if t == "AnimatedSprite2D" || t == "AnimationPlayer" { return true; }
-    if t == "CameraNode2D" || t == "Camera2D" { return true; }
+    if t == "CameraNode2D" { return true; }
     if t == "Node" { return true; }
     return false;
 }
@@ -4095,6 +4119,17 @@ func cg_is_user_node(name: Str) -> Bool {
         if cg_user_nodes[i] == name { return true; }
         i = i + 1;
     }
+    return false;
+}
+
+// Returns true if a type is an engine value type (not a pointer)
+func cg_is_engine_val_type(t: Str) -> Bool {
+    if t == "Camera2D" || t == "Scene" || t == "Color" { return true; }
+    if t == "Tilemap" || t == "TileGrid" || t == "TileCoord" { return true; }
+    if t == "IsometricGrid" || t == "IsoTilemap" { return true; }
+    if t == "Vector2" || t == "Vec2" { return true; }
+    if t == "Sound" || t == "Music" || t == "Texture" || t == "Font" { return true; }
+    if t == "Rectangle" || t == "Circle" { return true; }
     return false;
 }
 

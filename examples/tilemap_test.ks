@@ -34,10 +34,14 @@ func main() {
 
     // Since we don't have a tileset image, we'll draw tiles manually
     // Fill a checkerboard pattern to test
-    for y: I32 in 0..MAP_ROWS {
-        for x: I32 in 0..MAP_COLS {
+    let mut y: I32 = 0;
+    while y < MAP_ROWS {
+        let mut x: I32 = 0;
+        while x < MAP_COLS {
             if (x + y) % 2 == 0 { map.Set(x, y, 1); }
+            x = x + 1;
         }
+        y = y + 1;
     }
 
     // Place some different tiles
@@ -102,8 +106,10 @@ func main() {
         BeginCamera2D(cam);
 
         // Draw tiles manually (no tileset texture in this test)
-        for ty: I32 in 0..MAP_ROWS {
-            for tx: I32 in 0..MAP_COLS {
+        let mut ty: I32 = 0;
+        while ty < MAP_ROWS {
+            let mut tx: I32 = 0;
+            while tx < MAP_COLS {
                 let id: I32 = map.Get(tx, ty);
                 if id > 0 {
                     let px: F64 = (tx * TILE_W) as F64;
@@ -117,7 +123,9 @@ func main() {
                     if id == 4 { DrawRectangle(px, py, tw, th, Color(0.6, 0.2, 0.2, 1.0)); }
                     if id == 5 { DrawRectangle(px, py, tw, th, Color(0.5, 0.4, 0.6, 1.0)); }
                 }
+                tx = tx + 1;
             }
+            ty = ty + 1;
         }
 
         // Grid overlay
