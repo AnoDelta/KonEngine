@@ -9,6 +9,7 @@
 #include "../time/time.hpp"
 #include <functional>
 #include <cstdio>
+#include "stb_image.h"
 #include "../input/input.hpp"
 #include "../camera/camera.hpp"
 #include "../font/font.hpp"
@@ -116,10 +117,6 @@ void Window::clearBackground(Color color) {
 void Window::setVsync(bool e) { impl->vsyncEnabled=e; glfwSwapInterval(e?1:0); }
 
 void Window::setIcon(const char* path) {
-    // stb_image is already linked (implementation in opengl_renderer.cpp)
-    extern unsigned char* stbi_load(const char*, int*, int*, int*, int);
-    extern void stbi_image_free(void*);
-
     int w, h, channels;
     unsigned char* pixels = stbi_load(path, &w, &h, &channels, 4);
     if (!pixels) return;
