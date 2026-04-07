@@ -104,6 +104,7 @@ const TK_DOTDOTEQ:   I32 = 73;
 const TK_QUESTION:   I32 = 74;
 const TK_FSTR:       I32 = 75;
 const TK_COLONCOLON: I32 = 76;
+const TK_AMP:       I32 = 77;
 
 // -----------------------------------------------------------------------
 // Token storage — parallel arrays, one slot per token
@@ -439,6 +440,7 @@ func lex(src: Str) -> I32 {
         if c == ":" { emit_token(TK_COLON,     ":", line, col); i += 1; col += 1; continue; }
         if c == ";" { emit_token(TK_SEMICOLON, ";", line, col); i += 1; col += 1; continue; }
         if c == "?" { emit_token(TK_QUESTION,  "?", line, col); i += 1; col += 1; continue; }
+        if c == "&" { emit_token(TK_AMP,       "&", line, col); i += 1; col += 1; continue; }
 
         // ── Unknown character — report and skip ────────────────────
         lex_error(line, col, "unexpected character '" + c + "'");
@@ -660,6 +662,7 @@ func alloc_node(kind: I32, a: I32, b: I32, c: I32, s: Str) -> I32 {
 
 // ── Token peek / consume helpers ─────────────────────────────────────────
 func pk() -> I32         { return tok_kinds[pos]; }
+func pk_at(offset: I32) -> I32 { return tok_kinds[pos + offset]; }
 func pk_val() -> Str     { return tok_values[pos]; }
 func pk_ln() -> I32      { return tok_lines[pos]; }
 func pk_col() -> I32     { return tok_cols[pos]; }
@@ -769,6 +772,39 @@ func parse_primary() -> I32 {
     if chk(TK_IDENT) {
         let name: Str = pk_val(); adv();
         return alloc_node(NK_IDENT, 0, 0, 0, name);
+    }
+
+    // C++-style lambda: []() { } or [&]() { }
+    // Check if [ is followed by ] or &]
+    if chk(TK_LBRACKET) {
+        let mut is_lambda: Bool = false;
+        if pk_at(1) == TK_RBRACKET { is_lambda = true; }
+        if pk_at(1) == TK_AMP && pk_at(2) == TK_RBRACKET { is_lambda = true; }
+
+        if is_lambda {
+            adv();  // consume [
+            if chk(TK_AMP) { adv(); }  // consume & if present
+            eat(TK_RBRACKET, "']'");
+            // Parse like func() { } closure
+            eat(TK_LPAREN, "'('");
+            let mut params: Str = "";
+            let mut pcnt: I32 = 0;
+            while !chk(TK_RPAREN) && pk() != TK_EOF {
+                if pcnt > 0 { eat(TK_COMMA, "','"); }
+                let pname: Str = eat(TK_IDENT, "param name");
+                eat(TK_COLON, "':'");
+                let ptype: Str = parse_type();
+                if pcnt > 0 { params = params + ","; }
+                params = params + pname + ":" + ptype;
+                pcnt = pcnt + 1;
+            }
+            eat(TK_RPAREN, "')'");
+            let mut ret_type: Str = "";
+            if mat(TK_ARROW) { ret_type = parse_type(); }
+            let body: I32 = parse_block();
+            let pnode: I32 = alloc_node(NK_PARAM, 0, 0, 0, params);
+            return alloc_node(NK_FUNC_EXPR, pnode, body, 0, ret_type);
+        }
     }
 
     // Array literal [a, b, c]

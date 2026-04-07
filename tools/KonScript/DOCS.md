@@ -146,7 +146,7 @@ Top-level constants compile to `constexpr`. Constants inside functions compile t
 
 ---
 
-## 5. Functions
+## 5. Functions & Lambdas
 
 ```ks
 func Add(a: I32, b: I32) -> I32 {
@@ -171,6 +171,30 @@ func main() {
 node Player : Node2D {
     pub func GetHealth() -> I32 { return health; }
 }
+```
+
+**Lambdas / closures (two syntaxes):**
+
+KonScript supports both `func` style and C++ style lambdas. Both compile to the same C++ code.
+
+```ks
+# func style (KonScript native)
+let double: func(I32) -> I32 = func(x: I32) -> I32 { return x * 2; };
+
+# C++ style — [] or [&] both work (captures are always by reference)
+let triple: func(I32) -> I32 = [](x: I32) -> I32 { return x * 3; };
+let quad: func(I32) -> I32 = [&](x: I32) -> I32 { return x * 4; };
+
+# No-parameter lambdas
+UI.OnClick("btn", []() { Print("clicked!"); });
+UI.OnClick("btn", func() { Print("clicked!"); });
+
+# With captures — both syntaxes capture surrounding variables
+let mut score: I32 = 0;
+UI.OnClick("score", [&]() {
+    score += 10;
+    Print("Score: ", score);
+});
 ```
 
 ---
