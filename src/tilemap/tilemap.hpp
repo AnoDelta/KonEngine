@@ -366,3 +366,162 @@ struct IsometricGrid {
         }
     }
 };
+
+// -----------------------------------------------------------------------
+// IsoTilemap -- isometric tilemap with tile data storage and rendering.
+//
+// Combines IsometricGrid coordinate math with Tilemap-style tile storage.
+// Tile sprites in the tileset are rectangular (tileW x tileH) and drawn
+// at diamond-projected screen positions.
+//
+// Usage:
+//   IsoTilemap map(10, 10, 64, 32);
+//   map.SetTileset(LoadTexture("iso_tiles.png"));
+//   map.Set(3, 5, 1);   // place tile ID 1
+//   map.Draw();          // renders all tiles at correct iso positions
+//
+//   // Click detection
+//   auto tc = map.ScreenToTile(mouseX, mouseY);
+//   if (map.InBounds(tc.x, tc.y)) { map.Set(tc.x, tc.y, 2); }
+// -----------------------------------------------------------------------
+class IsoTilemap {
+public:
+    int cols, rows;
+    int tileW, tileH;
+    float originX = 0, originY = 0;
+
+    Texture tileset = {0, 0, 0};
+    int tilesetCols = 0;
+
+    IsoTilemap() : cols(0), rows(0), tileW(64), tileH(32) {}
+
+    IsoTilemap(int cols, int rows, int tileW, int tileH)
+        : cols(cols), rows(rows), tileW(tileW), tileH(tileH),
+          tiles(cols * rows, 0) {}
+
+    // --- Tile data ---
+
+    void Set(int x, int y, int tileId) {
+        if (x >= 0 && x < cols && y >= 0 && y < rows)
+            tiles[y * cols + x] = tileId;
+    }
+
+    int Get(int x, int y) const {
+        if (x >= 0 && x < cols && y >= 0 && y < rows)
+            return tiles[y * cols + x];
+        return 0;
+    }
+
+    void Fill(int tileId) { for (auto& t : tiles) t = tileId; }
+    void Clear() { for (auto& t : tiles) t = 0; }
+
+    void SetTileset(Texture tex) {
+        tileset = tex;
+        if (tileW > 0) tilesetCols = tex.width / tileW;
+    }
+
+    bool InBounds(int tileX, int tileY) const {
+        return tileX >= 0 && tileX < cols && tileY >= 0 && tileY < rows;
+    }
+
+    // --- Coordinate conversion ---
+
+    WorldPos TileToScreen(int tileX, int tileY) const {
+        float sx = originX + (tileX - tileY) * (tileW / 2.0f);
+        float sy = originY + (tileX + tileY) * (tileH / 2.0f);
+        return {sx, sy};
+    }
+
+    TileCoord ScreenToTile(float screenX, float screenY) const {
+        float relX = screenX - originX;
+        float relY = screenY - originY;
+        float halfW = tileW / 2.0f;
+        float halfH = tileH / 2.0f;
+        float fx = (relX / halfW + relY / halfH) / 2.0f;
+        float fy = (relY / halfH - relX / halfW) / 2.0f;
+        return {(int)std::floor(fx), (int)std::floor(fy)};
+    }
+
+    WorldPos TileCenter(int tileX, int tileY) const {
+        auto pos = TileToScreen(tileX, tileY);
+        return {pos.x + tileW / 2.0f, pos.y + tileH / 2.0f};
+    }
+
+    // --- Click detection ---
+
+    TileCoord GetTileAt(float screenX, float screenY) const {
+        auto tc = ScreenToTile(screenX, screenY);
+        if (!InBounds(tc.x, tc.y)) return {-1, -1};
+        return tc;
+    }
+
+    int GetTileIdAt(float screenX, float screenY) const {
+        auto tc = GetTileAt(screenX, screenY);
+        if (tc.x < 0) return 0;
+        return Get(tc.x, tc.y);
+    }
+
+    // --- Rendering ---
+
+    // Draw all tiles at their isometric screen positions.
+    // Tiles are drawn back-to-front (top-left to bottom-right) for correct overlap.
+    void Draw() const {
+        if (tileset.id == 0 || tilesetCols <= 0) return;
+
+        for (int y = 0; y < rows; y++) {
+            for (int x = 0; x < cols; x++) {
+                int id = tiles[y * cols + x];
+                if (id <= 0) continue;
+
+                int tid = id - 1;
+                int srcCol = tid % tilesetCols;
+                int srcRow = tid / tilesetCols;
+
+                float srcX = (float)(srcCol * tileW);
+                float srcY = (float)(srcRow * tileH);
+
+                auto pos = TileToScreen(x, y);
+                DrawTextureRec(tileset, pos.x, pos.y,
+                               (float)tileW, (float)tileH,
+                               srcX, srcY, (float)tileW, (float)tileH);
+            }
+        }
+    }
+
+    // Draw a single tile at a specific isometric grid position
+    void DrawTileAt(int tileId, int tileX, int tileY) const {
+        if (tileset.id == 0 || tilesetCols <= 0 || tileId <= 0) return;
+
+        int tid = tileId - 1;
+        int srcCol = tid % tilesetCols;
+        int srcRow = tid / tilesetCols;
+
+        float srcX = (float)(srcCol * tileW);
+        float srcY = (float)(srcRow * tileH);
+
+        auto pos = TileToScreen(tileX, tileY);
+        DrawTextureRec(tileset, pos.x, pos.y,
+                       (float)tileW, (float)tileH,
+                       srcX, srcY, (float)tileW, (float)tileH);
+    }
+
+    // Draw diamond grid overlay
+    void DrawGrid(Color color = {0.3f, 0.3f, 0.3f, 0.4f}) const {
+        float halfW = tileW / 2.0f;
+        float halfH = tileH / 2.0f;
+        for (int y = 0; y < rows; y++) {
+            for (int x = 0; x < cols; x++) {
+                auto pos = TileToScreen(x, y);
+                float cx = pos.x + halfW;
+                float cy = pos.y + halfH;
+                DrawLine(cx, cy - halfH, cx + halfW, cy, color);
+                DrawLine(cx + halfW, cy, cx, cy + halfH, color);
+                DrawLine(cx, cy + halfH, cx - halfW, cy, color);
+                DrawLine(cx - halfW, cy, cx, cy - halfH, color);
+            }
+        }
+    }
+
+private:
+    std::vector<int> tiles;
+};

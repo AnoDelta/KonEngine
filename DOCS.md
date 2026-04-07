@@ -1128,31 +1128,175 @@ TileCoord tc = grid.WorldToTile(mouseX, mouseY);
 WorldPos snapped = grid.Snap(mouseX, mouseY);
 ```
 
-### Isometric Grid
+### Isometric Tilemap (Full Example)
 
-Diamond-shaped tile grid for isometric games. Standard dimensions: `tileW = 2 * tileH` (e.g., 64x32).
+`IsoTilemap` combines isometric coordinate math with tile data storage and rendering. Tiles are drawn at correct diamond-projected positions automatically.
 
-**C++:**
+**C++ -- complete isometric game setup:**
+```cpp
+#include "KonEngine.hpp"
+
+int main() {
+    InitWindow(800, 600, "Isometric Demo", true);
+    SetTargetFPS(60);
+
+    // 1. Create isometric tilemap (10x10 grid, 64x32 pixel tiles)
+    IsoTilemap map(10, 10, 64, 32);
+    map.originX = 400;  // center the map on screen
+    map.originY = 50;
+
+    // 2. Load tileset spritesheet
+    //    Each tile in the spritesheet is 64x32 pixels.
+    //    Tile ID 1 = first tile (top-left), ID 2 = next, etc.
+    map.SetTileset(LoadTexture("iso_tiles.png"));
+
+    // 3. Fill the map with grass (tile ID 1)
+    map.Fill(1);
+
+    // 4. Place some different tiles
+    map.Set(3, 3, 2);  // stone
+    map.Set(4, 3, 2);
+    map.Set(5, 5, 3);  // water
+
+    Camera2D cam(400, 300, 1.0f, 0);
+
+    while (!WindowShouldClose()) {
+        float dt = GetDeltaTime();
+
+        // 5. Click detection -- which tile did we click?
+        float wmx = GetWorldMouseX(cam);
+        float wmy = GetWorldMouseY(cam);
+        TileCoord hover = map.GetTileAt(wmx, wmy);
+
+        if (IsMouseButtonPressed(Mouse::Left) && map.InBounds(hover.x, hover.y)) {
+            map.Set(hover.x, hover.y, 2);  // place stone where clicked
+        }
+
+        // 6. Render
+        ClearBackground(0.15f, 0.15f, 0.2f);
+        BeginCamera2D(cam);
+            map.Draw();                    // draws all tiles at correct iso positions
+            map.DrawGrid(GRAY);            // debug overlay
+        EndCamera2D();
+
+        // HUD
+        if (map.InBounds(hover.x, hover.y)) {
+            DrawTextF(10, 10, WHITE, "Tile: (%d, %d) ID: %d",
+                      hover.x, hover.y, map.Get(hover.x, hover.y));
+        }
+
+        Present();
+        PollEvents();
+    }
+}
+```
+
+**KonScript:**
+```ks
+#include <engine>
+
+func main() {
+    InitWindow(800, 600, "Isometric Demo", true);
+    SetTargetFPS(60);
+
+    let mut map: IsoTilemap = IsoTilemap(10, 10, 64, 32);
+    map.originX = 400.0;
+    map.originY = 50.0;
+    map.SetTileset(LoadTexture("iso_tiles.png"));
+    map.Fill(1);
+
+    let cam: Camera2D = Camera2D(400.0, 300.0, 1.0, 0.0);
+
+    while !WindowShouldClose() {
+        let wmx: F64 = GetWorldMouseX(cam);
+        let wmy: F64 = GetWorldMouseY(cam);
+        let hover: TileCoord = map.GetTileAt(wmx, wmy);
+
+        if MousePressed(Mouse.Left) && map.InBounds(hover.x, hover.y) {
+            map.Set(hover.x, hover.y, 2);
+        }
+
+        ClearBackground(0.15, 0.15, 0.2);
+        BeginCamera2D(cam);
+        map.Draw();
+        map.DrawGrid();
+        EndCamera2D();
+
+        Present();
+        PollEvents();
+    }
+}
+```
+
+**How the tileset spritesheet works:**
+
+```
+iso_tiles.png (192 x 32 for 3 tiles at 64x32 each):
+┌──────────┬──────────┬──────────┐
+│  Tile 1  │  Tile 2  │  Tile 3  │
+│  (grass) │  (stone) │  (water) │
+│  64x32   │  64x32   │  64x32   │
+└──────────┴──────────┴──────────┘
+   ID 1       ID 2       ID 3
+```
+
+Each tile sprite should be a diamond shape drawn within a `tileW x tileH` rectangle. The transparent areas around the diamond let tiles overlap correctly.
+
+### Isometric Grid (Coordinate Helper Only)
+
+If you just need isometric math without tile data storage:
+
 ```cpp
 IsometricGrid iso(64, 32);
 
-// Convert tile to screen position
-WorldPos pos = iso.TileToScreen(3, 5, originX, originY);
-
-// Convert screen/mouse click to tile
-TileCoord clicked = iso.ScreenToTile(mouseX, mouseY, originX, originY);
-
-// Draw diamond grid
-iso.DrawGrid(400, 50, 10, 10);
-
-// Highlight hovered tile
-iso.DrawGridHighlight(400, 50, 10, 10, clicked.x, clicked.y);
-
-// Get tile center for placing sprites
-WorldPos center = iso.TileCenter(3, 5, originX, originY);
+WorldPos pos = iso.TileToScreen(3, 5, originX, originY);  // tile -> screen
+TileCoord tc = iso.ScreenToTile(mouseX, mouseY, originX, originY);  // click -> tile
+iso.DrawGrid(originX, originY, 10, 10);  // draw diamond grid
+iso.DrawGridHighlight(originX, originY, 10, 10, tc.x, tc.y);  // highlight hovered
 ```
 
-The isometric coordinate system: X-axis goes down-right, Y-axis goes down-left. `TileToScreen` and `ScreenToTile` handle the diamond projection math automatically.
+### Saving and Loading Tilemaps
+
+The engine doesn't include a built-in save format, but saving tile data is straightforward since it's just a grid of integers:
+
+**C++:**
+```cpp
+#include <fstream>
+
+// Save tilemap to a simple binary file
+void SaveTilemap(const Tilemap& map, const char* path) {
+    std::ofstream f(path, std::ios::binary);
+    f.write((char*)&map.cols, sizeof(int));
+    f.write((char*)&map.rows, sizeof(int));
+    f.write((char*)&map.tileW, sizeof(int));
+    f.write((char*)&map.tileH, sizeof(int));
+    for (int y = 0; y < map.rows; y++)
+        for (int x = 0; x < map.cols; x++) {
+            int id = map.Get(x, y);
+            f.write((char*)&id, sizeof(int));
+        }
+}
+
+// Load tilemap from binary file
+Tilemap LoadTilemap(const char* path) {
+    std::ifstream f(path, std::ios::binary);
+    int cols, rows, tw, th;
+    f.read((char*)&cols, sizeof(int));
+    f.read((char*)&rows, sizeof(int));
+    f.read((char*)&tw, sizeof(int));
+    f.read((char*)&th, sizeof(int));
+    Tilemap map(cols, rows, tw, th);
+    for (int y = 0; y < rows; y++)
+        for (int x = 0; x < cols; x++) {
+            int id;
+            f.read((char*)&id, sizeof(int));
+            map.Set(x, y, id);
+        }
+    return map;
+}
+
+// Works the same way for IsoTilemap
+```
 
 ---
 
