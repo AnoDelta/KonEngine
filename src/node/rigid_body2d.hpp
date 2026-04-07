@@ -69,9 +69,14 @@ public:
             auto* col = dynamic_cast<Collider2D*>(n);
             if (!col || !col->active) return;
 
+            // SweepResolve pushes the collider's local x/y — undo that
+            // and apply the push to the parent body only.
+            float oldCX = col->x, oldCY = col->y;
             glm::vec2 push = _world->SweepResolve(col);
+            col->x = oldCX;
+            col->y = oldCY;
+
             if (push.x != 0.0f || push.y != 0.0f) {
-                // Push parent body by same amount
                 x += push.x;
                 y += push.y;
 

@@ -41,7 +41,7 @@ public:
     // static bodies using fresh MTV checks (not stale contact lists).
     // Uses the CollisionWorld set by Scene automatically.
     Vector2 MoveAndCollide(float dx, float dy) {
-        // 1. Apply the tentative move
+        // 1. Apply the tentative move to the parent body
         x += dx;
         y += dy;
 
@@ -49,17 +49,24 @@ public:
 
         Vector2 totalPush(0.0f, 0.0f);
 
-        // 2. For each of our collider children, sweep-resolve against all statics
+        // 2. For each collider child, sweep-resolve against all statics.
+        //    SweepResolve pushes the collider's LOCAL x/y, but we want to
+        //    move the PARENT instead. So we undo the child push and apply
+        //    it to the parent.
         ForEachDescendant([&](Node* n) {
             auto* mover = dynamic_cast<Collider2D*>(n);
             if (!mover || !mover->active) return;
 
+            float oldX = mover->x, oldY = mover->y;
             glm::vec2 push = _world->SweepResolve(mover);
+            // Undo the push on the child — we'll push the parent instead
+            mover->x = oldX;
+            mover->y = oldY;
             totalPush.x += push.x;
             totalPush.y += push.y;
         });
 
-        // Push the parent body by the same amount the colliders were pushed
+        // 3. Apply the push to the parent body only
         x += totalPush.x;
         y += totalPush.y;
 
