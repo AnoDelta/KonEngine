@@ -1915,6 +1915,27 @@ UI.Clear();           # remove all elements
 
 ---
 
+## Examples
+
+The `examples/` directory contains ready-to-run KonScript demos:
+
+| Example | What it tests |
+|---------|---------------|
+| `physics_test.ks` | KinematicBody2D, gravity, jumping, StaticBody2D walls/platforms, collision signals, floor detection |
+| `tilemap_test.ks` | Tile placement/removal, grid overlay, camera pan/zoom, world-space click detection, tile selection |
+| `platformer.ks` | Simple platformer with KinematicBody2D and MoveAndCollide |
+| `hello_world.ks` | Basic window, drawing, and game loop |
+| `pong.ks` | Classic pong with collision |
+| `cpp_example/` | C++ example with CMake integration, camera follow, collision callbacks |
+
+Run any KonScript example:
+```bash
+ksc examples/physics_test.ks
+ksc examples/tilemap_test.ks
+```
+
+---
+
 ## Cross-Compilation
 
 ```bash

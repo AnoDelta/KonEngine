@@ -30,6 +30,9 @@ node Player : KinematicBody2D {
         if KeyDown(Key.D) || KeyDown(Key.Right) { x += SPEED * dt; }
         if KeyDown(Key.A) || KeyDown(Key.Left)  { x -= SPEED * dt; }
 
+        // Zero gravity while grounded — prevents vy accumulation
+        if onGround { vy = 0.0; }
+
         vy = vy + GRAV * dt;
         let dy: F64 = vy * dt;
 

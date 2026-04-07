@@ -201,6 +201,12 @@ KonEngine/
     glfw/                  # Window/input (submodule)
     glm/                   # Math library (submodule)
   examples/                # Example games in KonScript and C++
+    hello_world.ks         # Basic window and drawing
+    platformer.ks          # Platformer with KinematicBody2D
+    physics_test.ks        # Physics: gravity, jumping, collision, platforms
+    tilemap_test.ks        # Tilemap: tile placement, grid, camera, click detection
+    pong.ks                # Pong game
+    cpp_example/           # C++ example with CMake
   tests/                   # Engine test suite
 ```
 
@@ -230,7 +236,7 @@ KonEngine/
 | [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) | KonScript language reference |
 | [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) | KonAnimator usage |
 | [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) | KonPaktor / konpak usage |
-| [examples/](examples/) | Example games (hello world, pong, platformer, C++) |
+| [examples/](examples/) | Example games (hello world, pong, platformer, physics test, tilemap test, C++) |
 
 ---
 
