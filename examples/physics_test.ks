@@ -55,15 +55,26 @@ node Player : KinematicBody2D {
             vy = 0.0; onGround = false; jumpCount = 0;
         }
 
-        MoveAndCollide(dx, dy);
-    }
+        // Move with collision — check return value for floor detection
+        let actual: Vec2 = MoveAndCollide(dx, dy);
 
-    func OnCollisionEnter(other: Collider2D) {
-        if vy > 0.0 {
+        // If we were pushed upward (actual.y < dy), we hit the ground
+        if dy > 0.0 && actual.y < dy - 0.01 {
             onGround = true;
             vy = 0.0;
             jumpCount = 0;
+        } else if dy > 0.0 && actual.y >= dy - 0.01 {
+            // Still falling, not on ground
+            onGround = false;
         }
+
+        // If we were pushed downward (hit ceiling)
+        if dy < 0.0 && actual.y > dy + 0.01 {
+            vy = 0.0;
+        }
+    }
+
+    func OnCollisionEnter(other: Collider2D) {
         if other.name == "wall_col" {
             touchingWall = true;
         }
