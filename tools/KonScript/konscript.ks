@@ -3616,6 +3616,7 @@ func cg_gen_expr(idx: I32) -> Str {
             if obj == "UI" {
                 let mut ui_method: Str = method;
                 if method == "Draw" { ui_method = "DrawAll"; }
+                if method == "WantsInput" { ui_method = "WantsInput"; }
                 return "UI" + ui_method + "(" + args + ")";
             }
             // Collection methods — use .size() for vectors, _ks_len for strings

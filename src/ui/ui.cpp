@@ -59,6 +59,19 @@ UIPanel* UIAddPanel(const std::string& id, float x, float y, float w, float h) {
     return ptr;
 }
 
+UIImage* UIAddImage(const std::string& id, Texture tex, float x, float y,
+                    float w, float h) {
+    auto img = std::make_unique<UIImage>(id);
+    img->x = x;
+    img->y = y;
+    img->SetTexture(tex);
+    if (w > 0) img->width = w;
+    if (h > 0) img->height = h;
+    UIImage* ptr = img.get();
+    g_ui.elements.push_back(std::move(img));
+    return ptr;
+}
+
 void UIPanelAddChild(const std::string& panelId, const std::string& childId) {
     UIElement* el = FindElement(panelId);
     if (!el) return;
@@ -200,4 +213,10 @@ void UIOnClick(const std::string& id, std::function<void()> callback) {
     if (!el) return;
     UIButton* btn = dynamic_cast<UIButton*>(el);
     if (btn) btn->onClick = callback;
+}
+
+void UIConnect(const std::string& id, const std::string& signal,
+               std::function<void()> callback) {
+    UIElement* el = FindElement(id);
+    if (el) el->Connect(signal, callback);
 }

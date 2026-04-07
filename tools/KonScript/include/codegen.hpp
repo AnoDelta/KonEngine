@@ -1752,13 +1752,18 @@ private:
             if (m->object->kind == Expr::Kind::Ident) {
                 auto* objId = static_cast<const IdentExpr*>(m->object.get());
                 if (objId->name == "UI") {
-                    static const std::unordered_map<std::string,std::string> uiAliases = {
-                        {"Draw", "DrawAll"}, {"WantsInput", "WantsInput"},
+                    static const std::unordered_map<std::string,std::string> uiMethodMap = {
+                        {"Draw", "UIDrawAll"}, {"WantsInput", "UIWantsInput"},
+                        {"Update", "UIUpdate"}, {"Clear", "UIClear"},
+                        {"AddButton", "UIAddButton"}, {"AddLabel", "UIAddLabel"},
+                        {"AddPanel", "UIAddPanel"}, {"AddImage", "UIAddImage"},
+                        {"PanelAddChild", "UIPanelAddChild"},
+                        {"Remove", "UIRemove"}, {"OnClick", "UIOnClick"},
+                        {"Connect", "UIConnect"}, {"GetElement", "UIGetElement"},
                     };
-                    std::string member = m->member;
-                    auto uit = uiAliases.find(member);
-                    if (uit != uiAliases.end()) member = uit->second;
-                    write("UI" + member + "(");
+                    auto uit = uiMethodMap.find(m->member);
+                    std::string cppName = (uit != uiMethodMap.end()) ? uit->second : ("UI" + m->member);
+                    write(cppName + "(");
                     for (size_t i = 0; i < e->args.size(); i++) {
                         if (i > 0) write(", ");
                         genExpr(e->args[i].get());
@@ -2122,14 +2127,8 @@ private:
                     return;
                 }
                 if (id->name == "UI") {
-                    // UI.Draw -> UIDrawAll, UI.Update -> UIUpdate, etc.
-                    static const std::unordered_map<std::string,std::string> uiAliases = {
-                        {"Draw", "DrawAll"}, {"WantsInput", "WantsInput"},
-                    };
-                    std::string member = e->member;
-                    auto uit = uiAliases.find(member);
-                    if (uit != uiAliases.end()) member = uit->second;
-                    write("UI" + member);
+                    // Member access on UI namespace (non-call)
+                    write("UI" + e->member);
                     return;
                 }
                 static const std::unordered_map<std::string,std::string> keyAliases = {

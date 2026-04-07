@@ -1465,6 +1465,10 @@ UI.AddButton("quit", "Quit", 300.0, 260.0);
 # Label — static text
 UI.AddLabel("title", "My Game", 280.0, 100.0, 32, WHITE);
 
+# Image — display a texture
+let tex: Texture = LoadTexture("logo.png");
+UI.AddImage("logo", tex, 350.0, 30.0, 100.0, 100.0);
+
 # Panel — colored container
 UI.AddPanel("menu", 250.0, 80.0, 300.0, 240.0);
 UI.PanelAddChild("menu", "title");
@@ -1479,29 +1483,82 @@ UIAddButton("play", "Play Game", 300, 200);
 UIAddButton("quit", "Quit", 300, 260);
 UIAddLabel("title", "My Game", 280, 100, 32, WHITE);
 
+Texture logo = LoadTexture("logo.png");
+UIAddImage("logo", logo, 350, 30, 100, 100);  // auto-sizes from texture if w/h omitted
+
 auto* panel = UIAddPanel("menu", 250, 80, 300, 240);
 UIPanelAddChild("menu", "title");
 UIPanelAddChild("menu", "play");
 UIPanelAddChild("menu", "quit");
 ```
 
-### Handling Clicks
+### Handling Clicks (Callbacks & Signals)
+
+Two ways to handle button clicks: direct callbacks or signals.
 
 **KonScript:**
 ```ks
+# Direct callback (simple)
 UI.OnClick("play", func() {
     Print("Play clicked!");
 });
 
-UI.OnClick("quit", func() {
-    Print("Quit clicked!");
+# Signal system (flexible — supports multiple listeners)
+UI.Connect("play", "clicked", func() {
+    Print("Play clicked via signal!");
+});
+
+UI.Connect("play", "hovered", func() {
+    Print("Mouse entered play button");
+});
+
+UI.Connect("play", "unhovered", func() {
+    Print("Mouse left play button");
 });
 ```
 
 **C++:**
 ```cpp
+// Direct callback
 UIOnClick("play", []{ printf("Play!\n"); });
-UIOnClick("quit", []{ printf("Quit!\n"); });
+
+// Signal system
+UIConnect("play", "clicked", []{ printf("Clicked via signal!\n"); });
+UIConnect("play", "hovered", []{ printf("Hovered!\n"); });
+UIConnect("play", "unhovered", []{ printf("Left!\n"); });
+```
+
+**Available signals:**
+
+| Signal | Fired when |
+|--------|-----------|
+| `"clicked"` | Button is clicked |
+| `"hovered"` | Mouse enters the button |
+| `"unhovered"` | Mouse leaves the button |
+
+### Button Images
+
+Buttons can have an icon (displayed left of text) and/or a background texture.
+
+**C++:**
+```cpp
+auto* btn = UIAddButton("shop", "Shop", 300, 200);
+
+// Icon — small texture displayed left of the text
+Texture shopIcon = LoadTexture("shop_icon.png");
+btn->SetIcon(shopIcon, 20, 20);  // display size 20x20
+
+// Background texture — replaces the solid color fill
+Texture btnNormal = LoadTexture("btn_normal.png");
+Texture btnHover  = LoadTexture("btn_hover.png");
+Texture btnPress  = LoadTexture("btn_pressed.png");
+btn->SetBackground(btnNormal, btnHover, btnPress);
+```
+
+Panels also support background textures:
+```cpp
+auto* panel = UIAddPanel("hud", 0, 0, 800, 60);
+panel->background = LoadTexture("hud_bg.png");
 ```
 
 ### Game Loop Integration
@@ -1577,8 +1634,10 @@ UI.Clear();           # remove all elements
 | `UI.AddButton(id, text, x, y)` | Create a button (auto-sizes from text) |
 | `UI.AddLabel(id, text, x, y, fontSize?, color?)` | Create a text label |
 | `UI.AddPanel(id, x, y, w, h)` | Create a panel container |
+| `UI.AddImage(id, tex, x, y, w?, h?)` | Display a texture (auto-sizes from texture) |
 | `UI.PanelAddChild(panelId, childId)` | Add element as panel child |
-| `UI.OnClick(id, callback)` | Set button click handler |
+| `UI.OnClick(id, callback)` | Set button click handler (shortcut) |
+| `UI.Connect(id, signal, callback)` | Connect to any UI signal |
 | `UI.Update()` | Per-frame hit testing (call before Draw) |
 | `UI.Draw()` | Render all visible elements |
 | `UI.WantsInput()` | True if UI consumed mouse this frame |
