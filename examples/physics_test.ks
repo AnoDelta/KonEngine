@@ -183,8 +183,15 @@ func main() {
         // HUD
         DrawText("Physics Test", 10.0, 10.0, 20, WHITE);
         DrawText("WASD/Arrows: move | Space: jump (double!) | R: reset | F1: debug", 10.0, 35.0, 14, GRAY);
-        DrawText(player.onGround ? "On Ground" : "In Air", 10.0, 55.0, 14, player.onGround ? GREEN : YELLOW);
-        DrawText(player.touchingWall ? "Touching Wall" : "", 10.0, 72.0, 14, RED);
+
+        let grounded: Bool = player.onGround;
+        let groundText: Str = grounded ? "On Ground" : "In Air";
+        let groundColor: Color = grounded ? GREEN : YELLOW;
+        DrawText(groundText, 10.0, 55.0, 14, groundColor);
+
+        if player.touchingWall {
+            DrawText("Touching Wall", 10.0, 72.0, 14, RED);
+        }
 
         Present();
         PollEvents();

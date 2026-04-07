@@ -814,7 +814,7 @@ func parse_primary() -> I32 {
         let mut cnt: I32 = 0;
         while !chk(TK_RBRACKET) && pk() != TK_EOF {
             if cnt > 0 { eat(TK_COMMA, "','"); }
-            let elem: I32 = parse_or();
+            let elem: I32 = parse_ternary();
             let nd: I32 = list_node(elem, 0);
             if head == 0 { head = nd; tail = nd; }
             else { node_b[tail] = nd; tail = nd; }
@@ -846,7 +846,7 @@ func parse_postfix() -> I32 {
             let mut cnt: I32 = 0;
             while !chk(TK_RPAREN) && pk() != TK_EOF {
                 if cnt > 0 { eat(TK_COMMA, "','"); }
-                let arg: I32 = parse_or();
+                let arg: I32 = parse_ternary();
                 let ln2: I32 = list_node(arg, 0);
                 if head == 0 { head = ln2; tail = ln2; }
                 else { node_b[tail] = ln2; tail = ln2; }
@@ -864,7 +864,7 @@ func parse_postfix() -> I32 {
         }
         // Index: a[i]
         if mat(TK_LBRACKET) {
-            let idx: I32 = parse_or();
+            let idx: I32 = parse_ternary();
             eat(TK_RBRACKET, "']'");
             nd = alloc_node(NK_INDEX, nd, idx, 0, "");
             continue;
@@ -4345,6 +4345,10 @@ func cg_gen_node(idx: I32) {
             let lifecycle: Str = cg_lifecycle_sig(mname);
             if lifecycle.len() > 0 {
                 // Lifecycle method with override
+                // Register pointer params for collision callbacks
+                if mname == "OnCollisionEnter" || mname == "OnCollisionExit" {
+                    cg_mark_ptr("other");
+                }
                 cg_emit(lifecycle + " {");
             } else {
                 // Regular method
