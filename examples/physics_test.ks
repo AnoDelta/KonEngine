@@ -9,9 +9,9 @@
 //
 // Controls:
 //   WASD / Arrows = move player
-//   Space         = jump
+//   Space         = jump (double jump!)
 //   R             = reset player position
-//   D             = toggle debug mode
+//   F1            = toggle debug mode
 // ═══════════════════════════════════════════════════════════════════════
 
 const PLAYER_SPEED: F64 = 250.0;
@@ -19,7 +19,6 @@ const JUMP_FORCE:   F64 = -450.0;
 const GRAVITY:      F64 = 980.0;
 
 // ── Player (KinematicBody2D) ─────────────────────────────────────────
-// Manual gravity + MoveAndCollide for precise control
 node Player : KinematicBody2D {
     let mut vy: F64 = 0.0;
     let mut onGround: Bool = false;
@@ -77,13 +76,15 @@ node Player : KinematicBody2D {
     }
 
     func Draw() {
-        let c: Color = touchingWall ? Color(1.0, 0.3, 0.3, 1.0) : Color(0.2, 0.6, 1.0, 1.0);
-        DrawRectangle(x - 14.0, y - 22.0, 28.0, 44.0, c);
+        if touchingWall {
+            DrawRectangle(x - 14.0, y - 22.0, 28.0, 44.0, Color(1.0, 0.3, 0.3, 1.0));
+        } else {
+            DrawRectangle(x - 14.0, y - 22.0, 28.0, 44.0, Color(0.2, 0.6, 1.0, 1.0));
+        }
     }
 }
 
 // ── Crate (RigidBody2D) ─────────────────────────────────────────────
-// Automatic gravity + physics. Falls and rests on platforms.
 node Crate : RigidBody2D {
     func Ready() {
         let col: Collider2D = this.add(Collider2D, "crate_col");
@@ -97,20 +98,72 @@ node Crate : RigidBody2D {
     }
 }
 
-// ── Wall (StaticBody2D) ─────────────────────────────────────────────
-// Immovable. Used for floor, walls, platforms.
-node Wall : StaticBody2D {
-    let mut w: F64 = 100.0;
-    let mut h: F64 = 20.0;
-
+// ── Floor — full width static body ──────────────────────────────────
+node Floor : StaticBody2D {
     func Ready() {
         let col: Collider2D = this.add(Collider2D, "wall_col");
-        col.width = w;
-        col.height = h;
+        col.width = 800.0;
+        col.height = 32.0;
     }
-
     func Draw() {
-        DrawRectangle(x, y, w, h, Color(0.3, 0.3, 0.35, 1.0));
+        DrawRectangle(x, y, 800.0, 32.0, Color(0.3, 0.3, 0.35, 1.0));
+    }
+}
+
+// ── SideWall — tall vertical static body ────────────────────────────
+node SideWall : StaticBody2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, "wall_col");
+        col.width = 20.0;
+        col.height = 600.0;
+    }
+    func Draw() {
+        DrawRectangle(x, y, 20.0, 600.0, Color(0.3, 0.3, 0.35, 1.0));
+    }
+}
+
+// ── Platform — medium sized static body ─────────────────────────────
+node Platform1 : StaticBody2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, "wall_col");
+        col.width = 150.0;
+        col.height = 16.0;
+    }
+    func Draw() {
+        DrawRectangle(x, y, 150.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
+    }
+}
+
+node Platform2 : StaticBody2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, "wall_col");
+        col.width = 120.0;
+        col.height = 16.0;
+    }
+    func Draw() {
+        DrawRectangle(x, y, 120.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
+    }
+}
+
+node Platform3 : StaticBody2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, "wall_col");
+        col.width = 180.0;
+        col.height = 16.0;
+    }
+    func Draw() {
+        DrawRectangle(x, y, 180.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
+    }
+}
+
+node Platform4 : StaticBody2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, "wall_col");
+        col.width = 100.0;
+        col.height = 16.0;
+    }
+    func Draw() {
+        DrawRectangle(x, y, 100.0, 16.0, Color(0.25, 0.35, 0.3, 1.0));
     }
 }
 
@@ -125,39 +178,31 @@ func main() {
     // Player
     let player: Player = scene.add(Player, "player");
 
-    // Floor (full width)
-    let floor: Wall = scene.add(Wall, "floor");
-    floor.w = 800.0; floor.h = 32.0;
+    // Floor
+    let floor: Floor = scene.add(Floor, "floor");
     floor.x = 0.0; floor.y = 568.0;
 
-    // Left wall
-    let leftWall: Wall = scene.add(Wall, "leftWall");
-    leftWall.w = 20.0; leftWall.h = 600.0;
+    // Side walls
+    let leftWall: SideWall = scene.add(SideWall, "leftWall");
     leftWall.x = 0.0; leftWall.y = 0.0;
 
-    // Right wall
-    let rightWall: Wall = scene.add(Wall, "rightWall");
-    rightWall.w = 20.0; rightWall.h = 600.0;
+    let rightWall: SideWall = scene.add(SideWall, "rightWall");
     rightWall.x = 780.0; rightWall.y = 0.0;
 
-    // Platforms at different heights
-    let plat1: Wall = scene.add(Wall, "plat1");
-    plat1.w = 150.0; plat1.h = 16.0;
+    // Platforms
+    let plat1: Platform1 = scene.add(Platform1, "plat1");
     plat1.x = 200.0; plat1.y = 470.0;
 
-    let plat2: Wall = scene.add(Wall, "plat2");
-    plat2.w = 120.0; plat2.h = 16.0;
+    let plat2: Platform2 = scene.add(Platform2, "plat2");
     plat2.x = 450.0; plat2.y = 380.0;
 
-    let plat3: Wall = scene.add(Wall, "plat3");
-    plat3.w = 180.0; plat3.h = 16.0;
+    let plat3: Platform3 = scene.add(Platform3, "plat3");
     plat3.x = 300.0; plat3.y = 280.0;
 
-    let plat4: Wall = scene.add(Wall, "plat4");
-    plat4.w = 100.0; plat4.h = 16.0;
+    let plat4: Platform4 = scene.add(Platform4, "plat4");
     plat4.x = 600.0; plat4.y = 200.0;
 
-    // Crates that fall with gravity
+    // Crates
     let crate1: Crate = scene.add(Crate, "crate1");
     crate1.x = 250.0; crate1.y = 100.0;
 
@@ -167,13 +212,11 @@ func main() {
     let crate3: Crate = scene.add(Crate, "crate3");
     crate3.x = 500.0; crate3.y = 150.0;
 
-    // Re-register all colliders after setup
     scene.scan();
 
     while !WindowShouldClose() {
         let dt: F64 = GetDeltaTime();
 
-        // Toggle debug
         if KeyPressed(Key.F1) { DebugMode(!IsDebugMode()); }
 
         ClearBackground(0.08, 0.08, 0.12);
@@ -184,9 +227,11 @@ func main() {
         DrawText("Physics Test", 10.0, 10.0, 20, WHITE);
         DrawText("WASD/Arrows: move | Space: jump (double!) | R: reset | F1: debug", 10.0, 35.0, 14, GRAY);
 
-        let groundText: Str = player.onGround ? "On Ground" : "In Air";
-        let groundColor: Color = player.onGround ? GREEN : YELLOW;
-        DrawText(groundText, 10.0, 55.0, 14, groundColor);
+        if player.onGround {
+            DrawText("On Ground", 10.0, 55.0, 14, GREEN);
+        } else {
+            DrawText("In Air", 10.0, 55.0, 14, YELLOW);
+        }
 
         if player.touchingWall {
             DrawText("Touching Wall", 10.0, 72.0, 14, RED);
