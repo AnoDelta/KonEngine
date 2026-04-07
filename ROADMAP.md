@@ -109,6 +109,34 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
   - Collision enter/exit callbacks, text rendering, debug mode
 - Comprehensive DOCS.md rewrite with dual KonScript + C++ examples for every feature
 
+### v0.9.2 -- UI, Tilemap, KonScript Expansion
+- **UI system** -- screen-space Button, Label, Panel with hover/pressed states
+  - `UIAddButton`, `UIAddLabel`, `UIAddPanel` with string ID lookup
+  - Click detection with `UIWantsInput()` input blocking
+  - Panel children with coordinate offset
+  - KonScript API: `UI.AddButton()`, `UI.OnClick()`, `UI.Update()`, `UI.Draw()`
+- **Tilemap system** -- full tile data storage with tileset rendering
+  - `Tilemap` class: 2D grid of tile IDs, `Set`/`Get`/`Fill`/`Clear`/`Resize`
+  - Tileset spritesheet rendering (tile IDs map to spritesheet cells)
+  - Tile click detection: `GetTileAt()`, `GetTileIdAt()`
+  - `DrawTileAt()` for placing individual tiles at exact world positions
+- **Isometric grid** -- `IsometricGrid` with diamond-shaped tiles
+  - `TileToScreen` / `ScreenToTile` coordinate conversion
+  - Diamond grid drawing and highlight
+- **KonScript ternary operator** -- `condition ? trueVal : falseVal`
+- **KonScript engine bindings expansion:**
+  - Random: `Random.Seed()`, `Random.Range()`, `Random.RangeF()`, `Random.Value()`, `Random.Bool()`
+  - Gamepad: `GamepadConnected()`, `GamepadDown/Pressed/Released()`, `GamepadAxis()`
+  - Camera: `Camera2DFollow()`, `Camera2DClamp()`, `Camera2DShake()`, `Camera2DLerp()`
+  - Audio queries: `IsSoundPlaying()`, `IsMusicPlaying()`, `SetMusicLooping()`, `UnloadSound/Music()`
+  - Collision: `CheckCollisionRecs()`, `CheckCollisionCircles()`, `CheckCollisionCircleRec()`
+  - Font: `LoadFont()`, `UnloadFont()`, `MeasureTextWidth()`
+  - Texture: `DrawTexture()`, `DrawTextureRec()` with tinting
+  - Letterbox: `GetDesignWidth/Height()`, `GetLetterboxScale()`, `GetGameMouseX/Y()`
+  - Window: `SetVsync()`, `BeginCamera2D()`, `EndCamera2D()`
+  - Constructors: `Rectangle()`, `Circle()`, `Color()`, `TileGrid()`
+- Comprehensive documentation rewrite for all features (dual KonScript + C++ examples)
+
 ---
 
 ## Upcoming
@@ -135,7 +163,7 @@ KonEngine is still in early stages. Here's the full plan for where it's headed.
 - KonScript LLVM native code backend (`IRGen` alongside existing C++ transpiler)
 - LLVM bundled inside editor so end users never need a toolchain
 - Pre-built export templates per platform, cross-compile via LLVM target triples
-- KonScript self-hosting (compiler written in KonScript)
+- KonScript self-hosting (compiler written in KonScript) ✓ done
 - 3D rendering
 - Networking
 

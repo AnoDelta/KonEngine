@@ -730,6 +730,29 @@ UI.Clear()
 MeasureTextWidth(text: Str, fontSize: I32) -> F64
 ```
 
+### Signals
+```ks
+# Inside a node — connect to a signal
+Connect("signal_name", func() {
+    Print("signal fired!");
+});
+
+# Inside a node — emit a signal
+Emit("player_dead");
+```
+
+Collision signals are automatic when using `Collider2D` children:
+```ks
+node Player : Node2D {
+    func OnCollisionEnter(other: Collider2D) {
+        Print("hit: ", other.name);
+    }
+    func OnCollisionExit(other: Collider2D) {
+        Print("left: ", other.name);
+    }
+}
+```
+
 ### Output
 ```ks
 Print(fmt: str, ...)   # printf-style format string

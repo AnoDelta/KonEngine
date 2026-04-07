@@ -949,52 +949,109 @@ Font& cached = GetCachedFont("assets/myfont.ttf", 32);
 
 ---
 
-## Tilemap Helpers
+## Tilemap System
 
-`TileGrid` provides coordinate conversion and debug visualization for tile-based games.
+### Tilemap (Data + Rendering)
 
-**KonScript:**
-```ks
-let grid: TileGrid = TileGrid(32, 32);  # tileW, tileH
-
-# Convert world position to tile coordinates
-let tc: TileCoord = grid.WorldToTile(mouseX, mouseY);
-
-# Convert tile back to world position
-let wp: WorldPos = grid.TileToWorld(tc.x, tc.y);
-
-# Snap world position to nearest tile corner
-let snapped: WorldPos = grid.Snap(mouseX, mouseY);
-
-# Debug visualization
-grid.DrawGrid(0.0, 0.0, 25, 19);
-```
+`Tilemap` stores a 2D grid of tile IDs and renders them using a tileset spritesheet. Tile ID 0 = empty.
 
 **C++:**
 ```cpp
-TileGrid grid;
-grid.tileW = 32;
-grid.tileH = 32;
+// Create a 20x15 tilemap with 32x32 pixel tiles
+Tilemap map(20, 15, 32, 32);
+map.originX = 0;
+map.originY = 0;
 
-// Convert world position to tile coordinates
-TileCoord tc = grid.WorldToTile(mouseX, mouseY);
+// Load tileset spritesheet
+map.SetTileset(LoadTexture("tiles.png"));
 
-// Convert tile back to world position
-WorldPos wp = grid.TileToWorld(tc.x, tc.y);
+// Place tiles (ID 1 = first tile in sheet, 2 = second, etc.)
+map.Set(5, 3, 1);    // grass
+map.Set(6, 3, 2);    // stone
+map.Fill(1);          // fill entire map with tile 1
 
-// Snap world position to nearest tile corner
-WorldPos snapped = grid.Snap(mouseX, mouseY);
+// Render the tilemap
+map.Draw();
 
-// Get the center of a tile
-WorldPos center = grid.TileCenter(3, 5);
+// Draw debug grid overlay
+map.DrawGrid();
 
-// Debug visualization
-grid.DrawGrid(0, 0, 25, 19);  // 25x19 grid of 32px tiles
-grid.DrawGridHighlight(0, 0, 25, 19, tc.x, tc.y,
-                       {0.3f, 0.3f, 0.3f, 0.4f},  // grid color
-                       {1.0f, 1.0f, 0.0f, 0.3f},   // fill color
-                       {1.0f, 1.0f, 0.0f, 1.0f});   // border color
+// Draw a single tile from the tileset at any position
+map.DrawTileAt(3, worldX, worldY);
 ```
+
+### Tile Click Detection
+
+```cpp
+// Get which tile the player clicked (using world-space mouse)
+float wmx = GetWorldMouseX(cam);
+float wmy = GetWorldMouseY(cam);
+
+TileCoord clicked = map.GetTileAt(wmx, wmy);
+if (clicked.x >= 0) {
+    int tileId = map.Get(clicked.x, clicked.y);
+    printf("Clicked tile (%d,%d) = ID %d\n", clicked.x, clicked.y, tileId);
+
+    // Place a tile where clicked
+    map.Set(clicked.x, clicked.y, 5);
+}
+
+// Or get tile ID directly
+int id = map.GetTileIdAt(wmx, wmy);
+```
+
+### Coordinate Conversion
+
+```cpp
+// Tile -> world position (top-left corner)
+WorldPos wp = map.TileToWorld(5, 3);
+
+// Tile -> world position (center)
+WorldPos center = map.TileCenter(5, 3);
+
+// World -> tile coordinates
+TileCoord tc = map.WorldToTile(worldX, worldY);
+
+// Bounds check
+if (map.InBounds(tc.x, tc.y)) { /* valid tile */ }
+```
+
+### TileGrid (Lightweight Grid Overlay)
+
+For simple grid snapping and visualization without tile data storage:
+
+```cpp
+TileGrid grid(32, 32);
+grid.DrawGrid(0, 0, 25, 19);
+TileCoord tc = grid.WorldToTile(mouseX, mouseY);
+WorldPos snapped = grid.Snap(mouseX, mouseY);
+```
+
+### Isometric Grid
+
+Diamond-shaped tile grid for isometric games. Standard dimensions: `tileW = 2 * tileH` (e.g., 64x32).
+
+**C++:**
+```cpp
+IsometricGrid iso(64, 32);
+
+// Convert tile to screen position
+WorldPos pos = iso.TileToScreen(3, 5, originX, originY);
+
+// Convert screen/mouse click to tile
+TileCoord clicked = iso.ScreenToTile(mouseX, mouseY, originX, originY);
+
+// Draw diamond grid
+iso.DrawGrid(400, 50, 10, 10);
+
+// Highlight hovered tile
+iso.DrawGridHighlight(400, 50, 10, 10, clicked.x, clicked.y);
+
+// Get tile center for placing sprites
+WorldPos center = iso.TileCenter(3, 5, originX, originY);
+```
+
+The isometric coordinate system: X-axis goes down-right, Y-axis goes down-left. `TileToScreen` and `ScreenToTile` handle the diamond projection math automatically.
 
 ---
 
@@ -1108,10 +1165,40 @@ std::string pick = Random::From(names);
 
 ---
 
-## Signals (C++)
+## Signals
 
-Nodes have a lightweight signal system for decoupled communication.
+Nodes have a lightweight signal system for decoupled communication. Connect callbacks to named signals, then emit them from anywhere.
 
+**KonScript:**
+```ks
+node Player : Node2D {
+    let mut hp: I32 = 100;
+
+    func Ready() {
+        # Connect to your own signal
+        Connect("player_dead", func() {
+            Print("I died!");
+        });
+    }
+
+    func Update(dt: F64) {
+        if hp <= 0 {
+            Emit("player_dead");
+        }
+    }
+
+    # Collision signals fire automatically from Collider2D children
+    func OnCollisionEnter(other: Collider2D) {
+        Print("Hit: ", other.name);
+    }
+
+    func OnCollisionExit(other: Collider2D) {
+        Print("Left: ", other.name);
+    }
+}
+```
+
+**C++:**
 ```cpp
 // Connect a callback to a signal
 player->Connect("player_dead", [&]() {
@@ -1123,7 +1210,20 @@ player->Connect("player_dead", [&]() {
 void Update(float dt) override {
     if (hp <= 0) Emit("player_dead");
 }
+
+// Collision signals are automatic on parent nodes of Collider2D children
+void OnCollisionEnter(Collider2D* other) override {
+    printf("Hit: %s\n", other->name.c_str());
+}
+void OnCollisionExit(Collider2D* other) override {
+    printf("Left: %s\n", other->name.c_str());
+}
 ```
+
+**Built-in collision signals:**
+- `OnCollisionEnter(other)` -- called when a child collider first overlaps another
+- `OnCollisionExit(other)` -- called when they stop overlapping
+- These are virtual methods on Node, not string signals -- override them directly
 
 ---
 

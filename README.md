@@ -13,6 +13,7 @@ a custom scripting language (KonScript), and a full visual editor (KonEditor).
 **Core Engine**
 - Simple Raylib-style API -- `InitWindow`, `DrawRectangle`, `PlaySound`, done
 - OpenGL 2D renderer -- rectangles, circles, lines, textures, sprite sheets
+- Batched rendering -- quads, lines, and glyphs batched for performance
 - Text rendering -- custom TTF fonts or built-in Inconsolata, cached at any size
 - Camera system -- pan, zoom, rotation, smooth follow, clamping, screen shake
 - Letterbox scaling -- design-resolution coordinates with automatic black bars
@@ -23,13 +24,23 @@ a custom scripting language (KonScript), and a full visual editor (KonEditor).
 - Animation -- sprite sheet frame-by-frame + keyframe tracks with 16 easing curves
 - Audio -- sound effects + music streaming via miniaudio (.wav, .ogg, .mp3)
 - Node/scene system -- Godot-style hierarchy with parent pointers and virtual lifecycle
+- Signal system -- lightweight callbacks for decoupled node communication
+- UI system -- screen-space Button, Label, Panel with click detection and input blocking
+- Tilemap system -- tile data storage, tileset rendering, coordinate conversion, click detection
+- Isometric grid -- diamond-shaped tile support for isometric games
 - `DebugMode(true)` -- FPS overlay, mouse crosshair, world grid, auto collider outlines
 - Color presets, Vector2 math, random number utilities, tile grid helpers
 - Delta time, FPS cap, VSync toggle
 - Cross-platform -- Linux and Windows
 
+**KonScript**
+- Statically-typed scripting language that compiles to C++
+- Nodes, structs, classes, enums, generics, interfaces, closures
+- Ternary operator, f-strings, nullable types, null coalescing
+- Full engine API: rendering, input (keyboard + mouse + gamepad), audio, physics, camera, random, UI, tilemap
+- CMake integration with `konscript_sources()`
+
 **Tools**
-- **KonScript** -- statically-typed scripting language that compiles to C++
 - **KonEditor** -- Qt-based visual game editor with scene tree, viewport, inspector, and build system
 - **KonAnimator** -- standalone Qt animation editor with timeline, live preview, and spritesheet support
 - **anim_compiler** -- CLI/GUI tool that compiles `.anim` text files to `.konani` binary
@@ -175,9 +186,10 @@ KonEngine/
     animation/             # Animation clips, keyframe tracks, AnimationPlayer
     audio/                 # Sound and music via miniaudio
     font/                  # TTF font rendering with glyph caching
+    ui/                    # Screen-space UI (Button, Label, Panel)
     color/                 # Color struct and presets
     math/                  # Vector2, Random
-    tilemap/               # TileGrid helper
+    tilemap/               # Tilemap, TileGrid, IsometricGrid
     time/                  # Delta time, FPS cap
     asset_manager.*        # AssetManager for loose files or .konpak packs
   tools/
