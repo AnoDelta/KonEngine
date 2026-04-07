@@ -1,12 +1,34 @@
 #pragma once
 #include "node.hpp"
 #include "collider2d.hpp"
+#include "static_body2d.hpp"
+#include "kinematic_body2d.hpp"
+#include "rigid_body2d.hpp"
 #include "../collision/collision_world.hpp"
 #include <cmath>
 #include <functional>
 #include "camera_node2d.hpp"
 
 bool IsDebugMode();
+
+// Auto-mark collider solid/static based on parent body type.
+// Called when colliders are added to body nodes via Ready() or later.
+static inline void AutoMarkCollider(Collider2D* col) {
+    Node* p = col->parent;
+    while (p) {
+        if (dynamic_cast<StaticBody2D*>(p)) {
+            col->solid = true;
+            col->staticBody = true;
+            return;
+        }
+        if (dynamic_cast<KinematicBody2D*>(p) || dynamic_cast<RigidBody2D*>(p)) {
+            col->solid = true;
+            col->staticBody = false;
+            return;
+        }
+        p = p->parent;
+    }
+}
 
 class Scene {
 public:
@@ -20,20 +42,26 @@ public:
         // Give the node access to the collision world for physics queries
         ptr->_world = &collisionWorld;
         // Set up child-added callback so colliders added in Ready() get registered
+        // and automatically marked solid/static based on their parent body type.
         ptr->_onChildAdded = [this](Node* n) {
             n->_world = &collisionWorld;
-            if (auto* col = dynamic_cast<Collider2D*>(n))
+            if (auto* col = dynamic_cast<Collider2D*>(n)) {
+                AutoMarkCollider(col);
                 collisionWorld.Add(col);
+            }
         };
         nodes.push_back(std::move(node));
         // Call Ready() first — sets positions, adds children
         ptr->Ready();
-        // THEN register colliders — positions are correct, no false overlaps
+        // THEN register colliders — positions are correct, no false overlaps.
+        // Also auto-mark solid/static in case Ready() didn't call super.
         if (auto* col = dynamic_cast<Collider2D*>(ptr))
             collisionWorld.Add(col);
         ptr->ForEachDescendant([this](Node* n) {
-            if (auto* col = dynamic_cast<Collider2D*>(n))
+            if (auto* col = dynamic_cast<Collider2D*>(n)) {
+                AutoMarkCollider(col);
                 collisionWorld.Add(col);
+            }
         });
         return ptr;
     }
