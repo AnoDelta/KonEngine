@@ -173,27 +173,29 @@ node Player : Node2D {
 }
 ```
 
-**Lambdas / closures (two syntaxes):**
+**Lambdas / closures:**
 
-KonScript supports both `func` style and C++ style lambdas. Both compile to the same C++ code.
+KonScript supports C++ style lambdas with `[]` or `[&]` captures. Both compile to `[&]` in C++ (captures are always by reference).
 
 ```ks
-# func style (KonScript native)
-let double: func(I32) -> I32 = func(x: I32) -> I32 { return x * 2; };
+# C++ style — [] or [&] both work
+let triple = [](x: I32) -> I32 { return x * 3; };
+let quad = [&](x: I32) -> I32 { return x * 4; };
 
-# C++ style — [] or [&] both work (captures are always by reference)
-let triple: func(I32) -> I32 = [](x: I32) -> I32 { return x * 3; };
-let quad: func(I32) -> I32 = [&](x: I32) -> I32 { return x * 4; };
-
-# No-parameter lambdas
+# No-parameter lambdas (common for callbacks)
 UI.OnClick("btn", []() { Print("clicked!"); });
-UI.OnClick("btn", func() { Print("clicked!"); });
 
-# With captures — both syntaxes capture surrounding variables
+# With captures — lambdas can read and modify surrounding variables
 let mut score: I32 = 0;
 UI.OnClick("score", [&]() {
-    score += 10;
+    score = score + 10;
     Print("Score: ", score);
+});
+
+# Timer callbacks
+Timer.Create("tick", 1.0, true, [&]() {
+    score = score + 1;
+    Print("Tick! Score: ", score);
 });
 ```
 
@@ -740,9 +742,13 @@ grid.DrawGrid(originX: F64, originY: F64, cols: I32, rows: I32)
 ```
 
 ### Timer
+
+Frame-rate independent timers for gameplay events. Call `Timer.UpdateAll(dt)` every frame.
+
 ```ks
-Timer.Create(id: Str, duration: F64, repeating: Bool, callback: func())
-Timer.UpdateAll(dt: F64)
+# API
+Timer.Create(id: Str, duration: F64, repeating: Bool, callback: [&]())
+Timer.UpdateAll(dt: F64)        # MUST call every frame
 Timer.Pause(id: Str)
 Timer.Resume(id: Str)
 Timer.Reset(id: Str)
@@ -751,6 +757,56 @@ Timer.RemoveAll()
 Timer.Exists(id: Str)     -> Bool
 Timer.Finished(id: Str)   -> Bool
 Timer.Remaining(id: Str)  -> F64
+```
+
+**Example:**
+```ks
+#include <engine>
+
+func main() {
+    InitWindow(400, 300, "Timer Demo", false);
+    SetTargetFPS(60);
+
+    let mut count: I32 = 0;
+
+    # Repeating timer: increments counter every second
+    Timer.Create("counter", 1.0, true, [&]() {
+        count = count + 1;
+        Print("Count: ", count);
+    });
+
+    # One-shot timer: prints a message after 5 seconds
+    Timer.Create("alert", 5.0, false, [&]() {
+        Print("5 seconds have passed!");
+    });
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        Timer.UpdateAll(dt);  # tick all timers
+
+        if KeyPressed(Key.P) {
+            Timer.Pause("counter");
+            Print("Paused");
+        }
+        if KeyPressed(Key.R) {
+            Timer.Resume("counter");
+            Print("Resumed");
+        }
+
+        ClearBackground(0.1, 0.1, 0.15);
+        DrawText("Count: " + ToString(count), 10.0, 10.0, 24, WHITE);
+
+        if !Timer.Finished("alert") {
+            let rem: F64 = Timer.Remaining("alert");
+            DrawText("Alert in: " + ToString(rem), 10.0, 50.0, 16, GRAY);
+        } else {
+            DrawText("Alert fired!", 10.0, 50.0, 16, YELLOW);
+        }
+
+        Present();
+        PollEvents();
+    }
+}
 ```
 
 ### UI

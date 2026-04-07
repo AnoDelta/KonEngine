@@ -29,6 +29,7 @@ a custom scripting language (KonScript), and a full visual editor (KonEditor).
 - Tilemap system -- tile data storage, tileset rendering, coordinate conversion, click detection
 - Isometric grid -- diamond-shaped tile support for isometric games
 - `DebugMode(true)` -- FPS overlay, mouse crosshair, world grid, auto collider outlines
+- Timer system -- frame-rate independent timers with lambda callbacks, pause/resume/reset
 - Color presets, Vector2 math, random number utilities, tile grid helpers
 - Delta time, FPS cap, VSync toggle
 - Cross-platform -- Linux and Windows
@@ -227,16 +228,18 @@ KonEngine/
 
 ## Documentation
 
+Start with **[DOCS.md](DOCS.md)** for a full guide to the engine, or **[KonScript DOCS](tools/KonScript/DOCS.md)** if you're using the scripting language.
+
 | Document | Contents |
 |---|---|
-| [DOCS.md](DOCS.md) | Full engine documentation with examples |
+| [DOCS.md](DOCS.md) | Full engine guide: rendering, input, camera, physics, collision, audio, animation, UI, timers, tilemaps -- with KonScript and C++ examples |
+| [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) | KonScript language reference: types, variables, functions, lambdas, nodes, structs, enums, control flow, and full engine API listing |
 | [ROADMAP.md](ROADMAP.md) | What's done, what's next, release policy |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | All libraries and system dependencies |
 | [MAINTAINERS.md](MAINTAINERS.md) | How to contribute, build, test, and release |
-| [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) | KonScript language reference |
 | [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) | KonAnimator usage |
 | [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) | KonPaktor / konpak usage |
-| [examples/](examples/) | Example games (hello world, pong, platformer, physics test, tilemap test, C++) |
+| [examples/](examples/) | Example games: hello world, pong, platformer, physics test, tilemap test, C++ |
 
 ---
 

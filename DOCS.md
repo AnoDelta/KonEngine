@@ -1417,13 +1417,13 @@ Frame-rate independent timers for gameplay events. Uses delta time so behavior i
 **KonScript:**
 ```ks
 # One-shot timer: fires once after 2 seconds
-Timer.Create("explode", 2.0, false, func() {
+Timer.Create("explode", 2.0, false, [&]() {
     Print("BOOM!");
 });
 
 # Repeating timer: fires every 0.5 seconds
-Timer.Create("spawn", 0.5, true, func() {
-    spawnEnemy();
+Timer.Create("spawn", 0.5, true, [&]() {
+    Print("Enemy spawned!");
 });
 
 # In game loop — MUST call this each frame
@@ -1464,16 +1464,78 @@ bool exists = TimerExists("spawn");
 float remaining = TimerRemaining("explode");
 ```
 
+### Full Timer Example (KonScript)
+
+```ks
+#include <engine>
+
+func main() {
+    InitWindow(600, 400, "Timer Demo", false);
+    SetTargetFPS(60);
+
+    let mut score: I32 = 0;
+    let mut message: Str = "Waiting...";
+
+    # Repeating timer: adds score every second
+    Timer.Create("score_tick", 1.0, true, [&]() {
+        score = score + 10;
+    });
+
+    # One-shot timer: shows a message after 3 seconds
+    Timer.Create("welcome", 3.0, false, [&]() {
+        message = "Welcome to the game!";
+    });
+
+    # Repeating timer: blink effect every 0.5s
+    let mut blink: Bool = true;
+    Timer.Create("blink", 0.5, true, [&]() {
+        blink = !blink;
+    });
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+
+        # IMPORTANT: must call every frame to tick all timers
+        Timer.UpdateAll(dt);
+
+        # Pause/resume with spacebar
+        if KeyPressed(Key.Space) {
+            if Timer.Exists("score_tick") {
+                Timer.Pause("score_tick");
+            }
+        }
+
+        ClearBackground(0.05, 0.05, 0.1);
+        DrawText(message, 10.0, 10.0, 20, WHITE);
+
+        if blink {
+            DrawText("Score: " + ToString(score), 10.0, 40.0, 24, YELLOW);
+        }
+
+        # Show remaining time on welcome timer
+        if !Timer.Finished("welcome") {
+            let rem: F64 = Timer.Remaining("welcome");
+            DrawText("Welcome in: " + ToString(rem) + "s", 10.0, 80.0, 16, GRAY);
+        }
+
+        Present();
+        PollEvents();
+    }
+}
+```
+
 | Function | Description |
 |----------|-------------|
-| `Timer.Create(id, duration, repeating, callback)` | Create a timer |
-| `Timer.UpdateAll(dt)` | Tick all timers (call each frame) |
+| `Timer.Create(id, duration, repeating, callback)` | Create a timer with a lambda callback |
+| `Timer.UpdateAll(dt)` | Tick all timers (call each frame with `GetDeltaTime()`) |
 | `Timer.Pause(id)` / `Resume(id)` | Pause/resume a timer |
 | `Timer.Reset(id)` | Restart timer from 0 |
 | `Timer.Remove(id)` / `RemoveAll()` | Delete timers |
 | `Timer.Exists(id)` | Check if timer exists |
 | `Timer.Finished(id)` | True if one-shot timer has fired |
 | `Timer.Remaining(id)` | Seconds left until next fire |
+
+> **Note:** Timer callbacks use C++-style lambda syntax: `[&]() { ... }`. The `[&]` capture lets the lambda access and modify variables from the surrounding scope.
 
 ---
 
