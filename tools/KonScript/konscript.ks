@@ -5162,9 +5162,11 @@ func main() -> I32 {
                 link_flags = link_flags + " -lglfw";
             }
             if is_windows {
-                link_flags = link_flags + " -lopengl32 -lgdi32 -lwinmm -lws2_32 -static-libstdc++ -static-libgcc";
+                link_flags = link_flags + " -lopengl32 -lgdi32 -lwinmm -lws2_32 -lbcrypt -static-libstdc++ -static-libgcc";
             } else {
                 link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+                // KonPak is always compiled into libKonEngine.a — link crypto libs
+                link_flags = link_flags + " -lssl -lcrypto -lz";
             }
         } else {
             // System-wide fallback: check /usr/local for engine install
@@ -5187,9 +5189,10 @@ func main() -> I32 {
                 Print("warning: engine toolchain not found — run build-engine-lib.sh");
             }
             if is_windows {
-                link_flags = link_flags + " -lopengl32 -lgdi32 -lwinmm -lws2_32 -static-libstdc++ -static-libgcc";
+                link_flags = link_flags + " -lopengl32 -lgdi32 -lwinmm -lws2_32 -lbcrypt -static-libstdc++ -static-libgcc";
             } else {
                 link_flags = link_flags + " -lGL -lX11 -lXrandr -lXi -ldl -lpthread";
+                link_flags = link_flags + " -lssl -lcrypto -lz";
             }
         }
     }
