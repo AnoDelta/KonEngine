@@ -50,23 +50,18 @@ public:
         Vector2 totalPush(0.0f, 0.0f);
 
         // 2. For each collider child, sweep-resolve against all statics.
-        //    SweepResolve pushes the collider's LOCAL x/y, but we want to
-        //    move the PARENT instead. So we undo the child push and apply
-        //    it to the parent.
+        //    SweepResolve returns the push vector without modifying the
+        //    collider child — we apply the push to the parent body only.
         ForEachDescendant([&](Node* n) {
             auto* mover = dynamic_cast<Collider2D*>(n);
             if (!mover || !mover->active) return;
 
-            float oldX = mover->x, oldY = mover->y;
             glm::vec2 push = _world->SweepResolve(mover);
-            // Undo the push on the child — we'll push the parent instead
-            mover->x = oldX;
-            mover->y = oldY;
             totalPush.x += push.x;
             totalPush.y += push.y;
         });
 
-        // 3. Apply the push to the parent body only
+        // 3. Push the parent body
         x += totalPush.x;
         y += totalPush.y;
 

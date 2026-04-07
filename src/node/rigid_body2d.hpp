@@ -64,18 +64,13 @@ public:
 
         onFloor = false;
 
-        // 3. Resolve overlaps with static bodies using fresh MTV checks
+        // 3. Resolve overlaps with static bodies using fresh MTV checks.
+        //    SweepResolve returns the push without modifying the collider.
         ForEachDescendant([&](Node* n) {
             auto* col = dynamic_cast<Collider2D*>(n);
             if (!col || !col->active) return;
 
-            // SweepResolve pushes the collider's local x/y — undo that
-            // and apply the push to the parent body only.
-            float oldCX = col->x, oldCY = col->y;
             glm::vec2 push = _world->SweepResolve(col);
-            col->x = oldCX;
-            col->y = oldCY;
-
             if (push.x != 0.0f || push.y != 0.0f) {
                 x += push.x;
                 y += push.y;

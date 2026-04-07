@@ -142,7 +142,10 @@ glm::vec2 CollisionWorld::ResolveOverlap(Collider2D* mover, Collider2D* wall) {
 glm::vec2 CollisionWorld::SweepResolve(Collider2D* mover) {
     glm::vec2 totalPush(0.0f, 0.0f);
 
-    // Multiple iterations to handle corner cases (wedged between two walls)
+    // Save original child position — we'll push during iterations for
+    // correct multi-wall resolution, then restore at the end.
+    float origX = mover->x, origY = mover->y;
+
     for (int iter = 0; iter < 4; ++iter) {
         bool pushed = false;
         for (auto* other : colliders) {
@@ -165,6 +168,12 @@ glm::vec2 CollisionWorld::SweepResolve(Collider2D* mover) {
         }
         if (!pushed) break;
     }
+
+    // Restore child position — caller (MoveAndCollide/PhysicsStep)
+    // will apply totalPush to the parent body instead.
+    mover->x = origX;
+    mover->y = origY;
+
     return totalPush;
 }
 
