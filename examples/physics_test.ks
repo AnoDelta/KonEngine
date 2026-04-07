@@ -107,6 +107,7 @@ func main() {
     SetTargetFPS(60);
 
     let scene: Scene = Scene();
+    CollisionDebug(true);
     let player: Player = scene.add(Player, "player");
 
     // Positions are CENTER of each wall
