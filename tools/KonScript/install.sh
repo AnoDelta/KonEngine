@@ -41,6 +41,14 @@ if [ -d "toolchain/engine" ]; then
     sudo mkdir -p "$BIN_DIR/toolchain/engine"
     sudo cp -r toolchain/engine/* "$BIN_DIR/toolchain/engine/"
 fi
+# Also update system-installed headers if they exist (from previous `make install`)
+# This prevents stale headers at /usr/local/include from overriding toolchain headers
+if [ -d "$PREFIX/include" ] && [ -f "$PREFIX/include/KonEngine.hpp" ]; then
+    if [ -d "toolchain/engine/linux64/include" ]; then
+        sudo cp -r toolchain/engine/linux64/include/* "$PREFIX/include/"
+        echo "   Updated system headers at $PREFIX/include/"
+    fi
+fi
 
 echo ""
 echo "==================================================="
