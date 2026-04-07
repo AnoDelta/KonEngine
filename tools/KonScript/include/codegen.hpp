@@ -1439,6 +1439,7 @@ private:
             {"SetWindowIcon",      "SetWindowIcon"},
             // Gamepad input
             {"GamepadConnected",   "IsGamepadConnected"},
+            {"CollisionDebug",     "CollisionDebug"},
             // Text measurement
             {"MeasureTextWidth",   "MeasureTextWidth"},
             // Timer system

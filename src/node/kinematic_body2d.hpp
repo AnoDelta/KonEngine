@@ -3,6 +3,7 @@
 #include "collider2d.hpp"
 #include "../collision/collision_world.hpp"
 #include "../math/vector2.hpp"
+#include <cstdio>
 
 // KinematicBody2D — Player-controlled body that slides along walls.
 // Owns a Collider2D child for its shape.  Use MoveAndCollide() to move
@@ -41,20 +42,26 @@ public:
     // static bodies using fresh MTV checks (not stale contact lists).
     // Uses the CollisionWorld set by Scene automatically.
     Vector2 MoveAndCollide(float dx, float dy) {
+        extern bool s_collisionDebug;
+        float beforeX = x, beforeY = y;
+
         // 1. Apply the tentative move to the parent body
         x += dx;
         y += dy;
 
-        if (!_world) return Vector2(dx, dy);
+        if (!_world) {
+            if (s_collisionDebug) fprintf(stderr, "[MoveAndCollide] WARNING: _world is null!\n");
+            return Vector2(dx, dy);
+        }
 
         Vector2 totalPush(0.0f, 0.0f);
+        int childCount = 0;
 
         // 2. For each collider child, sweep-resolve against all statics.
-        //    SweepResolve returns the push vector without modifying the
-        //    collider child — we apply the push to the parent body only.
         ForEachDescendant([&](Node* n) {
             auto* mover = dynamic_cast<Collider2D*>(n);
             if (!mover || !mover->active) return;
+            childCount++;
 
             glm::vec2 push = _world->SweepResolve(mover);
             totalPush.x += push.x;
@@ -64,6 +71,11 @@ public:
         // 3. Push the parent body
         x += totalPush.x;
         y += totalPush.y;
+
+        if (s_collisionDebug) {
+            fprintf(stderr, "[MoveAndCollide] '%s': before(%.1f,%.1f) +move(%.2f,%.2f) +push(%.2f,%.2f) = after(%.1f,%.1f) children=%d\n",
+                    name.c_str(), beforeX, beforeY, dx, dy, totalPush.x, totalPush.y, x, y, childCount);
+        }
 
         return Vector2(dx + totalPush.x, dy + totalPush.y);
     }

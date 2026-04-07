@@ -14,6 +14,9 @@ struct MTV {
     float     depth  = 0.0f;
 };
 
+// Enable/disable collision debug logging to stderr
+void CollisionDebug(bool enabled);
+
 class CollisionWorld {
 public:
     void Add(Collider2D* collider);

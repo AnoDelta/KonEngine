@@ -139,22 +139,55 @@ glm::vec2 CollisionWorld::ResolveOverlap(Collider2D* mover, Collider2D* wall) {
     return push;
 }
 
+// Global debug flag — set via CollisionDebug(true) from game code
+bool s_collisionDebug = false;
+void CollisionDebug(bool enabled) { s_collisionDebug = enabled; }
+
 glm::vec2 CollisionWorld::SweepResolve(Collider2D* mover) {
     glm::vec2 totalPush(0.0f, 0.0f);
 
-    // Save original child position — we'll push during iterations for
-    // correct multi-wall resolution, then restore at the end.
     float origX = mover->x, origY = mover->y;
 
+    // Compute mover's world position for debug output
+    auto moverWorld = mover->computeWorldPivot();
+
+    if (s_collisionDebug) {
+        fprintf(stderr, "[Collision] SweepResolve '%s': local(%.1f,%.1f) world(%.1f,%.1f) w=%.0f h=%.0f origin(%.1f,%.1f)\n",
+                mover->name.c_str(), mover->x, mover->y,
+                moverWorld.x, moverWorld.y,
+                mover->width, mover->height,
+                mover->originX, mover->originY);
+    }
+
+    int staticCount = 0;
     for (int iter = 0; iter < 4; ++iter) {
         bool pushed = false;
         for (auto* other : colliders) {
             if (other == mover || !other->active || !other->staticBody) continue;
             if (!LayersOverlap(mover, other)) continue;
-            if (!AABBOverlap(mover, other)) continue;
+
+            if (iter == 0 && s_collisionDebug) {
+                auto otherWorld = other->computeWorldPivot();
+                auto otherTL = other->computeWorldTopLeft();
+                staticCount++;
+                fprintf(stderr, "  vs static '%s': world(%.1f,%.1f) tl(%.1f,%.1f) w=%.0f h=%.0f origin(%.1f,%.1f)\n",
+                        other->name.c_str(),
+                        otherWorld.x, otherWorld.y,
+                        otherTL.x, otherTL.y,
+                        other->width, other->height,
+                        other->originX, other->originY);
+            }
+
+            if (!AABBOverlap(mover, other)) {
+                if (iter == 0 && s_collisionDebug) fprintf(stderr, "    AABB: no overlap\n");
+                continue;
+            }
 
             MTV mtv = GetMTV(mover, other);
-            if (!mtv.hit || mtv.depth <= 0.0f) continue;
+            if (!mtv.hit || mtv.depth <= 0.0f) {
+                if (iter == 0 && s_collisionDebug) fprintf(stderr, "    MTV: no hit (depth=%.3f)\n", mtv.depth);
+                continue;
+            }
 
             constexpr float slop = 0.01f;
             float d = std::max(mtv.depth - slop, 0.0f);
@@ -165,14 +198,29 @@ glm::vec2 CollisionWorld::SweepResolve(Collider2D* mover) {
             mover->y += push.y;
             totalPush += push;
             pushed = true;
+
+            if (s_collisionDebug) {
+                fprintf(stderr, "    HIT iter=%d: depth=%.3f normal=(%.2f,%.2f) push=(%.2f,%.2f)\n",
+                        iter, mtv.depth, mtv.normal.x, mtv.normal.y, push.x, push.y);
+            }
         }
         if (!pushed) break;
     }
 
-    // Restore child position — caller (MoveAndCollide/PhysicsStep)
-    // will apply totalPush to the parent body instead.
+    if (s_collisionDebug && staticCount == 0) {
+        fprintf(stderr, "  WARNING: no static colliders found in world! (%zu total colliders)\n", colliders.size());
+        for (auto* c : colliders) {
+            fprintf(stderr, "    collider '%s': solid=%d static=%d active=%d\n",
+                    c->name.c_str(), c->solid, c->staticBody, c->active);
+        }
+    }
+
     mover->x = origX;
     mover->y = origY;
+
+    if (s_collisionDebug && (totalPush.x != 0 || totalPush.y != 0)) {
+        fprintf(stderr, "  TOTAL PUSH: (%.2f, %.2f)\n", totalPush.x, totalPush.y);
+    }
 
     return totalPush;
 }

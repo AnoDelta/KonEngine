@@ -130,13 +130,15 @@ func main() {
     while !WindowShouldClose() {
         let dt: F64 = GetDeltaTime();
         if KeyPressed(Key.F1) { DebugMode(!IsDebugMode()); }
+        if KeyPressed(Key.F2) { CollisionDebug(true); }
+        if KeyPressed(Key.F3) { CollisionDebug(false); }
 
         ClearBackground(0.08, 0.08, 0.12);
         scene.update(dt);
         scene.draw();
 
         DrawText("Physics Test (Engine Collision)", 10.0, 10.0, 20, WHITE);
-        DrawText("WASD: move | Space: jump | R: reset | F1: debug", 10.0, 35.0, 14, GRAY);
+        DrawText("WASD: move | Space: jump | R: reset | F1: debug | F2/F3: collision log", 10.0, 35.0, 14, GRAY);
         if player.onGround {
             DrawText("On Ground", 10.0, 55.0, 14, GREEN);
         } else {
