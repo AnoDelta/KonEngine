@@ -715,6 +715,21 @@ grid.TileCenter(tileX: I32, tileY: I32)     -> WorldPos
 grid.DrawGrid(originX: F64, originY: F64, cols: I32, rows: I32)
 ```
 
+### UI
+```ks
+UI.AddButton(id: Str, text: Str, x: F64, y: F64)
+UI.AddLabel(id: Str, text: Str, x: F64, y: F64, fontSize: I32, color: Color)
+UI.AddPanel(id: Str, x: F64, y: F64, w: F64, h: F64)
+UI.PanelAddChild(panelId: Str, childId: Str)
+UI.OnClick(id: Str, callback: func())
+UI.Update()
+UI.Draw()
+UI.WantsInput() -> Bool
+UI.Remove(id: Str)
+UI.Clear()
+MeasureTextWidth(text: Str, fontSize: I32) -> F64
+```
+
 ### Output
 ```ks
 Print(fmt: str, ...)   # printf-style format string

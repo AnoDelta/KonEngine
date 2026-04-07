@@ -3613,6 +3613,11 @@ func cg_gen_expr(idx: I32) -> Str {
             // Static class methods: Namespace.method → Namespace::method
             if obj == "AssetManager" { return "AssetManager::" + method + "(" + args + ")"; }
             if obj == "Random" { return "Random::" + method + "(" + args + ")"; }
+            if obj == "UI" {
+                let mut ui_method: Str = method;
+                if method == "Draw" { ui_method = "DrawAll"; }
+                return "UI" + ui_method + "(" + args + ")";
+            }
             // Collection methods — use .size() for vectors, _ks_len for strings
             if method == "len"     { return "(int)" + obj + ".size()"; }
             if method == "isEmpty" { return obj + ".empty()"; }

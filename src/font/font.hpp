@@ -68,3 +68,9 @@ void DrawText(const char* text, float x, float y, int fontSize, Color color);
 void DrawTextF(float x, float y, Color color, const char* fmt, ...);
 void DrawTextF(float x, float y, int fontSize, Color color, const char* fmt, ...);
 void DrawTextF(Font& font, float x, float y, Color color, const char* fmt, ...);
+
+// -----------------------------------------------------------------------
+// MeasureTextWidth -- returns pixel width of text string
+// -----------------------------------------------------------------------
+float MeasureTextWidth(const char* text, int fontSize);
+float MeasureTextWidth(Font& font, const char* text);

@@ -28,6 +28,7 @@ file(GLOB_RECURSE LIB_SRCS
     src/collision/*.cpp
     src/animation/*.cpp
     src/node/*.cpp
+    src/ui/*.cpp
 )
 
 # anim_compiler.cpp and main.cpp are standalone tools, not part of the library
@@ -135,7 +136,7 @@ install(FILES src/KonEngine.hpp src/asset_manager.hpp src/kon_script_api.hpp
 )
 install(DIRECTORY src/color src/window src/renderer src/time src/camera
                   src/collision src/input src/font src/audio src/animation
-                  src/node src/math src/tilemap
+                  src/node src/math src/tilemap src/ui
     DESTINATION include
     FILES_MATCHING PATTERN "*.hpp"
 )

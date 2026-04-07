@@ -10,8 +10,9 @@
 6. [Asset Packing](#asset-packing-konpak)
 7. [Window & Rendering](#window--rendering)
 8. [Using C++ Directly](#using-c-directly)
-9. [Cross-Compilation](#cross-compilation)
-10. [Editor (KonEditor)](#editor-koneditor)
+9. [UI System](#ui-system)
+10. [Cross-Compilation](#cross-compilation)
+11. [Editor (KonEditor)](#editor-koneditor)
 
 ---
 
@@ -1245,6 +1246,143 @@ int main() {
 ```
 
 See `examples/cpp_example/` for CMake setup.
+
+---
+
+## UI System
+
+Screen-space UI elements that stay fixed on screen regardless of camera. Buttons, labels, and panels for menus and HUDs.
+
+### Creating Elements
+
+**KonScript:**
+```ks
+# Button — auto-sizes from text, has hover/pressed visual states
+UI.AddButton("play", "Play Game", 300.0, 200.0);
+UI.AddButton("quit", "Quit", 300.0, 260.0);
+
+# Label — static text
+UI.AddLabel("title", "My Game", 280.0, 100.0, 32, WHITE);
+
+# Panel — colored container
+UI.AddPanel("menu", 250.0, 80.0, 300.0, 240.0);
+UI.PanelAddChild("menu", "title");
+UI.PanelAddChild("menu", "play");
+UI.PanelAddChild("menu", "quit");
+# Child positions become relative to the panel's top-left
+```
+
+**C++:**
+```cpp
+UIAddButton("play", "Play Game", 300, 200);
+UIAddButton("quit", "Quit", 300, 260);
+UIAddLabel("title", "My Game", 280, 100, 32, WHITE);
+
+auto* panel = UIAddPanel("menu", 250, 80, 300, 240);
+UIPanelAddChild("menu", "title");
+UIPanelAddChild("menu", "play");
+UIPanelAddChild("menu", "quit");
+```
+
+### Handling Clicks
+
+**KonScript:**
+```ks
+UI.OnClick("play", func() {
+    Print("Play clicked!");
+});
+
+UI.OnClick("quit", func() {
+    Print("Quit clicked!");
+});
+```
+
+**C++:**
+```cpp
+UIOnClick("play", []{ printf("Play!\n"); });
+UIOnClick("quit", []{ printf("Quit!\n"); });
+```
+
+### Game Loop Integration
+
+Call `UIUpdate()` and `UIDrawAll()` **after** `scene.draw()` (after EndCamera2D). Check `UIWantsInput()` before processing world clicks.
+
+**KonScript:**
+```ks
+while !WindowShouldClose() {
+    let dt: F64 = GetDeltaTime();
+    ClearBackground(0.1, 0.1, 0.15);
+    scene.update(dt);
+    scene.draw();
+
+    UI.Update();    # hit-test mouse against UI elements
+    UI.Draw();      # render UI in screen-space (not affected by camera)
+
+    if !UI.WantsInput() && MousePressed(Mouse.Left) {
+        # handle world clicks here — UI didn't consume the click
+    }
+
+    Present();
+    PollEvents();
+}
+```
+
+**C++:**
+```cpp
+while (!WindowShouldClose()) {
+    float dt = GetDeltaTime();
+    ClearBackground(0.1f, 0.1f, 0.15f);
+    scene.Update(dt);
+    scene.Draw();
+
+    UIUpdate();
+    UIDrawAll();
+
+    if (!UIWantsInput() && IsMouseButtonPressed(Mouse::Left)) {
+        // world clicks
+    }
+
+    Present(); PollEvents();
+}
+```
+
+### Button Styling (C++)
+
+Buttons have sensible defaults but can be customized:
+
+```cpp
+auto* btn = UIAddButton("play", "Play", 300, 200);
+btn->normalColor  = Color(0.2f, 0.5f, 0.2f, 1.0f);  // green
+btn->hoverColor   = Color(0.3f, 0.7f, 0.3f, 1.0f);
+btn->pressedColor = Color(0.1f, 0.3f, 0.1f, 1.0f);
+btn->textColor    = WHITE;
+btn->borderColor  = Color(0.4f, 0.8f, 0.4f, 1.0f);
+btn->fontSize     = 24;
+btn->paddingX     = 20;  // auto-size padding
+btn->paddingY     = 12;
+```
+
+### Managing Elements
+
+```ks
+UI.Remove("play");    # remove a single element
+UI.Clear();           # remove all elements
+```
+
+### API Reference
+
+| Function | Description |
+|----------|-------------|
+| `UI.AddButton(id, text, x, y)` | Create a button (auto-sizes from text) |
+| `UI.AddLabel(id, text, x, y, fontSize?, color?)` | Create a text label |
+| `UI.AddPanel(id, x, y, w, h)` | Create a panel container |
+| `UI.PanelAddChild(panelId, childId)` | Add element as panel child |
+| `UI.OnClick(id, callback)` | Set button click handler |
+| `UI.Update()` | Per-frame hit testing (call before Draw) |
+| `UI.Draw()` | Render all visible elements |
+| `UI.WantsInput()` | True if UI consumed mouse this frame |
+| `UI.Remove(id)` | Remove element by ID |
+| `UI.Clear()` | Remove all elements |
 
 ---
 

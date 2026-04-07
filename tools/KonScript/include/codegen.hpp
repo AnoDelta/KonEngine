@@ -1438,6 +1438,8 @@ private:
             {"SetVsync",           "SetVsync"},
             // Gamepad input
             {"GamepadConnected",   "IsGamepadConnected"},
+            // Text measurement
+            {"MeasureTextWidth",   "MeasureTextWidth"},
         };
         auto it = builtins.find(e->name);
         if (it != builtins.end()) {
@@ -1735,6 +1737,28 @@ private:
                 auto* objId = static_cast<const IdentExpr*>(m->object.get());
                 if (objId->name == "Random") {
                     write("Random::" + m->member + "(");
+                    for (size_t i = 0; i < e->args.size(); i++) {
+                        if (i > 0) write(", ");
+                        genExpr(e->args[i].get());
+                    }
+                    write(")");
+                    return;
+                }
+            }
+
+            // ── UI.method(args) ─────────────────────────────────────────
+            // UI.AddButton("id", "text", x, y)  → UIAddButton(...)
+            // UI.Draw()                          → UIDrawAll()
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                if (objId->name == "UI") {
+                    static const std::unordered_map<std::string,std::string> uiAliases = {
+                        {"Draw", "DrawAll"}, {"WantsInput", "WantsInput"},
+                    };
+                    std::string member = m->member;
+                    auto uit = uiAliases.find(member);
+                    if (uit != uiAliases.end()) member = uit->second;
+                    write("UI" + member + "(");
                     for (size_t i = 0; i < e->args.size(); i++) {
                         if (i > 0) write(", ");
                         genExpr(e->args[i].get());
@@ -2078,7 +2102,7 @@ private:
         if (e->object->kind == Expr::Kind::Ident) {
             auto* id = static_cast<const IdentExpr*>(e->object.get());
             static const std::unordered_set<std::string> cppNamespaces = {
-                "Key", "Mouse", "Gamepad", "AssetManager", "Random"
+                "Key", "Mouse", "Gamepad", "AssetManager", "Random", "UI"
             };
             // User-defined enums also use :: for variant access
             if (cppNamespaces.count(id->name) || m_enumNames.count(id->name)) {
@@ -2095,6 +2119,17 @@ private:
                 }
                 if (id->name == "Random") {
                     write("Random::" + e->member);
+                    return;
+                }
+                if (id->name == "UI") {
+                    // UI.Draw -> UIDrawAll, UI.Update -> UIUpdate, etc.
+                    static const std::unordered_map<std::string,std::string> uiAliases = {
+                        {"Draw", "DrawAll"}, {"WantsInput", "WantsInput"},
+                    };
+                    std::string member = e->member;
+                    auto uit = uiAliases.find(member);
+                    if (uit != uiAliases.end()) member = uit->second;
+                    write("UI" + member);
                     return;
                 }
                 static const std::unordered_map<std::string,std::string> keyAliases = {

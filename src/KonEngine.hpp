@@ -23,4 +23,5 @@
 #include "animation/animation.hpp"
 #include "animation/animation_player.hpp"
 #include "tilemap/tilemap.hpp"
+#include "ui/ui.hpp"
 #include "asset_manager.hpp"

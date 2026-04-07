@@ -115,3 +115,17 @@ void DrawText(const char* text, float x, float y, Color color) {
 void DrawText(const char* text, float x, float y, int fontSize, Color color) {
     DrawText(GetDefaultFont(), text, x, y, fontSize, color);
 }
+
+float MeasureTextWidth(Font& font, const char* text) {
+    float width = 0;
+    for (int i = 0; text[i] != '\0'; i++) {
+        unsigned char c = text[i];
+        if (c < 32 || c > 127) continue;
+        width += font.glyphs[c].advanceX;
+    }
+    return width;
+}
+
+float MeasureTextWidth(const char* text, int fontSize) {
+    return MeasureTextWidth(GetDefaultFont(), text);
+}
