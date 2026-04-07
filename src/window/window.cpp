@@ -9,7 +9,7 @@
 #include "../time/time.hpp"
 #include <functional>
 #include <cstdio>
-#include "stb_image.h"
+#include "../stb/stb_image.h"
 #include "../input/input.hpp"
 #include "../camera/camera.hpp"
 #include "../font/font.hpp"

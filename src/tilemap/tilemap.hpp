@@ -198,7 +198,7 @@ public:
     }
 
     // Draw the full tilemap at its origin
-    void Draw() const {
+    void Draw() {
         if (tileset.id == 0 || tilesetCols <= 0) return;
 
         for (int y = 0; y < rows; y++) {
@@ -206,7 +206,6 @@ public:
                 int id = tiles[y * cols + x];
                 if (id <= 0) continue;
 
-                // Tile ID 1 = first tile in tileset (row 0, col 0)
                 int tid = id - 1;
                 int srcCol = tid % tilesetCols;
                 int srcRow = tid / tilesetCols;
@@ -223,7 +222,7 @@ public:
     }
 
     // Draw a single tile from the tileset at a specific world position
-    void DrawTileAt(int tileId, float worldX, float worldY) const {
+    void DrawTileAt(int tileId, float worldX, float worldY) {
         if (tileset.id == 0 || tilesetCols <= 0 || tileId <= 0) return;
 
         int tid = tileId - 1;
@@ -465,7 +464,7 @@ public:
 
     // Draw all tiles at their isometric screen positions.
     // Tiles are drawn back-to-front (top-left to bottom-right) for correct overlap.
-    void Draw() const {
+    void Draw() {
         if (tileset.id == 0 || tilesetCols <= 0) return;
 
         for (int y = 0; y < rows; y++) {
@@ -489,7 +488,7 @@ public:
     }
 
     // Draw a single tile at a specific isometric grid position
-    void DrawTileAt(int tileId, int tileX, int tileY) const {
+    void DrawTileAt(int tileId, int tileX, int tileY) {
         if (tileset.id == 0 || tilesetCols <= 0 || tileId <= 0) return;
 
         int tid = tileId - 1;
