@@ -112,38 +112,52 @@ func main() {
             while tx < MAP_COLS {
                 let id: I32 = map.Get(tx, ty);
                 if id > 0 {
-                    let px: F64 = (tx * TILE_W) as F64;
-                    let py: F64 = (ty * TILE_H) as F64;
-                    let tw: F64 = TILE_W as F64;
-                    let th: F64 = TILE_H as F64;
+                    let px: F32 = (tx * TILE_W) as F32;
+                    let py: F32 = (ty * TILE_H) as F32;
+                    let tw: F32 = TILE_W as F32;
+                    let th: F32 = TILE_H as F32;
 
-                    if id == 1 { DrawRectangle(px, py, tw, th, Color(0.2, 0.6, 0.2, 1.0)); }
-                    if id == 2 { DrawRectangle(px, py, tw, th, Color(0.6, 0.5, 0.3, 1.0)); }
-                    if id == 3 { DrawRectangle(px, py, tw, th, Color(0.3, 0.4, 0.8, 1.0)); }
-                    if id == 4 { DrawRectangle(px, py, tw, th, Color(0.8, 0.3, 0.3, 1.0)); }
-                    if id == 5 { DrawRectangle(px, py, tw, th, Color(0.7, 0.5, 0.8, 1.0)); }
+                    if id == 1 { DrawRectangle(px, py, tw, th, 0.2, 0.6, 0.2, 1.0); }
+                    if id == 2 { DrawRectangle(px, py, tw, th, 0.6, 0.5, 0.3, 1.0); }
+                    if id == 3 { DrawRectangle(px, py, tw, th, 0.3, 0.4, 0.8, 1.0); }
+                    if id == 4 { DrawRectangle(px, py, tw, th, 0.8, 0.3, 0.3, 1.0); }
+                    if id == 5 { DrawRectangle(px, py, tw, th, 0.7, 0.5, 0.8, 1.0); }
                 }
                 tx = tx + 1;
             }
             ty = ty + 1;
         }
 
-        // Grid overlay — pass a brighter color so it's visible
+        // Grid overlay
         if showGrid {
-            grid.DrawGrid(0.0, 0.0, MAP_COLS, MAP_ROWS, Color(0.8, 0.8, 0.8, 0.5));
+            // Draw grid lines manually since TileGrid.DrawGrid may not show
+            let mut gx: I32 = 0;
+            while gx <= MAP_COLS {
+                let lx: F32 = (gx * TILE_W) as F32;
+                let gh: F32 = (MAP_ROWS * TILE_H) as F32;
+                DrawLine(lx, 0.0, lx, gh, 0.8, 0.8, 0.8, 0.5);
+                gx = gx + 1;
+            }
+            let mut gy: I32 = 0;
+            while gy <= MAP_ROWS {
+                let ly: F32 = (gy * TILE_H) as F32;
+                let gw: F32 = (MAP_COLS * TILE_W) as F32;
+                DrawLine(0.0, ly, gw, ly, 0.8, 0.8, 0.8, 0.5);
+                gy = gy + 1;
+            }
         }
 
         // Highlight hovered tile
         if inBounds {
-            let hx: F64 = (hover.x * TILE_W) as F64;
-            let hy: F64 = (hover.y * TILE_H) as F64;
-            let tw: F64 = TILE_W as F64;
-            let th: F64 = TILE_H as F64;
-            DrawRectangle(hx, hy, tw, th, Color(1.0, 1.0, 0.0, 0.15));
-            DrawLine(hx, hy, hx + tw, hy, YELLOW);
-            DrawLine(hx, hy + th, hx + tw, hy + th, YELLOW);
-            DrawLine(hx, hy, hx, hy + th, YELLOW);
-            DrawLine(hx + tw, hy, hx + tw, hy + th, YELLOW);
+            let hx: F32 = (hover.x * TILE_W) as F32;
+            let hy: F32 = (hover.y * TILE_H) as F32;
+            let tw: F32 = TILE_W as F32;
+            let th: F32 = TILE_H as F32;
+            DrawRectangle(hx, hy, tw, th, 1.0, 1.0, 0.0, 0.15);
+            DrawLine(hx, hy, hx + tw, hy, 1.0, 1.0, 0.0, 1.0);
+            DrawLine(hx, hy + th, hx + tw, hy + th, 1.0, 1.0, 0.0, 1.0);
+            DrawLine(hx, hy, hx, hy + th, 1.0, 1.0, 0.0, 1.0);
+            DrawLine(hx + tw, hy, hx + tw, hy + th, 1.0, 1.0, 0.0, 1.0);
         }
 
         EndCamera2D();
@@ -154,12 +168,12 @@ func main() {
         DrawText("Left click: place | Right click: erase | 1-5: select tile", 10.0, 52.0, 14, GRAY);
 
         // Show selected tile
-        DrawRectangle(10.0, 75.0, 20.0, 20.0, Color(0.3, 0.3, 0.3, 1.0));
-        if selectedTile == 1 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.2, 0.6, 0.2, 1.0)); }
-        if selectedTile == 2 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.6, 0.5, 0.3, 1.0)); }
-        if selectedTile == 3 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.3, 0.4, 0.8, 1.0)); }
-        if selectedTile == 4 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.8, 0.3, 0.3, 1.0)); }
-        if selectedTile == 5 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.7, 0.5, 0.8, 1.0)); }
+        DrawRectangle(10.0, 75.0, 20.0, 20.0, 0.3, 0.3, 0.3, 1.0);
+        if selectedTile == 1 { DrawRectangle(12.0, 77.0, 16.0, 16.0, 0.2, 0.6, 0.2, 1.0); }
+        if selectedTile == 2 { DrawRectangle(12.0, 77.0, 16.0, 16.0, 0.6, 0.5, 0.3, 1.0); }
+        if selectedTile == 3 { DrawRectangle(12.0, 77.0, 16.0, 16.0, 0.3, 0.4, 0.8, 1.0); }
+        if selectedTile == 4 { DrawRectangle(12.0, 77.0, 16.0, 16.0, 0.8, 0.3, 0.3, 1.0); }
+        if selectedTile == 5 { DrawRectangle(12.0, 77.0, 16.0, 16.0, 0.7, 0.5, 0.8, 1.0); }
 
         if inBounds {
             let hid: I32 = map.Get(hover.x, hover.y);

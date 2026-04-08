@@ -158,68 +158,38 @@ void Present() {
 		dbgTimer += dbgDt;
 		if (dbgTimer >= 1.0f) {
 			dbgFPS=dbgFrames; dbgFrames=0; dbgTimer=0;
-			// On-screen debug overlay
-                    {
-                        std::string l1 = "FPS: " + std::to_string(dbgFPS)
-                            + "  dt: " + std::to_string(dbgDt).substr(0,6) + "s";
-                        std::string l2 = "Mouse: (" + std::to_string((int)GetMouseX())
-                            + ", " + std::to_string((int)GetMouseY()) + ")";
-                        window->drawRectangle(2, 2, 240, 40, 0,0,0,0.7f);
-                        DrawText(l1.c_str(), 6,  4, {1,1,0,1});
-                        DrawText(l2.c_str(), 6, 22, {1,1,0,1});
-                    }
 		}
 
-		// Debug overlay — screen-space HUD (use design resolution when letterboxing)
+		// Debug overlay — screen-space only, no camera manipulation
 		int W = (s_letterboxEnabled && s_designW > 0) ? s_designW : window->getWidth();
 		int H = (s_letterboxEnabled && s_designH > 0) ? s_designH : window->getHeight();
-		{
-			// Build stats string using only snprintf — no std::string allocation
-			char buf[256];
-			snprintf(buf, sizeof(buf),
-				"FPS: %d  dt: %.4f  Mouse: (%d, %d)  Zoom: %.2f",
-				dbgFPS, dbgDt,
-				(int)GetMouseX(), (int)GetMouseY(),
-				s_hasCameraThisFrame ? s_lastCamera.zoom : 1.0f);
-			// Semi-transparent background strip
-			window->drawRectangle(0, 0, (float)W, 18, 0,0,0,0.65f);
-			// Text drawn via engine font system
-			extern void DrawText(const char*, float, float, Color);
-			Color cyan = {0.3f, 1.0f, 0.9f, 1.0f};
-			DrawText(buf, 4, 2, cyan);
-		}
 
+		// Stats bar
+		char buf[256];
+		snprintf(buf, sizeof(buf),
+			"FPS: %d  dt: %.4f  Mouse: (%d, %d)  Zoom: %.2f",
+			dbgFPS, dbgDt,
+			(int)GetMouseX(), (int)GetMouseY(),
+			s_hasCameraThisFrame ? s_lastCamera.zoom : 1.0f);
+		window->drawRectangle(0, 0, (float)W, 18, 0,0,0,0.65f);
+		extern void DrawText(const char*, float, float, Color);
+		Color cyan = {0.3f, 1.0f, 0.9f, 1.0f};
+		DrawText(buf, 4, 2, cyan);
+
+		// Red border
 		float t=2.0f;
 		window->drawRectangle(0,       0,       (float)W, t,      1,0,0,1);
 		window->drawRectangle(0,       (float)H-t, (float)W, t,   1,0,0,1);
 		window->drawRectangle(0,       0,       t, (float)H,      1,0,0,1);
 		window->drawRectangle((float)W-t, 0,   t, (float)H,      1,0,0,1);
 
+		// Mouse crosshair
 		float mx = s_letterboxEnabled ? GetGameMouseX() : GetMouseX();
 		float my = s_letterboxEnabled ? GetGameMouseY() : GetMouseY();
 		float cs=8.0f;
 		window->drawLine(mx-cs, my,    mx+cs, my,    1,0,0,1);
 		window->drawLine(mx,    my-cs, mx,    my+cs, 1,0,0,1);
 
-		// Debug grid — world-space origin axes only (subtle landmark)
-		{
-			Camera2D gridCam = s_hasCameraThisFrame
-				? s_lastCamera
-				: Camera2D{(float)W * 0.5f, (float)H * 0.5f, 1.0f, 0.0f};
-			window->beginCamera2D(gridCam);
-
-			float zoom  = gridCam.zoom;
-			float camX  = gridCam.x, camY = gridCam.y;
-			float halfW = (W*0.5f)/zoom,  halfH = (H*0.5f)/zoom;
-			float left  = camX-halfW, right  = camX+halfW;
-			float top   = camY-halfH, bottom = camY+halfH;
-
-			// World origin axes only — no full grid (too invasive)
-			window->drawLine(left,0, right,0,  0.4f,0.4f,0.6f,0.35f);
-			window->drawLine(0,top,  0,bottom,  0.4f,0.4f,0.6f,0.35f);
-
-			window->endCamera2D();
-		}
 		s_hasCameraThisFrame = false;
 
 		if (IsMouseButtonPressed(Mouse::Left))
