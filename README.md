@@ -207,6 +207,7 @@ KonEngine/
     physics_test.ks        # Physics: gravity, jumping, collision, platforms
     tilemap_test.ks        # Tilemap: tile placement, grid, camera, click detection
     ui_test.ks             # UI: buttons, labels, panels, click handlers, signals
+    timer_test.ks          # Timers: repeating, one-shot, pause/resume, progress bar
     pong.ks                # Pong game
     cpp_example/           # C++ example with CMake
   tests/                   # Engine test suite

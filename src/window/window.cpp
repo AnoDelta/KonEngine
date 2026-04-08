@@ -160,9 +160,52 @@ void Present() {
 			dbgFPS=dbgFrames; dbgFrames=0; dbgTimer=0;
 		}
 
-		// Debug overlay — screen-space only, no camera manipulation
 		int W = (s_letterboxEnabled && s_designW > 0) ? s_designW : window->getWidth();
 		int H = (s_letterboxEnabled && s_designH > 0) ? s_designH : window->getHeight();
+
+		// ── World-space debug grid (uses thin rectangles, not GL_LINES) ──
+		{
+			Camera2D gridCam = s_hasCameraThisFrame
+				? s_lastCamera
+				: Camera2D{(float)W * 0.5f, (float)H * 0.5f, 1.0f, 0.0f};
+			window->beginCamera2D(gridCam);
+
+			float zoom  = gridCam.zoom;
+			float camX  = gridCam.x, camY = gridCam.y;
+			float halfW = (W*0.5f)/zoom,  halfH = (H*0.5f)/zoom;
+			float left  = camX-halfW, right  = camX+halfW;
+			float top   = camY-halfH, bottom = camY+halfH;
+
+			// Fine grid (32px) — 1px wide rectangles
+			float step = 32.0f;
+			if (step * zoom >= 4.0f) {
+				float sx = floorf(left/step)*step;
+				float sy = floorf(top/step)*step;
+				for (float x=sx; x<=right; x+=step)
+					window->drawRectangle(x, top, 1.0f/zoom, bottom-top, 0.4f,0.4f,0.5f,0.2f);
+				for (float y=sy; y<=bottom; y+=step)
+					window->drawRectangle(left, y, right-left, 1.0f/zoom, 0.4f,0.4f,0.5f,0.2f);
+			}
+
+			// Coarse grid (256px)
+			step = 256.0f;
+			if (step * zoom >= 4.0f) {
+				float sx = floorf(left/step)*step;
+				float sy = floorf(top/step)*step;
+				for (float x=sx; x<=right; x+=step)
+					window->drawRectangle(x, top, 1.0f/zoom, bottom-top, 0.5f,0.5f,0.7f,0.3f);
+				for (float y=sy; y<=bottom; y+=step)
+					window->drawRectangle(left, y, right-left, 1.0f/zoom, 0.5f,0.5f,0.7f,0.3f);
+			}
+
+			// World origin axes (2px wide)
+			window->drawRectangle(left, -1.0f/zoom, right-left, 2.0f/zoom, 0.6f,0.6f,0.9f,0.4f);
+			window->drawRectangle(-1.0f/zoom, top, 2.0f/zoom, bottom-top, 0.6f,0.6f,0.9f,0.4f);
+
+			window->endCamera2D();
+		}
+
+		// ── Screen-space HUD ──
 
 		// Stats bar
 		char buf[256];
@@ -183,12 +226,12 @@ void Present() {
 		window->drawRectangle(0,       0,       t, (float)H,      1,0,0,1);
 		window->drawRectangle((float)W-t, 0,   t, (float)H,      1,0,0,1);
 
-		// Mouse crosshair
+		// Mouse crosshair (thin rectangles instead of GL_LINES)
 		float mx = s_letterboxEnabled ? GetGameMouseX() : GetMouseX();
 		float my = s_letterboxEnabled ? GetGameMouseY() : GetMouseY();
 		float cs=8.0f;
-		window->drawLine(mx-cs, my,    mx+cs, my,    1,0,0,1);
-		window->drawLine(mx,    my-cs, mx,    my+cs, 1,0,0,1);
+		window->drawRectangle(mx-cs, my-0.5f, cs*2, 1.0f, 1,0,0,1);
+		window->drawRectangle(mx-0.5f, my-cs, 1.0f, cs*2, 1,0,0,1);
 
 		s_hasCameraThisFrame = false;
 
