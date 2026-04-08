@@ -8,6 +8,10 @@
 #include <string.h>
 #include <ctype.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 // ── Result<T> ────────────────────────────────────────────────────────────────
 // A heap-allocated struct: [ok:i32, value:i8*, error:i8*]
 typedef struct { int ok; char* value; char* error; } _KsResult;
@@ -380,9 +384,6 @@ double _ks_time_ms() {
 }
 
 // ── Self-directory (for finding _ks_runtime.c next to the binary) ───────────
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 char* _ks_self_dir() {
     static char buf[4096];
 #ifdef _WIN32
