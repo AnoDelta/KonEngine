@@ -4374,14 +4374,13 @@ func cg_gen_node(idx: I32) {
             // Resolve type: prefer explicit annotation, then node_types, then infer
             let mut ft: Str = node_types[member];
             if type_ann.len() > 0 { ft = type_ann; }
-            let mut ftype: Str = "int32_t";
-            if ft == "F64" || ft == "F32" || ft == "Float" { ftype = "float"; }
-            if ft == "Str" { ftype = "std::string"; }
-            if ft == "Bool" { ftype = "bool"; }
-            if ft == "I32" || ft == "I64" { ftype = cg_type(ft); }
-            if ft == "Vec2" || ft == "Vector2" { ftype = "Vector2"; }
-            if ft == "Scene" { ftype = "Scene"; }
+            let mut ftype: Str = cg_type(ft);
+            // Pointer types (engine nodes, user nodes)
             if cg_is_ptr_type(ft) { ftype = ft + "*"; cg_mark_ptr(fname); }
+            // If cg_type returned the same thing (unknown type), check engine val types
+            if ftype == ft && cg_is_engine_val_type(ft) { ftype = ft; }
+            // Fallback for completely unrecognized types without annotation
+            if ft.len() == 0 { ftype = "int32_t"; }
             // Register field type for chained access resolution
             cg_register_field(name, fname, ft);
             if finit != 0 {
@@ -4422,11 +4421,8 @@ func cg_gen_node(idx: I32) {
             if finit != 0 {
                 let fval: Str = cg_gen_expr(finit);
                 let ft: Str = node_types[member];
-                let mut ftype: Str = "auto";
-                if ft == "F64" || ft == "F32" { ftype = "float"; }
-                if ft == "I32" { ftype = "int32_t"; }
-                if ft == "Str" { ftype = "std::string"; }
-                if ft == "Bool" { ftype = "bool"; }
+                let mut ftype: Str = cg_type(ft);
+                if ftype == ft && ft.len() > 0 { ftype = "auto"; }
                 cg_emit("static constexpr " + ftype + " " + fname + " = " + fval + ";");
             }
         }
