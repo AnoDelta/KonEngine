@@ -16,6 +16,7 @@
 #include <cmath>
 #include <chrono>
 #include <algorithm>
+#include "kon_logo.h"
 
 static bool s_debugMode = false;
 static Camera2D s_lastCamera = {};
@@ -133,16 +134,51 @@ void Window::setIcon(const char* path) {
 
 static Window* window = nullptr;
 
+// Set window icon from embedded KON_LOGO_DATA (no file needed)
+static void SetEmbeddedIcon() {
+    if (!window) return;
+    GLFWwindow* handle = glfwGetCurrentContext();
+    if (!handle) return;
+    GLFWimage icon;
+    icon.width  = KON_LOGO_WIDTH;
+    icon.height = KON_LOGO_HEIGHT;
+    // GLFW wants non-const pixels, but won't modify them
+    icon.pixels = const_cast<unsigned char*>(KON_LOGO_DATA);
+    glfwSetWindowIcon(handle, 1, &icon);
+}
+
+// Load embedded logo as a GPU texture for splash screen rendering
+static Texture LoadEmbeddedLogoTexture() {
+    if (!window) return {0, 0, 0};
+    // Write to temp file, load as texture, delete temp file
+    // (simpler than adding a raw-pixel texture upload path)
+    const char* tmp = "/tmp/_kon_splash_logo.raw.png";
+    // Use stb to write a minimal RGBA image — but we can use the renderer directly
+    // Actually, just upload raw RGBA pixels via OpenGL
+    GLuint texId = 0;
+    glGenTextures(1, &texId);
+    glBindTexture(GL_TEXTURE_2D, texId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, KON_LOGO_WIDTH, KON_LOGO_HEIGHT,
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, KON_LOGO_DATA);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return {texId, (int)KON_LOGO_WIDTH, (int)KON_LOGO_HEIGHT};
+}
+
 // ── Engine splash screen ─────────────────────────────────────────────────
 static void RunSplashScreen(int w, int h) {
     if (!window) return;
 
-    // Try to load logo.png for splash
-    bool hasLogo = false;
+    // Try game logo.png first, fall back to embedded engine logo
+    bool hasCustomLogo = false;
     Texture logo = {0, 0, 0};
     {
         FILE* f = fopen("logo.png", "rb");
-        if (f) { fclose(f); logo = window->loadTexture("logo.png"); hasLogo = (logo.id != 0); }
+        if (f) { fclose(f); logo = window->loadTexture("logo.png"); hasCustomLogo = (logo.id != 0); }
+    }
+    if (!hasCustomLogo) {
+        logo = LoadEmbeddedLogoTexture();
     }
 
     // Splash timing: 0.3s fade in, 0.8s hold, 0.4s fade out = 1.5s total
@@ -171,34 +207,27 @@ static void RunSplashScreen(int w, int h) {
 
         float cx = w * 0.5f, cy = h * 0.5f;
 
-        if (hasLogo) {
+        if (logo.id != 0) {
             // Draw logo centered with alpha
             float lw = (float)logo.width, lh = (float)logo.height;
-            // Scale down if larger than 60% of window
-            float maxW = w * 0.6f, maxH = h * 0.6f;
-            if (lw > maxW || lh > maxH) {
-                float s = std::min(maxW / lw, maxH / lh);
-                lw *= s; lh *= s;
+            // Scale up the embedded logo (32x32) to a visible size, or scale down large logos
+            float targetSize = std::min(w * 0.3f, h * 0.3f);
+            if (targetSize < 64.0f) targetSize = 64.0f;
+            float s = std::min(targetSize / lw, targetSize / lh);
+            if (hasCustomLogo) {
+                // Custom logos: scale down if too large, don't scale up
+                float maxW = w * 0.6f, maxH = h * 0.6f;
+                s = 1.0f;
+                if (lw > maxW || lh > maxH) s = std::min(maxW / lw, maxH / lh);
             }
-            window->drawTexture(logo, cx - lw*0.5f, cy - lh*0.5f, lw, lh,
+            lw *= s; lh *= s;
+            window->drawTexture(logo, cx - lw*0.5f, cy - lh*0.5f - 20.0f, lw, lh,
                                 Color{1.0f, 1.0f, 1.0f, alpha});
-        } else {
-            // No logo — draw a triangle + engine name
-            // Triangle (pointing up)
-            float ts = 40.0f; // triangle size
-            float ty = cy - 30.0f;
-            // Draw triangle as 3 thin rectangles approximating a filled triangle
-            for (float row = 0; row < ts; row += 2.0f) {
-                float frac = row / ts;
-                float hw = ts * 0.5f * frac;
-                window->drawRectangle(cx - hw, ty + row, hw * 2.0f, 2.0f,
-                                      0.3f * alpha, 0.7f * alpha, 1.0f * alpha, alpha);
-            }
         }
 
-        // "KonEngine" text below logo/triangle
+        // "KonEngine" text below logo
         extern void DrawText(const char*, float, float, Color);
-        Color textCol = {0.6f * alpha, 0.6f * alpha, 0.7f * alpha, alpha};
+        Color textCol = {0.5f * alpha, 0.6f * alpha, 0.8f * alpha, alpha};
         DrawText("KonEngine", cx - 50.0f, cy + 50.0f, textCol);
 
         window->present();
@@ -206,8 +235,11 @@ static void RunSplashScreen(int w, int h) {
         glfwPollEvents();
     }
 
-    // Clean up logo texture
-    if (hasLogo) window->unloadTexture(logo);
+    // Clean up splash texture
+    if (logo.id != 0) {
+        if (hasCustomLogo) window->unloadTexture(logo);
+        else glDeleteTextures(1, &logo.id);
+    }
 }
 
 void InitWindow(int w, int h, const std::string& t, bool r) {
@@ -219,9 +251,14 @@ void InitWindow(int w, int h, const std::string& t, bool r) {
     }
     window = new Window(w,h,t,r);
 
-    // Auto-load window icon from logo.png if it exists
+    // Set window icon: use logo.png if it exists, otherwise embedded KonEngine logo
     FILE* f = fopen("logo.png", "rb");
-    if (f) { fclose(f); SetWindowIcon("logo.png"); }
+    if (f) {
+        fclose(f);
+        SetWindowIcon("logo.png");
+    } else {
+        SetEmbeddedIcon();
+    }
 
     // Show engine splash screen
     RunSplashScreen(w, h);
