@@ -332,13 +332,75 @@ node Player : Node2D {
 
 ### Lifecycle methods
 
-| Method | When called |
-|---|---|
-| `Ready()` | Once, when the node is added to the scene |
-| `Update(dt: F64)` | Every frame |
-| `Draw()` | Every frame after Update |
-| `OnCollisionEnter(other: Collider2D)` | When a child collider first overlaps another |
-| `OnCollisionExit(other: Collider2D)` | When they stop overlapping |
+| Method | When called | Use for |
+|---|---|---|
+| `Ready()` | Once, when added to scene | Setup, load resources |
+| `Update(dt: F64)` | Every frame | Movement, input, logic |
+| `Draw()` | Every frame after Update | Render sprites, shapes, text |
+| `OnCollisionEnter(other: Collider2D)` | When a collider starts touching | Damage, triggers |
+| `OnCollisionExit(other: Collider2D)` | When they stop touching | Reset states |
+| `OnDestroy()` | When the node is removed | Unload textures, stop music |
+
+### Custom methods
+
+Nodes can have any number of custom methods beyond lifecycle methods:
+
+```ks
+node Enemy : Node2D {
+    let mut hp: I32 = 50;
+
+    func TakeDamage(amount: I32) {
+        hp = hp - amount;
+    }
+
+    func IsAlive() -> Bool {
+        return hp > 0;
+    }
+
+    func Heal(amount: I32) {
+        hp = hp + amount;
+        if hp > 100 { hp = 100; }
+    }
+}
+
+# In main:
+let enemy: Enemy = scene.add(Enemy, "goblin");
+enemy.TakeDamage(20);
+Print("Alive: ", enemy.IsAlive());
+```
+
+### Asset fields (Texture, Music, Sound)
+
+Nodes can store `Texture`, `Music`, and `Sound` as fields. They load when the node is created.
+
+```ks
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture("player.png");
+    let mut bgm: Music = LoadMusic("theme.mp3");
+    let mut jump: Sound = LoadSound("jump.wav");
+
+    func Ready() {
+        PlayMusic(bgm);
+    }
+
+    func Update(dt: F64) {
+        UpdateMusic(bgm);
+        if KeyPressed(Key.Space) { PlaySound(jump); }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x, y, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadMusic(bgm);
+        UnloadSound(jump);
+    }
+}
+```
+
+> `LoadTexture`/`LoadMusic`/`LoadSound` are global — backed by a singleton AssetManager. Any node, anywhere, can call them. No need to pass references.
 
 ### Inherited Node2D fields
 
@@ -350,7 +412,7 @@ scaleX, scaleY
 rotation
 originX, originY  # pivot (0.5 = center)
 active        # Bool
-name          # str
+name          # Str
 ```
 
 ### Adding child nodes inside a node
@@ -365,6 +427,55 @@ node Player : Node2D {
         col.height = 48.0;
     }
 }
+```
+
+### Multi-file projects
+
+Split nodes into separate `.ks` files and include them:
+
+**player.ks:**
+```ks
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture("player.png");
+    let mut speed: F64 = 200.0;
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + speed * dt; }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x, y, 32.0, 32.0);
+    }
+}
+```
+
+**main.ks:**
+```ks
+#include <engine>
+#include "player.ks"
+
+func main() {
+    InitWindow(800, 600, "Game");
+    SetTargetFPS(60);
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, "p1");
+    player.x = 400.0;
+
+    while !WindowShouldClose() {
+        scene.update(GetDeltaTime());
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+}
+```
+
+Compile from your project directory:
+```bash
+cd my_game
+konscript main.ks
+./main
 ```
 
 ---

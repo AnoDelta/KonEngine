@@ -5,14 +5,20 @@
 1. [Getting Started](#getting-started)
 2. [KonScript Language](#konscript-language)
 3. [Node Types](#node-types)
-4. [Animation System](#animation-system)
-5. [Physics & Collision](#physics--collision)
-6. [Asset Packing](#asset-packing-konpak)
-7. [Window & Rendering](#window--rendering)
-8. [Using C++ Directly](#using-c-directly)
-9. [UI System](#ui-system)
-10. [Cross-Compilation](#cross-compilation)
-11. [Editor (KonEditor)](#editor-koneditor)
+4. [Custom Node Methods](#custom-node-methods)
+5. [Node Lifecycle](#node-lifecycle)
+6. [Assets on Nodes (Textures, Music, Sound)](#assets-on-nodes-textures-music-sound)
+7. [Multi-File Projects](#multi-file-projects)
+8. [Fullscreen](#fullscreen)
+9. [Animation System](#animation-system)
+10. [Physics & Collision](#physics--collision)
+11. [Timers](#timers)
+12. [UI System](#ui-system)
+13. [Asset Packing](#asset-packing-konpak)
+14. [Window & Rendering](#window--rendering)
+15. [Using C++ Directly](#using-c-directly)
+16. [Cross-Compilation](#cross-compilation)
+17. [Editor (KonEditor)](#editor-koneditor)
 
 ---
 
@@ -225,6 +231,322 @@ col.height = 32;
 func OnCollisionEnter(other: Collider2D) { Print("Hit!"); }
 func OnCollisionExit(other: Collider2D)  { Print("Left"); }
 ```
+
+---
+
+## Custom Node Methods
+
+Nodes can have any number of custom methods beyond the lifecycle methods. Call them from other nodes or from `main()`.
+
+```ks
+node Enemy : Node2D {
+    let mut health: I32 = 100;
+    let mut alive: Bool = true;
+
+    func TakeDamage(amount: I32) {
+        health = health - amount;
+        if health <= 0 {
+            alive = false;
+            Print("Enemy defeated!");
+        }
+    }
+
+    func Heal(amount: I32) {
+        health = health + amount;
+        if health > 100 { health = 100; }
+    }
+
+    func IsAlive() -> Bool {
+        return alive;
+    }
+
+    func Draw() {
+        if alive {
+            DrawRectangle(x - 16.0, y - 16.0, 32.0, 32.0, 1.0, 0.0, 0.0, 1.0);
+        }
+    }
+}
+
+func main() {
+    // ...
+    let enemy: Enemy = scene.add(Enemy, "goblin");
+    enemy.x = 500.0;
+    enemy.y = 300.0;
+
+    // Call custom methods on the node
+    enemy.TakeDamage(25);
+    Print("Health: ", enemy.health);        // Access fields
+    Print("Alive: ", enemy.IsAlive());      // Call methods with return values
+    enemy.Heal(10);
+}
+```
+
+---
+
+## Node Lifecycle
+
+Every node supports these lifecycle methods. Override the ones you need:
+
+| Method | When it runs | Use for |
+|--------|-------------|---------|
+| `Ready()` | Once, when added to scene via `scene.add()` | Setup, spawn children |
+| `Update(dt: F64)` | Every frame via `scene.update(dt)` | Movement, input, game logic |
+| `Draw()` | Every frame via `scene.draw()` | Rendering sprites, shapes, text |
+| `OnCollisionEnter(other: Collider2D)` | When a collider starts touching | Damage, pickups, triggers |
+| `OnCollisionExit(other: Collider2D)` | When a collider stops touching | Reset states |
+| `OnDestroy()` | When the node is removed | Unload textures, stop music, cleanup |
+
+```ks
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture("player.png");
+    let mut theme: Music = LoadMusic("theme.mp3");
+
+    func Ready() {
+        x = 400.0;
+        y = 300.0;
+        PlayMusic(theme);
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + 200.0 * dt; }
+        if KeyDown(Key.A) { x = x - 200.0 * dt; }
+        UpdateMusic(theme);
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x - 16.0, y - 16.0, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadMusic(theme);
+        Print("Player cleaned up");
+    }
+}
+```
+
+---
+
+## Assets on Nodes (Textures, Music, Sound)
+
+Nodes can store `Texture`, `Music`, and `Sound` as fields. They load automatically when the node is created.
+
+### How it works
+
+`LoadTexture`, `LoadMusic`, and `LoadSound` are **global functions** backed by a singleton `AssetManager`. There is no "parent's" or "scene's" asset manager — there's one shared instance. Any node, anywhere, can call them as long as `InitWindow()` has been called.
+
+```ks
+node Character : Node2D {
+    // These load automatically when the node is created via scene.add()
+    let mut sprite: Texture = LoadTexture("hero.png");
+    let mut walkSound: Sound = LoadSound("step.wav");
+    let mut bgm: Music = LoadMusic("overworld.mp3");
+
+    func Ready() {
+        PlayMusic(bgm);
+    }
+
+    func Update(dt: F64) {
+        UpdateMusic(bgm);
+        if KeyPressed(Key.D) {
+            PlaySound(walkSound);
+        }
+    }
+
+    func Draw() {
+        if sprite.width > 0 {
+            DrawTexture(sprite, x, y, 32.0, 32.0);
+        } else {
+            // Fallback if texture failed to load
+            DrawRectangle(x, y, 32.0, 32.0, 1.0, 0.0, 1.0, 1.0);
+        }
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadSound(walkSound);
+        UnloadMusic(bgm);
+    }
+}
+```
+
+### AssetManager
+
+The `AssetManager` resolves file paths. It defaults to `"./"` (current directory) if you never call `init()`.
+
+```ks
+// Optional — defaults to "./" if you skip this
+AssetManager.init("./");
+
+// For packed games (.konpak archives):
+AssetManager.init("game.konpak");
+
+// With encryption:
+AssetManager.init("game.konpak", "secret_password");
+```
+
+Once initialized, all `LoadTexture`, `LoadMusic`, `LoadSound` calls go through it automatically. You don't need to pass it around.
+
+---
+
+## Multi-File Projects
+
+Split nodes into separate `.ks` files and include them with `#include "file.ks"`.
+
+### Project structure
+```
+my_game/
+  main.ks            # entry point, includes other files
+  player.ks          # Player node
+  enemy.ks           # Enemy node
+  assets/
+    player.png
+    enemy.png
+    bgm.mp3
+```
+
+### player.ks
+```ks
+// No #include <engine> here — main.ks handles that
+
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture("assets/player.png");
+    let mut speed: F64 = 200.0;
+    let mut health: I32 = 100;
+
+    func TakeDamage(amount: I32) {
+        health = health - amount;
+        Print("Player took ", amount, " damage! HP: ", health);
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + speed * dt; }
+        if KeyDown(Key.A) { x = x - speed * dt; }
+        if KeyDown(Key.W) { y = y - speed * dt; }
+        if KeyDown(Key.S) { y = y + speed * dt; }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x - 16.0, y - 16.0, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+    }
+}
+```
+
+### enemy.ks
+```ks
+node Enemy : Node2D {
+    let mut sprite: Texture = LoadTexture("assets/enemy.png");
+    let mut hp: I32 = 50;
+    let mut alive: Bool = true;
+
+    func TakeDamage(amount: I32) {
+        hp = hp - amount;
+        if hp <= 0 { alive = false; }
+    }
+
+    func IsAlive() -> Bool {
+        return alive;
+    }
+
+    func Draw() {
+        if alive {
+            DrawTexture(sprite, x - 16.0, y - 16.0, 32.0, 32.0);
+        }
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+    }
+}
+```
+
+### main.ks
+```ks
+#include <engine>
+#include "player.ks"
+#include "enemy.ks"
+
+func main() -> I32 {
+    InitWindow(800, 600, "My Game", false);
+    SetTargetFPS(60);
+
+    let mut scene: Scene = Scene();
+    let mut player: Player = scene.add(Player, "player");
+    player.x = 400.0;
+    player.y = 300.0;
+
+    let mut enemy: Enemy = scene.add(Enemy, "goblin");
+    enemy.x = 600.0;
+    enemy.y = 300.0;
+
+    let mut bgm: Music = LoadMusic("assets/bgm.mp3");
+    PlayMusic(bgm);
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        scene.update(dt);
+        UpdateMusic(bgm);
+
+        // Spacebar damages enemy
+        if KeyPressed(Key.Space) {
+            enemy.TakeDamage(10);
+            if !enemy.IsAlive() {
+                Print("Enemy defeated!");
+            }
+        }
+
+        ClearBackground(0.08, 0.08, 0.12);
+        scene.draw();
+
+        // HUD
+        DrawText("HP: " + ToString(player.health), 10.0, 10.0, 20, WHITE);
+        DrawText("Enemy HP: " + ToString(enemy.hp), 10.0, 35.0, 16, RED);
+        if !enemy.IsAlive() {
+            DrawText("VICTORY!", 350.0, 280.0, 32, YELLOW);
+        }
+
+        Present();
+        PollEvents();
+    }
+
+    UnloadMusic(bgm);
+    return 0;
+}
+```
+
+### Compiling
+
+```bash
+cd my_game
+konscript main.ks    # compiles main.ks + all included files
+./main               # run the game
+```
+
+> **Note:** `#include "file.ks"` resolves relative to the current working directory. Run `konscript` from your project folder.
+
+---
+
+## Fullscreen
+
+Toggle fullscreen mode at runtime:
+
+```ks
+// Toggle with F11
+if KeyPressed(Key.F11) {
+    SetFullscreen(!IsFullscreen());
+}
+```
+
+| Function | Description |
+|----------|-------------|
+| `SetFullscreen(enabled: Bool)` | Enter/exit borderless fullscreen on primary monitor |
+| `IsFullscreen() -> Bool` | Check if currently fullscreen |
+
+When exiting fullscreen, the window restores to its previous position and size.
 
 ### CameraNode2D
 
