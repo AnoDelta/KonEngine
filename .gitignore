@@ -39,9 +39,15 @@ Makefile
 *.dylib
 
 # -----------------------------------------------------------------------
-# Generated at build time
+# Generated at build time (by tools/gen_kon_logo.py)
 # -----------------------------------------------------------------------
 src/window/kon_logo.h
+
+# -----------------------------------------------------------------------
+# >>> PRE-RELEASE: Remove these lines for 1.0 official release <<<
+# These files will be committed once the final assets are ready.
+# -----------------------------------------------------------------------
+# logo.png
 *.dll
 *.a
 *.lib

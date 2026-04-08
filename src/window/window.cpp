@@ -134,43 +134,37 @@ void Window::setIcon(const char* path) {
 
 static Window* window = nullptr;
 
-// Set window icon from embedded KON_LOGO_DATA (no file needed)
+// Set window icon from embedded KON_ICON_DATA (32x32, no file needed)
 static void SetEmbeddedIcon() {
     if (!window) return;
     GLFWwindow* handle = glfwGetCurrentContext();
     if (!handle) return;
     GLFWimage icon;
-    icon.width  = KON_LOGO_WIDTH;
-    icon.height = KON_LOGO_HEIGHT;
-    // GLFW wants non-const pixels, but won't modify them
-    icon.pixels = const_cast<unsigned char*>(KON_LOGO_DATA);
+    icon.width  = KON_ICON_WIDTH;
+    icon.height = KON_ICON_HEIGHT;
+    icon.pixels = const_cast<unsigned char*>(KON_ICON_DATA);
     glfwSetWindowIcon(handle, 1, &icon);
 }
 
-// Load embedded logo as a GPU texture for splash screen rendering
-static Texture LoadEmbeddedLogoTexture() {
-    if (!window) return {0, 0, 0};
-    // Write to temp file, load as texture, delete temp file
-    // (simpler than adding a raw-pixel texture upload path)
-    const char* tmp = "/tmp/_kon_splash_logo.raw.png";
-    // Use stb to write a minimal RGBA image — but we can use the renderer directly
-    // Actually, just upload raw RGBA pixels via OpenGL
+// Upload raw RGBA pixel data to a GPU texture
+static Texture UploadRawTexture(const unsigned char* data, int w, int h, bool smooth) {
     GLuint texId = 0;
     glGenTextures(1, &texId);
     glBindTexture(GL_TEXTURE_2D, texId);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, KON_LOGO_WIDTH, KON_LOGO_HEIGHT,
-                 0, GL_RGBA, GL_UNSIGNED_BYTE, KON_LOGO_DATA);
+    GLint filter = smooth ? GL_LINEAR : GL_NEAREST;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h,
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     glBindTexture(GL_TEXTURE_2D, 0);
-    return {texId, (int)KON_LOGO_WIDTH, (int)KON_LOGO_HEIGHT};
+    return {texId, w, h};
 }
 
 // ── Engine splash screen ─────────────────────────────────────────────────
 static void RunSplashScreen(int w, int h) {
     if (!window) return;
 
-    // Try game logo.png first, fall back to embedded engine logo
+    // Try game logo.png first, fall back to embedded 256x256 splash
     bool hasCustomLogo = false;
     Texture logo = {0, 0, 0};
     {
@@ -178,7 +172,7 @@ static void RunSplashScreen(int w, int h) {
         if (f) { fclose(f); logo = window->loadTexture("logo.png"); hasCustomLogo = (logo.id != 0); }
     }
     if (!hasCustomLogo) {
-        logo = LoadEmbeddedLogoTexture();
+        logo = UploadRawTexture(KON_SPLASH_DATA, KON_SPLASH_WIDTH, KON_SPLASH_HEIGHT, true);
     }
 
     // Splash timing: 0.3s fade in, 0.8s hold, 0.4s fade out = 1.5s total

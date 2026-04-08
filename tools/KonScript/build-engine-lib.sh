@@ -63,9 +63,12 @@ elif [ ! -f "$LOGO_HEADER" ]; then
     # Minimal 1x1 stub if Python not available
     cat > "$LOGO_HEADER" << 'STUB'
 #pragma once
-static const unsigned int KON_LOGO_WIDTH = 1;
-static const unsigned int KON_LOGO_HEIGHT = 1;
-static const unsigned char KON_LOGO_DATA[4] = {20,30,60,255};
+static const unsigned int KON_ICON_WIDTH = 1;
+static const unsigned int KON_ICON_HEIGHT = 1;
+static const unsigned char KON_ICON_DATA[4] = {20,30,60,255};
+static const unsigned int KON_SPLASH_WIDTH = 1;
+static const unsigned int KON_SPLASH_HEIGHT = 1;
+static const unsigned char KON_SPLASH_DATA[4] = {20,30,60,255};
 STUB
     warn "Python3 not found — using stub logo"
 fi

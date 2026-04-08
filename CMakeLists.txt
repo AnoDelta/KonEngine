@@ -55,9 +55,12 @@ else()
     if(NOT EXISTS "${KON_LOGO_HEADER}")
         file(WRITE "${KON_LOGO_HEADER}"
             "#pragma once\n"
-            "static const unsigned int KON_LOGO_WIDTH = 1;\n"
-            "static const unsigned int KON_LOGO_HEIGHT = 1;\n"
-            "static const unsigned char KON_LOGO_DATA[4] = {20,30,60,255};\n"
+            "static const unsigned int KON_ICON_WIDTH = 1;\n"
+            "static const unsigned int KON_ICON_HEIGHT = 1;\n"
+            "static const unsigned char KON_ICON_DATA[4] = {20,30,60,255};\n"
+            "static const unsigned int KON_SPLASH_WIDTH = 1;\n"
+            "static const unsigned int KON_SPLASH_HEIGHT = 1;\n"
+            "static const unsigned char KON_SPLASH_DATA[4] = {20,30,60,255};\n"
         )
     endif()
 endif()
