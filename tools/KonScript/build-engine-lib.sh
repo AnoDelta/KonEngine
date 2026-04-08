@@ -52,6 +52,24 @@ AR="${PREFIX}/llvm/bin/llvm-ar"
 [ ! -f "$AR" ] && AR=$(command -v llvm-ar 2>/dev/null || command -v ar)
 ok "ar → ${AR}"
 
+# ── Generate embedded logo header ──────────────────────────────────────────
+LOGO_HEADER="${ENGINE_ROOT}/src/window/kon_logo.h"
+LOGO_SCRIPT="${ENGINE_ROOT}/tools/gen_kon_logo.py"
+LOGO_PNG="${ENGINE_ROOT}/logo.png"
+if command -v python3 &>/dev/null && [ -f "$LOGO_SCRIPT" ]; then
+    python3 "$LOGO_SCRIPT" "$LOGO_HEADER" "$LOGO_PNG"
+    ok "Generated kon_logo.h"
+elif [ ! -f "$LOGO_HEADER" ]; then
+    # Minimal 1x1 stub if Python not available
+    cat > "$LOGO_HEADER" << 'STUB'
+#pragma once
+static const unsigned int KON_LOGO_WIDTH = 1;
+static const unsigned int KON_LOGO_HEIGHT = 1;
+static const unsigned char KON_LOGO_DATA[4] = {20,30,60,255};
+STUB
+    warn "Python3 not found — using stub logo"
+fi
+
 # ── Collect engine sources ─────────────────────────────────────────────────
 ENGINE_SRCS=()
 for dir in window renderer/opengl time input font audio collision animation node ui; do

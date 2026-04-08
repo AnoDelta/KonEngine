@@ -35,9 +35,37 @@ file(GLOB_RECURSE LIB_SRCS
 list(FILTER LIB_SRCS EXCLUDE REGEX ".*anim_compiler\\.cpp$")
 list(FILTER LIB_SRCS EXCLUDE REGEX ".*/src/main\\.cpp$")
 
+# -----------------------------------------------------------------------
+# Generate embedded logo header at build time
+# -----------------------------------------------------------------------
+set(KON_LOGO_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/window/kon_logo.h")
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_custom_command(
+        OUTPUT  "${KON_LOGO_HEADER}"
+        COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_kon_logo.py"
+                "${KON_LOGO_HEADER}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/logo.png"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_kon_logo.py"
+        COMMENT "Generating embedded KonEngine logo"
+    )
+else()
+    # Fallback: generate a minimal stub if Python isn't available
+    if(NOT EXISTS "${KON_LOGO_HEADER}")
+        file(WRITE "${KON_LOGO_HEADER}"
+            "#pragma once\n"
+            "static const unsigned int KON_LOGO_WIDTH = 1;\n"
+            "static const unsigned int KON_LOGO_HEIGHT = 1;\n"
+            "static const unsigned char KON_LOGO_DATA[4] = {20,30,60,255};\n"
+        )
+    endif()
+endif()
+
 add_library(KonEngine STATIC
     ${LIB_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/asset_manager.cpp
+    ${KON_LOGO_HEADER}
 )
 
 target_include_directories(KonEngine PUBLIC src src/glad/include src/stb)
