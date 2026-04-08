@@ -3778,6 +3778,7 @@ func cg_gen_expr(idx: I32) -> Str {
         if obj == "Key" { cg_last_type = "I32"; return "Key::Code::" + member; }
         if obj == "Mouse" { cg_last_type = "I32"; return "Mouse::Button::" + member; }
         if obj == "Gamepad" { cg_last_type = "I32"; return "Gamepad::" + member; }
+        if obj == "TextAlign" { return "TextAlign::" + member; }
         if obj == "Color" {
             cg_last_type = "Color";
             // Map Color::Red → RED etc

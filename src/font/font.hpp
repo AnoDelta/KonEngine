@@ -83,3 +83,23 @@ void DrawTextF(Font& font, float x, float y, Color color, const char* fmt, ...);
 // -----------------------------------------------------------------------
 float MeasureTextWidth(const char* text, int fontSize);
 float MeasureTextWidth(Font& font, const char* text);
+
+// -----------------------------------------------------------------------
+// Text alignment
+// -----------------------------------------------------------------------
+enum class TextAlign { Left, Center, Right };
+
+// Draw text with alignment: x is the anchor point
+//   Left:   text starts at x (default behavior)
+//   Center: text is centered on x
+//   Right:  text ends at x
+void DrawTextAligned(const char* text, float x, float y, int fontSize, Color color, TextAlign align);
+inline void DrawTextAligned(const std::string& text, float x, float y, int fontSize, Color color, TextAlign align) {
+    DrawTextAligned(text.c_str(), x, y, fontSize, color, align);
+}
+
+// Shorthand: draw text centered at (x, y)
+void DrawTextCentered(const char* text, float x, float y, int fontSize, Color color);
+inline void DrawTextCentered(const std::string& text, float x, float y, int fontSize, Color color) {
+    DrawTextCentered(text.c_str(), x, y, fontSize, color);
+}
