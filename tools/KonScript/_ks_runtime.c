@@ -376,12 +376,22 @@ void _ks_closure_free(void* c) {
 
 // ── Timing ──────────────────────────────────────────────────────────────────
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+double _ks_time_ms() {
+	LARGE_INTEGER freq, now;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&now);
+	return (double)now.QuadPart / (double)freq.QuadPart * 1000.0;
+}
+#else
 #include <unistd.h>
 double _ks_time_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
 }
+#endif
 
 // ── Self-directory (for finding _ks_runtime.c next to the binary) ───────────
 char* _ks_self_dir() {
