@@ -33,8 +33,8 @@ jobs:
       - name: Download llvm-mingw
         working-directory: tools/KonScript
         run: |
-          VER="20240929"
-          FILE="llvm-mingw-${VER}-ucrt-ubuntu-20.04-x86_64.tar.xz"
+          VER="20250512"
+          FILE="llvm-mingw-${VER}-ucrt-ubuntu-22.04-x86_64.tar.xz"
           URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${VER}/${FILE}"
           mkdir -p toolchain/llvm-mingw
           wget -q "$URL" -O /tmp/llvm-mingw.tar.xz
@@ -94,7 +94,7 @@ jobs:
         shell: pwsh
         working-directory: tools/KonScript
         run: |
-          $ver  = "20240929"
+          $ver  = "20250512"
           $file = "llvm-mingw-$ver-ucrt-x86_64.zip"
           $url  = "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/$file"
           New-Item -ItemType Directory -Force -Path toolchain/llvm-mingw | Out-Null
