@@ -221,11 +221,13 @@ static void RunSplashScreen(int w, int h) {
         }
 
         // "KonEngine" text below logo — font size scales with window
-        extern void DrawTextCentered(const char*, float, float, int, Color);
+        extern void DrawText(const char*, float, float, int, Color);
+        extern float MeasureTextWidth(const char*, int);
         int fontSize = (int)(refSize * 0.08f);
         if (fontSize < 20) fontSize = 20;
+        float textW = MeasureTextWidth("KonEngine", fontSize);
         Color textCol = {0.5f * alpha, 0.6f * alpha, 0.8f * alpha, alpha};
-        DrawTextCentered("KonEngine", cx, cy + refSize * 0.22f, fontSize, textCol);
+        DrawText("KonEngine", cx - textW * 0.5f, cy + refSize * 0.22f, fontSize, textCol);
 
         window->present();
         window->swapBuffers();
