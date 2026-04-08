@@ -113,13 +113,15 @@ Nodes are the building blocks of games. They have a type, a parent class, and li
 
 ```ks
 node Player : Sprite2D {
-    let mut speed: F64 = 200;
+    let mut speed: F64 = 200.0;
 
     func Ready() {
-        x = 100;
-        y = 300;
-        width = 32;
-        height = 48;
+        let tex: Texture = LoadTexture("player.png");
+        this.SetTexture(tex);
+        x = 100.0;
+        y = 300.0;
+        width = 32.0;
+        height = 48.0;
     }
 
     func Update(dt: F64) {
@@ -156,23 +158,88 @@ func main() -> I32 {
 
 ### Sprite2D
 
-Textured 2D sprite with position, scale, rotation, and tint.
+Textured 2D sprite with built-in rendering. Handles drawing automatically — you don't need to write a `Draw()` method.
 
+**Option A: Load texture in Ready (recommended)**
 ```ks
-node Enemy : Sprite2D {
+node Player : Sprite2D {
     func Ready() {
-        x = 500; y = 300;
-        width = 64; height = 64;
+        let tex: Texture = LoadTexture("player.png");
+        this.SetTexture(tex);   // copies texture ID, sets source rect
+        width = 32.0;
+        height = 48.0;
+        x = 400.0;
+        y = 300.0;
     }
-}
 
-// In main():
-let mut tex: Texture = LoadTexture("enemy.png");
-let mut enemy: Enemy = scene.add(Enemy, "enemy");
-enemy.SetTexture(tex);
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + 200.0 * dt; }
+        if KeyDown(Key.A) { x = x - 200.0 * dt; }
+    }
+    // No Draw() needed — Sprite2D draws the texture automatically
+}
 ```
 
-**Properties:** `x`, `y`, `width`, `height`, `scaleX`, `scaleY`, `rotation`, `originX`, `originY`, `tint`
+**Option B: Store texture as a field (for reuse / unloading)**
+```ks
+node Player : Sprite2D {
+    let mut myTex: Texture = LoadTexture("player.png");
+
+    func Ready() {
+        this.SetTexture(myTex);
+        width = 32.0;
+        height = 48.0;
+    }
+
+    func OnDestroy() {
+        UnloadTexture(myTex);
+    }
+}
+```
+
+**Option C: Set texture from outside (e.g. shared texture)**
+```ks
+// In main():
+let tex: Texture = LoadTexture("player.png");
+let player: Player = scene.add(Player, "player");
+player.SetTexture(tex);
+```
+
+**Sprite2D vs Node2D — when to use which:**
+
+| Use Sprite2D when | Use Node2D when |
+|---|---|
+| You have a texture/spritesheet | You draw shapes manually |
+| You want automatic Draw() | You want full control over Draw() |
+| You need animation support | You don't need a texture |
+| You want tint, source rects | You're making a manager/container |
+
+**If no texture is set**, Sprite2D draws a colored rectangle using `tint` as a fallback — useful for prototyping.
+
+**Properties:** `x`, `y`, `width`, `height`, `scaleX`, `scaleY`, `rotation`, `originX`, `originY`, `tint`, `texture`, `autoResize`
+
+### Node2D with manual textures
+
+If you want full control over drawing (multiple textures, custom effects), use Node2D with texture fields:
+
+```ks
+node Character : Node2D {
+    let mut body: Texture = LoadTexture("body.png");
+    let mut hat: Texture = LoadTexture("hat.png");
+
+    func Draw() {
+        // Draw body
+        DrawTexture(body, x - 16.0, y - 16.0, 32.0, 48.0);
+        // Draw hat on top
+        DrawTexture(hat, x - 12.0, y - 28.0, 24.0, 16.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(body);
+        UnloadTexture(hat);
+    }
+}
+```
 
 ### StaticBody2D
 
