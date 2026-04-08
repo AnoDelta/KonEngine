@@ -4237,6 +4237,7 @@ func cg_scene_method(method: Str) -> Str {
     if method == "draw"   { return "Draw"; }
     if method == "scan"   { return "Scan"; }
     if method == "remove" { return "Remove"; }
+    if method == "clear"  { return "Clear"; }
     if method == "get"    { return "GetNode"; }
     return "";
 }

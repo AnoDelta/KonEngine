@@ -69,15 +69,42 @@ public:
     void Remove(const std::string& nodeName) {
         for (auto it = nodes.begin(); it != nodes.end(); ++it) {
             if ((*it)->name == nodeName) {
+                // Unregister colliders from collision world
                 if (auto* col = dynamic_cast<Collider2D*>(it->get()))
                     collisionWorld.Remove(col);
                 (*it)->ForEachDescendant([this](Node* n) {
                     if (auto* col = dynamic_cast<Collider2D*>(n))
                         collisionWorld.Remove(col);
                 });
+                // Call OnDestroy on the node and all descendants
+                (*it)->ForEachDescendant([](Node* n) { n->OnDestroy(); });
+                (*it)->OnDestroy();
                 nodes.erase(it);
                 return;
             }
+        }
+    }
+
+    // Remove all nodes from the scene — calls OnDestroy on each
+    void Clear() {
+        for (auto& node : nodes) {
+            node->ForEachDescendant([this](Node* n) {
+                if (auto* col = dynamic_cast<Collider2D*>(n))
+                    collisionWorld.Remove(col);
+                n->OnDestroy();
+            });
+            if (auto* col = dynamic_cast<Collider2D*>(node.get()))
+                collisionWorld.Remove(col);
+            node->OnDestroy();
+        }
+        nodes.clear();
+    }
+
+    ~Scene() {
+        // Call OnDestroy on all nodes when the scene is destroyed
+        for (auto& node : nodes) {
+            node->ForEachDescendant([](Node* n) { n->OnDestroy(); });
+            node->OnDestroy();
         }
     }
 
