@@ -14,6 +14,8 @@
 #include "../camera/camera.hpp"
 #include "../font/font.hpp"
 #include <cmath>
+#include <chrono>
+#include <algorithm>
 
 static bool s_debugMode = false;
 static Camera2D s_lastCamera = {};
@@ -130,6 +132,84 @@ void Window::setIcon(const char* path) {
 }
 
 static Window* window = nullptr;
+
+// ── Engine splash screen ─────────────────────────────────────────────────
+static void RunSplashScreen(int w, int h) {
+    if (!window) return;
+
+    // Try to load logo.png for splash
+    bool hasLogo = false;
+    Texture logo = {0, 0, 0};
+    {
+        FILE* f = fopen("logo.png", "rb");
+        if (f) { fclose(f); logo = window->loadTexture("logo.png"); hasLogo = (logo.id != 0); }
+    }
+
+    // Splash timing: 0.3s fade in, 0.8s hold, 0.4s fade out = 1.5s total
+    const float fadeIn = 0.3f, hold = 0.8f, fadeOut = 0.4f;
+    const float total = fadeIn + hold + fadeOut;
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+    float elapsed = 0.0f;
+
+    while (elapsed < total && !glfwWindowShouldClose(glfwGetCurrentContext())) {
+        auto now = std::chrono::high_resolution_clock::now();
+        elapsed = std::chrono::duration<float>(now - startTime).count();
+
+        // Calculate alpha: fade in → hold → fade out
+        float alpha = 1.0f;
+        if (elapsed < fadeIn) {
+            alpha = elapsed / fadeIn;
+        } else if (elapsed > fadeIn + hold) {
+            alpha = 1.0f - (elapsed - fadeIn - hold) / fadeOut;
+        }
+        if (alpha < 0.0f) alpha = 0.0f;
+        if (alpha > 1.0f) alpha = 1.0f;
+
+        // Clear to black
+        window->clearBackground(0.0f, 0.0f, 0.0f);
+
+        float cx = w * 0.5f, cy = h * 0.5f;
+
+        if (hasLogo) {
+            // Draw logo centered with alpha
+            float lw = (float)logo.width, lh = (float)logo.height;
+            // Scale down if larger than 60% of window
+            float maxW = w * 0.6f, maxH = h * 0.6f;
+            if (lw > maxW || lh > maxH) {
+                float s = std::min(maxW / lw, maxH / lh);
+                lw *= s; lh *= s;
+            }
+            window->drawTexture(logo, cx - lw*0.5f, cy - lh*0.5f, lw, lh,
+                                Color{1.0f, 1.0f, 1.0f, alpha});
+        } else {
+            // No logo — draw a triangle + engine name
+            // Triangle (pointing up)
+            float ts = 40.0f; // triangle size
+            float ty = cy - 30.0f;
+            // Draw triangle as 3 thin rectangles approximating a filled triangle
+            for (float row = 0; row < ts; row += 2.0f) {
+                float frac = row / ts;
+                float hw = ts * 0.5f * frac;
+                window->drawRectangle(cx - hw, ty + row, hw * 2.0f, 2.0f,
+                                      0.3f * alpha, 0.7f * alpha, 1.0f * alpha, alpha);
+            }
+        }
+
+        // "KonEngine" text below logo/triangle
+        extern void DrawText(const char*, float, float, Color);
+        Color textCol = {0.6f * alpha, 0.6f * alpha, 0.7f * alpha, alpha};
+        DrawText("KonEngine", cx - 50.0f, cy + 50.0f, textCol);
+
+        window->present();
+        window->swapBuffers();
+        glfwPollEvents();
+    }
+
+    // Clean up logo texture
+    if (hasLogo) window->unloadTexture(logo);
+}
+
 void InitWindow(int w, int h, const std::string& t, bool r) {
     s_designW = w;
     s_designH = h;
@@ -138,9 +218,13 @@ void InitWindow(int w, int h, const std::string& t, bool r) {
         RecalcLetterbox(w, h);
     }
     window = new Window(w,h,t,r);
+
     // Auto-load window icon from logo.png if it exists
     FILE* f = fopen("logo.png", "rb");
     if (f) { fclose(f); SetWindowIcon("logo.png"); }
+
+    // Show engine splash screen
+    RunSplashScreen(w, h);
 }
 bool WindowShouldClose() { return window && window->shouldClose(); }
 

@@ -3495,6 +3495,12 @@ func cg_type(t: Str) -> Str {
     if t == "Str"  { return "std::string"; }
     if t == "void" { return "void"; }
     if t == "Vec2" { return "Vector2"; }
+    // Result type -> _KsResultW
+    if t.starts("Result") { return "_KsResultW"; }
+    // HashMap/Map -> std::unordered_map
+    if t.starts("HashMap") || t.starts("Map") {
+        return "std::unordered_map<std::string, std::string>";
+    }
     // Array type [T] -> std::vector<T>
     if t.len() > 2 && t.starts("[") {
         let inner: Str = t.substr(1, t.len() - 2);
@@ -3505,6 +3511,7 @@ func cg_type(t: Str) -> Str {
         let inner: Str = t.substr(0, t.len() - 1);
         return "std::optional<" + cg_type(inner) + ">";
     }
+    // Everything else passes through (Camera2D, Tilemap, Scene, user types, etc.)
     return t;
 }
 
@@ -3940,8 +3947,8 @@ func cg_gen_stmt(idx: I32) {
                 } else if cg_is_engine_val_type(type_ann) {
                     // Engine value type annotation → emit explicit type
                     cg_emit(type_ann + " " + name + " = " + val + ";");
-                } else if cg_is_primitive_type(type_ann) {
-                    // Primitive type annotation (F64, I32, Bool, etc.) → use it
+                } else if type_ann.len() > 0 {
+                    // Explicit type annotation → always use it
                     cg_emit(cg_type(type_ann) + " " + name + " = " + val + ";");
                 } else {
                     cg_emit("auto " + name + " = " + val + ";");
@@ -3959,7 +3966,7 @@ func cg_gen_stmt(idx: I32) {
                 // User/engine node type annotation → emit pointer declaration
                 cg_emit(type_ann + "* " + name + " = nullptr;");
                 cg_mark_ptr(name);
-            } else if cg_is_primitive_type(type_ann) {
+            } else if type_ann.len() > 0 {
                 cg_emit(cg_type(type_ann) + " " + name + " = {};");
             } else {
                 cg_emit("auto " + name + " = 0;");
