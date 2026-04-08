@@ -3390,6 +3390,7 @@ let mut included_progs: [I32] = [0];   // AST indices of included .ks programs
 // Lets callers know whether the result is a pointer, string, etc.
 // for correct accessor (. vs ->) and type propagation through chains.
 let mut cg_last_type: Str = "";
+let mut cg_in_node_method: Bool = false;
 
 // Field type registry: stores "ClassName.fieldName" → type for node/class fields.
 // Used to resolve types during chained member access (e.g. outer.col.width).
@@ -3647,6 +3648,12 @@ func cg_gen_expr(idx: I32) -> Str {
             if fname == "_ks_system"  { return "_ks_run(" + args + ")"; }
             if fname == "_ks_int_to_str"  { return "std::string(_ks_int_to_str(" + args + "))"; }
             if fname == "_ks_self_dir"   { return "std::string(_ks_self_dir())"; }
+            // Node self-methods: Emit/Connect/RemoveChild/Remove inside node methods
+            if cg_in_node_method {
+                if fname == "Emit" || fname == "Connect" || fname == "RemoveChild" {
+                    return "this->" + fname + "(" + args + ")";
+                }
+            }
             // Check engine function mapping table
             let mapped: Str = cg_engine_func(fname);
             if mapped.len() > 0 {
@@ -4426,10 +4433,23 @@ func cg_gen_node(idx: I32) {
             let finit: I32 = node_a[member];
             if finit != 0 {
                 let fval: Str = cg_gen_expr(finit);
-                let ft: Str = node_types[member];
+                // Try type annotation first, then typechecker, then infer from value
+                let type_ann: Str = get_type_ann(node_str[member]);
+                let mut ft: Str = node_types[member];
+                if type_ann.len() > 0 { ft = type_ann; }
                 let mut ftype: Str = cg_type(ft);
-                if ftype == ft && ft.len() > 0 { ftype = "auto"; }
-                cg_emit("static constexpr " + ftype + " " + fname + " = " + fval + ";");
+                // If type is still unknown, infer from init expression
+                if ftype.len() == 0 || ftype == ft {
+                    let fk: I32 = node_kinds[finit];
+                    if fk == NK_INT   { ftype = "int32_t"; }
+                    if fk == NK_FLOAT { ftype = "float"; }
+                    if fk == NK_BOOL  { ftype = "bool"; }
+                    if fk == NK_STR_LIT { ftype = "auto"; }
+                    if ftype.len() == 0 { ftype = "auto"; }
+                }
+                // Strip type annotation from name if present
+                let clean_name: Str = strip_type_ann(node_str[member]);
+                cg_emit("static constexpr " + ftype + " " + clean_name + " = " + fval + ";");
             }
         }
 
@@ -4476,7 +4496,9 @@ func cg_gen_node(idx: I32) {
                 cg_emit(cg_type(mret) + " " + mname + "(" + mparams + ") {");
             }
             cg_indent_inc();
+            cg_in_node_method = true;
             cg_gen_stmt(node_b[member]);
+            cg_in_node_method = false;
             cg_indent_dec();
             cg_emit("}");
             cg_emit("");
