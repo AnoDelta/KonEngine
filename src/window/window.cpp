@@ -201,28 +201,33 @@ static void RunSplashScreen(int w, int h) {
 
         float cx = w * 0.5f, cy = h * 0.5f;
 
+        // Scale everything relative to window size
+        float refSize = std::min((float)w, (float)h);
+
         if (logo.id != 0) {
-            // Draw logo centered with alpha
+            // Logo fills ~45% of the smaller window dimension
             float lw = (float)logo.width, lh = (float)logo.height;
-            // Scale up the embedded logo (32x32) to a visible size, or scale down large logos
-            float targetSize = std::min(w * 0.3f, h * 0.3f);
-            if (targetSize < 64.0f) targetSize = 64.0f;
+            float targetSize = refSize * 0.45f;
             float s = std::min(targetSize / lw, targetSize / lh);
             if (hasCustomLogo) {
-                // Custom logos: scale down if too large, don't scale up
+                // Custom logos: also allow scaling up to 60% of window
                 float maxW = w * 0.6f, maxH = h * 0.6f;
-                s = 1.0f;
-                if (lw > maxW || lh > maxH) s = std::min(maxW / lw, maxH / lh);
+                s = std::min(maxW / lw, maxH / lh);
             }
             lw *= s; lh *= s;
-            window->drawTexture(logo, cx - lw*0.5f, cy - lh*0.5f - 20.0f, lw, lh,
+            float logoY = cy - lh * 0.5f - refSize * 0.05f; // slightly above center
+            window->drawTexture(logo, cx - lw*0.5f, logoY, lw, lh,
                                 Color{1.0f, 1.0f, 1.0f, alpha});
         }
 
-        // "KonEngine" text below logo
-        extern void DrawText(const char*, float, float, Color);
+        // "KonEngine" text below logo — font size scales with window
+        extern void DrawText(const char*, float, float, int, Color);
+        int fontSize = (int)(refSize * 0.06f);
+        if (fontSize < 16) fontSize = 16;
+        // Approximate text width for centering (~0.5 * fontSize per char)
+        float textW = fontSize * 0.5f * 9; // "KonEngine" = 9 chars
         Color textCol = {0.5f * alpha, 0.6f * alpha, 0.8f * alpha, alpha};
-        DrawText("KonEngine", cx - 50.0f, cy + 50.0f, textCol);
+        DrawText("KonEngine", cx - textW * 0.5f, cy + refSize * 0.2f, fontSize, textCol);
 
         window->present();
         window->swapBuffers();
