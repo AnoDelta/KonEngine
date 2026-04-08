@@ -35,6 +35,10 @@
 // -----------------------------------------------------------------------
 AssetManager& AssetManager::get() {
     static AssetManager instance;
+    // Auto-init to "./" if init() was never called
+    if (instance.m_root.empty() && !instance.m_packMode) {
+        instance.m_root = "./";
+    }
     return instance;
 }
 

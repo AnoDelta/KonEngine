@@ -31,6 +31,7 @@ public:
     virtual void Ready() {}
     virtual void Update(float dt) {}
     virtual void Draw() {}
+    virtual void OnDestroy() {}  // called when node is removed from scene/parent
 
     // Collision callbacks -- override in nodes that have collider children
     // Called by Collider2D::Emit() when a collision signal fires on a child collider
@@ -59,10 +60,13 @@ public:
 
     void RemoveChild(const std::string& childName) {
         std::lock_guard<std::mutex> lock(m_childMutex);
-        children.erase(
-            std::remove_if(children.begin(), children.end(),
-                [&](const std::unique_ptr<Node>& n) { return n->name == childName; }),
-            children.end());
+        auto it = std::remove_if(children.begin(), children.end(),
+            [&](const std::unique_ptr<Node>& n) { return n->name == childName; });
+        // Call OnDestroy on removed nodes before erasing
+        for (auto ri = it; ri != children.end(); ++ri) {
+            (*ri)->OnDestroy();
+        }
+        children.erase(it, children.end());
     }
 
     void ForEachDescendant(std::function<void(Node*)> fn) {

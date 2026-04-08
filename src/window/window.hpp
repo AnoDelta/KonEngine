@@ -58,6 +58,8 @@ void ClearBackground(Color color);
 
 void SetVsync(bool enabled);
 void SetWindowIcon(const char* path);
+void SetFullscreen(bool enabled);
+bool IsFullscreen();
 
 int GetWindowWidth();
 int GetWindowHeight();

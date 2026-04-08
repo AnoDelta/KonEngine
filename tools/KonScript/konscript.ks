@@ -1766,6 +1766,7 @@ func typecheck(prog_idx: I32) {
     tc_def_fn("cg_is_user_node", "Bool");
     tc_def_fn("cg_is_ptr_type", "Bool");
     tc_def_fn("cg_is_engine_val_type", "Bool");
+    tc_def_fn("cg_is_primitive_type", "Bool");
     tc_def_fn("cg_lifecycle_sig", "Str");
     tc_def_fn("cg_engine_func", "Str");
     tc_def_fn("cg_scene_method", "Str");
@@ -3939,6 +3940,9 @@ func cg_gen_stmt(idx: I32) {
                 } else if cg_is_engine_val_type(type_ann) {
                     // Engine value type annotation → emit explicit type
                     cg_emit(type_ann + " " + name + " = " + val + ";");
+                } else if cg_is_primitive_type(type_ann) {
+                    // Primitive type annotation (F64, I32, Bool, etc.) → use it
+                    cg_emit(cg_type(type_ann) + " " + name + " = " + val + ";");
                 } else {
                     cg_emit("auto " + name + " = " + val + ";");
                     // Track pointer vars (scene.Add, AddChild return pointers)
@@ -3955,6 +3959,8 @@ func cg_gen_stmt(idx: I32) {
                 // User/engine node type annotation → emit pointer declaration
                 cg_emit(type_ann + "* " + name + " = nullptr;");
                 cg_mark_ptr(name);
+            } else if cg_is_primitive_type(type_ann) {
+                cg_emit(cg_type(type_ann) + " " + name + " = {};");
             } else {
                 cg_emit("auto " + name + " = 0;");
             }
@@ -4153,6 +4159,16 @@ func cg_is_user_node(name: Str) -> Bool {
     return false;
 }
 
+// Returns true if a type is a known primitive (numeric, bool, string)
+func cg_is_primitive_type(t: Str) -> Bool {
+    if t == "I8" || t == "I16" || t == "I32" || t == "I64" { return true; }
+    if t == "U8" || t == "U16" || t == "U32" || t == "U64" { return true; }
+    if t == "F32" || t == "F64" { return true; }
+    if t == "Bool" { return true; }
+    if t == "Str" { return true; }
+    return false;
+}
+
 // Returns true if a type is an engine value type (not a pointer)
 func cg_is_engine_val_type(t: Str) -> Bool {
     if t == "Camera2D" || t == "Scene" || t == "Color" { return true; }
@@ -4176,6 +4192,7 @@ func cg_lifecycle_sig(method_name: Str) -> Str {
     if method_name == "Draw"             { return "void Draw() override"; }
     if method_name == "OnCollisionEnter" { return "void OnCollisionEnter(Collider2D* other) override"; }
     if method_name == "OnCollisionExit"  { return "void OnCollisionExit(Collider2D* other) override"; }
+    if method_name == "OnDestroy"        { return "void OnDestroy() override"; }
     return "";
 }
 

@@ -326,6 +326,32 @@ void SetVsync(bool e){if(window)window->setVsync(e);}
 
 void SetWindowIcon(const char* path) { if(window)window->setIcon(path); }
 
+static bool s_fullscreen = false;
+static int s_windowedX = 0, s_windowedY = 0;
+static int s_windowedW = 0, s_windowedH = 0;
+
+void SetFullscreen(bool enabled) {
+    if (!window) return;
+    GLFWwindow* handle = glfwGetCurrentContext();
+    if (!handle) return;
+    if (enabled && !s_fullscreen) {
+        // Save windowed position/size
+        glfwGetWindowPos(handle, &s_windowedX, &s_windowedY);
+        glfwGetWindowSize(handle, &s_windowedW, &s_windowedH);
+        // Go fullscreen on primary monitor
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+        glfwSetWindowMonitor(handle, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        s_fullscreen = true;
+    } else if (!enabled && s_fullscreen) {
+        // Restore windowed mode
+        glfwSetWindowMonitor(handle, nullptr, s_windowedX, s_windowedY,
+                             s_windowedW, s_windowedH, 0);
+        s_fullscreen = false;
+    }
+}
+bool IsFullscreen() { return s_fullscreen; }
+
 Texture Window::loadTexture(const char* p){return renderer->LoadTexture(p);}
 void    Window::unloadTexture(Texture& t){renderer->UnloadTexture(t);}
 void Window::drawTexture(Texture& t,float x,float y,float w,float h){renderer->DrawTexture(t,x,y,w,h);}
@@ -379,22 +405,47 @@ float GetLetterboxScale()   { return s_lbScale; }
 float GetLetterboxOffsetX() { return s_lbOffsetX; }
 float GetLetterboxOffsetY() { return s_lbOffsetY; }
 
+// Helper: get window (not framebuffer) size for cursor coordinate scaling
+static void GetWindowSizePixels(int& w, int& h) {
+    if (window) {
+        w = window->getWidth();
+        h = window->getHeight();
+    } else { w = s_designW; h = s_designH; }
+}
+
 float GetGameMouseX() {
-    if (!s_letterboxEnabled || s_lbScale == 0.0f) return GetMouseX();
-    return (GetMouseX() - s_lbOffsetX) / s_lbScale;
+    // Convert raw cursor position to design-resolution coordinates
+    if (s_letterboxEnabled && s_lbScale > 0.0f) {
+        return (GetMouseX() - s_lbOffsetX) / s_lbScale;
+    }
+    // No letterbox: scale from actual framebuffer size to design size
+    int fbW, fbH;
+    GetWindowSizePixels(fbW, fbH);
+    if (s_designW > 0 && fbW > 0) {
+        return GetMouseX() * (float)s_designW / (float)fbW;
+    }
+    return GetMouseX();
 }
 float GetGameMouseY() {
-    if (!s_letterboxEnabled || s_lbScale == 0.0f) return GetMouseY();
-    return (GetMouseY() - s_lbOffsetY) / s_lbScale;
+    if (s_letterboxEnabled && s_lbScale > 0.0f) {
+        return (GetMouseY() - s_lbOffsetY) / s_lbScale;
+    }
+    int fbW, fbH;
+    GetWindowSizePixels(fbW, fbH);
+    if (s_designH > 0 && fbH > 0) {
+        return GetMouseY() * (float)s_designH / (float)fbH;
+    }
+    return GetMouseY();
 }
 
 float GetWorldMouseX(const Camera2D& cam) {
-    float mx = s_letterboxEnabled ? GetGameMouseX() : GetMouseX();
-    float dw = s_letterboxEnabled ? (float)s_designW : (float)GetWindowWidth();
+    // Always use design resolution for world-space conversion
+    float mx = GetGameMouseX();
+    float dw = (s_designW > 0) ? (float)s_designW : (float)GetWindowWidth();
     return cam.x + (mx - dw * 0.5f) / cam.zoom;
 }
 float GetWorldMouseY(const Camera2D& cam) {
-    float my = s_letterboxEnabled ? GetGameMouseY() : GetMouseY();
-    float dh = s_letterboxEnabled ? (float)s_designH : (float)GetWindowHeight();
+    float my = GetGameMouseY();
+    float dh = (s_designH > 0) ? (float)s_designH : (float)GetWindowHeight();
     return cam.y + (my - dh * 0.5f) / cam.zoom;
 }
