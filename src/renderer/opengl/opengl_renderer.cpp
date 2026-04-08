@@ -204,11 +204,12 @@ void OpenGLRenderer::BeginCamera2D(const Camera2D& cam) {
 	glUseProgram(textureShaderProgram);
 	glUniformMatrix4fv(loc_tex_proj, 1, GL_FALSE, glm::value_ptr(camProj));
 
-	glUseProgram(batchShaderProgram);
-	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(camProj));
-
 	glUseProgram(glyphBatchShaderProgram);
 	glUniformMatrix4fv(loc_glyph_proj, 1, GL_FALSE, glm::value_ptr(camProj));
+
+	// Batch shader must be last so activeProgram cache stays in sync
+	glUseProgram(batchShaderProgram);
+	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(camProj));
 
 	activeProgram = batchShaderProgram;
 }
@@ -222,11 +223,12 @@ void OpenGLRenderer::EndCamera2D() {
 	glUseProgram(textureShaderProgram);
 	glUniformMatrix4fv(loc_tex_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
 
-	glUseProgram(batchShaderProgram);
-	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
-
 	glUseProgram(glyphBatchShaderProgram);
 	glUniformMatrix4fv(loc_glyph_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
+
+	// Batch shader must be last so activeProgram cache stays in sync
+	glUseProgram(batchShaderProgram);
+	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
 
 	activeProgram = batchShaderProgram;
 }

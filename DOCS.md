@@ -1830,20 +1830,20 @@ Two ways to handle button clicks: direct callbacks or signals.
 **KonScript:**
 ```ks
 # Direct callback (simple)
-UI.OnClick("play", func() {
+UI.OnClick("play", [&]() {
     Print("Play clicked!");
 });
 
 # Signal system (flexible — supports multiple listeners)
-UI.Connect("play", "clicked", func() {
+UI.Connect("play", "clicked", [&]() {
     Print("Play clicked via signal!");
 });
 
-UI.Connect("play", "hovered", func() {
+UI.Connect("play", "hovered", [&]() {
     Print("Mouse entered play button");
 });
 
-UI.Connect("play", "unhovered", func() {
+UI.Connect("play", "unhovered", [&]() {
     Print("Mouse left play button");
 });
 ```
@@ -1974,6 +1974,75 @@ UI.Clear();           # remove all elements
 | `UI.WantsInput()` | True if UI consumed mouse this frame |
 | `UI.Remove(id)` | Remove element by ID |
 | `UI.Clear()` | Remove all elements |
+
+### Full UI Example (KonScript)
+
+```ks
+#include <engine>
+
+func main() {
+    InitWindow(800, 600, "UI Demo", false);
+    SetTargetFPS(60);
+
+    let mut score: I32 = 0;
+    let mut message: Str = "Click a button!";
+
+    // Create buttons
+    UI.AddButton("add10", "+10 Points", 50.0, 100.0);
+    UI.AddButton("reset", "Reset", 50.0, 160.0);
+    UI.AddLabel("title", "UI Demo", 50.0, 30.0, 28, WHITE);
+    UI.AddLabel("score_label", "Score: 0", 50.0, 250.0);
+
+    // Panel with child buttons
+    UI.AddPanel("menu", 400.0, 80.0, 250.0, 200.0);
+    UI.AddButton("btn_a", "Panel Btn A", 20.0, 30.0);
+    UI.AddButton("btn_b", "Panel Btn B", 20.0, 90.0);
+    UI.PanelAddChild("menu", "btn_a");
+    UI.PanelAddChild("menu", "btn_b");
+
+    // Connect click handlers
+    UI.OnClick("add10", [&]() {
+        score = score + 10;
+        message = "Score: " + ToString(score);
+    });
+
+    UI.OnClick("reset", [&]() {
+        score = 0;
+        message = "Score reset!";
+    });
+
+    UI.OnClick("btn_a", [&]() {
+        message = "Panel button A!";
+    });
+
+    UI.OnClick("btn_b", [&]() {
+        message = "Panel button B!";
+    });
+
+    while !WindowShouldClose() {
+        UI.Update();
+
+        // World clicks only when UI doesn't want input
+        if !UI.WantsInput() && MousePressed(Mouse.Left) {
+            message = "Clicked on background";
+        }
+
+        ClearBackground(0.1, 0.1, 0.15);
+
+        // Update dynamic labels
+        UI.Remove("score_label");
+        UI.AddLabel("score_label", message, 50.0, 250.0);
+
+        // Draw UI on top of everything
+        UI.Draw();
+
+        Present();
+        PollEvents();
+    }
+}
+```
+
+> **Note:** Lambda callbacks use `[&]()` to capture surrounding variables by reference, allowing them to modify `score`, `message`, etc.
 
 ---
 

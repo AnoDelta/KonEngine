@@ -206,6 +206,7 @@ KonEngine/
     platformer.ks          # Platformer with KinematicBody2D
     physics_test.ks        # Physics: gravity, jumping, collision, platforms
     tilemap_test.ks        # Tilemap: tile placement, grid, camera, click detection
+    ui_test.ks             # UI: buttons, labels, panels, click handlers, signals
     pong.ks                # Pong game
     cpp_example/           # C++ example with CMake
   tests/                   # Engine test suite
