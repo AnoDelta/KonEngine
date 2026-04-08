@@ -80,7 +80,7 @@ endif()
 # anim_compiler — standalone .anim → .konani compiler (CLI + GUI)
 # -----------------------------------------------------------------------
 set(ANIM_COMPILER_SRC "${ENGINE_ROOT}/src/animation/anim_compiler.cpp")
-if(EXISTS "${ANIM_COMPILER_SRC}" AND NOT TARGET anim_compiler)
+if(EXISTS "${ANIM_COMPILER_SRC}")
     add_executable(anim_compiler ${ANIM_COMPILER_SRC})
     target_include_directories(anim_compiler PRIVATE
         ${ENGINE_ROOT}/src/animation

@@ -8,10 +8,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#ifndef _WIN32
-#include <unistd.h>
-#endif
-
 // ── Result<T> ────────────────────────────────────────────────────────────────
 // A heap-allocated struct: [ok:i32, value:i8*, error:i8*]
 typedef struct { int ok; char* value; char* error; } _KsResult;
@@ -376,24 +372,17 @@ void _ks_closure_free(void* c) {
 
 // ── Timing ──────────────────────────────────────────────────────────────────
 #include <time.h>
-#ifdef _WIN32
-#include <windows.h>
-double _ks_time_ms() {
-	LARGE_INTEGER freq, now;
-	QueryPerformanceFrequency(&freq);
-	QueryPerformanceCounter(&now);
-	return (double)now.QuadPart / (double)freq.QuadPart * 1000.0;
-}
-#else
 #include <unistd.h>
 double _ks_time_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
 }
-#endif
 
 // ── Self-directory (for finding _ks_runtime.c next to the binary) ───────────
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 char* _ks_self_dir() {
     static char buf[4096];
 #ifdef _WIN32

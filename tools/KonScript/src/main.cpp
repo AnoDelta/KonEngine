@@ -17,12 +17,7 @@
 #include <ctime>
 #include <time.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#include <chrono>
-#define popen _popen
-#define pclose _pclose
-#else
+#ifndef _WIN32
 #include <unistd.h>
 #endif
 
@@ -184,15 +179,9 @@ static void printStageDoing(int step, int total, const std::string& name) {
 }
 
 static double msNow() {
-#ifdef _WIN32
-	auto now = std::chrono::high_resolution_clock::now();
-	double ms = std::chrono::duration<double, std::milli>(now.time_since_epoch()).count();
-	return ms;
-#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
-#endif
 }
 
 
@@ -793,7 +782,6 @@ int main(int argc, char** argv) {
                 first = false;
             }
         }
-
 
         // Determine target early — needed for compiler selection
         bool isWin = (targetName == "windows64" || targetName == "windows");

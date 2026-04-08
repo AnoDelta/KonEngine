@@ -226,7 +226,7 @@ static void RunSplashScreen(int w, int h) {
         int fontSize = (int)(refSize * 0.08f);
         if (fontSize < 20) fontSize = 20;
         float textW = MeasureTextWidth("KonEngine", fontSize);
-        Color textCol = {1.0f * alpha, 1.0f * alpha, 1.0f * alpha, alpha};
+        Color textCol = {0.5f * alpha, 0.6f * alpha, 0.8f * alpha, alpha};
         DrawText("KonEngine", cx - textW * 0.5f, cy + refSize * 0.22f, fontSize, textCol);
 
         window->present();
