@@ -24,7 +24,7 @@ jobs:
             libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
             libxinerama-dev libxcursor-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
-            mingw-w64 xz-utils wget
+            mingw-w64 xz-utils wget libssl-dev zlib1g-dev
 
       - name: Build konscript
         working-directory: tools/KonScript
@@ -78,6 +78,10 @@ jobs:
 
       - name: Install LLVM
         run: choco install llvm --yes
+
+      - name: Generage logo
+        shell: pwsh
+        run: python tools/gen_kon_logo.py src/window/kon_logo.h logo.png
 
       - name: Build konscript.exe
         working-directory: tools/KonScript
