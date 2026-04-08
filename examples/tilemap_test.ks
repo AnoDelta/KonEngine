@@ -117,20 +117,20 @@ func main() {
                     let tw: F64 = TILE_W as F64;
                     let th: F64 = TILE_H as F64;
 
-                    if id == 1 { DrawRectangle(px, py, tw, th, Color(0.15, 0.4, 0.15, 1.0)); }
-                    if id == 2 { DrawRectangle(px, py, tw, th, Color(0.4, 0.35, 0.25, 1.0)); }
-                    if id == 3 { DrawRectangle(px, py, tw, th, Color(0.2, 0.3, 0.6, 1.0)); }
-                    if id == 4 { DrawRectangle(px, py, tw, th, Color(0.6, 0.2, 0.2, 1.0)); }
-                    if id == 5 { DrawRectangle(px, py, tw, th, Color(0.5, 0.4, 0.6, 1.0)); }
+                    if id == 1 { DrawRectangle(px, py, tw, th, Color(0.2, 0.6, 0.2, 1.0)); }
+                    if id == 2 { DrawRectangle(px, py, tw, th, Color(0.6, 0.5, 0.3, 1.0)); }
+                    if id == 3 { DrawRectangle(px, py, tw, th, Color(0.3, 0.4, 0.8, 1.0)); }
+                    if id == 4 { DrawRectangle(px, py, tw, th, Color(0.8, 0.3, 0.3, 1.0)); }
+                    if id == 5 { DrawRectangle(px, py, tw, th, Color(0.7, 0.5, 0.8, 1.0)); }
                 }
                 tx = tx + 1;
             }
             ty = ty + 1;
         }
 
-        // Grid overlay
+        // Grid overlay — pass a brighter color so it's visible
         if showGrid {
-            grid.DrawGrid(0.0, 0.0, MAP_COLS, MAP_ROWS);
+            grid.DrawGrid(0.0, 0.0, MAP_COLS, MAP_ROWS, Color(0.8, 0.8, 0.8, 0.5));
         }
 
         // Highlight hovered tile
@@ -155,11 +155,11 @@ func main() {
 
         // Show selected tile
         DrawRectangle(10.0, 75.0, 20.0, 20.0, Color(0.3, 0.3, 0.3, 1.0));
-        if selectedTile == 1 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.15, 0.4, 0.15, 1.0)); }
-        if selectedTile == 2 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.4, 0.35, 0.25, 1.0)); }
-        if selectedTile == 3 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.2, 0.3, 0.6, 1.0)); }
-        if selectedTile == 4 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.6, 0.2, 0.2, 1.0)); }
-        if selectedTile == 5 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.5, 0.4, 0.6, 1.0)); }
+        if selectedTile == 1 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.2, 0.6, 0.2, 1.0)); }
+        if selectedTile == 2 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.6, 0.5, 0.3, 1.0)); }
+        if selectedTile == 3 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.3, 0.4, 0.8, 1.0)); }
+        if selectedTile == 4 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.8, 0.3, 0.3, 1.0)); }
+        if selectedTile == 5 { DrawRectangle(12.0, 77.0, 16.0, 16.0, Color(0.7, 0.5, 0.8, 1.0)); }
 
         if inBounds {
             let hid: I32 = map.Get(hover.x, hover.y);

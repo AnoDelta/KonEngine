@@ -216,25 +216,25 @@ void Present() {
 
 			float minPixelGap = 4.0f;
 
-			// Fine grid (32px world units)
+			// Fine grid (32px world units) — semi-transparent so game content shows through
 			if (32.0f * zoom >= minPixelGap) {
 				float s = 32.0f;
 				float sx = floorf(left/s)*s, sy = floorf(top/s)*s;
-				for (float x=sx; x<=right;  x+=s) window->drawLine(x,top,x,bottom, 0.22f,0.22f,0.30f,1);
-				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.22f,0.22f,0.30f,1);
+				for (float x=sx; x<=right;  x+=s) window->drawLine(x,top,x,bottom, 0.22f,0.22f,0.30f,0.25f);
+				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.22f,0.22f,0.30f,0.25f);
 			}
 
 			// Coarse grid (256px world units)
 			if (256.0f * zoom >= minPixelGap) {
 				float s = 256.0f;
 				float sx = floorf(left/s)*s, sy = floorf(top/s)*s;
-				for (float x=sx; x<=right;  x+=s) window->drawLine(x,top,x,bottom, 0.38f,0.38f,0.50f,1);
-				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.38f,0.38f,0.50f,1);
+				for (float x=sx; x<=right;  x+=s) window->drawLine(x,top,x,bottom, 0.38f,0.38f,0.50f,0.4f);
+				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.38f,0.38f,0.50f,0.4f);
 			}
 
-			// World origin axes
-			window->drawLine(left,0, right,0,  0.55f,0.55f,0.75f,1);
-			window->drawLine(0,top,  0,bottom,  0.55f,0.55f,0.75f,1);
+			// World origin axes — slightly more visible but still transparent
+			window->drawLine(left,0, right,0,  0.55f,0.55f,0.75f,0.5f);
+			window->drawLine(0,top,  0,bottom,  0.55f,0.55f,0.75f,0.5f);
 
 			window->endCamera2D();
 		}
