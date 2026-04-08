@@ -345,8 +345,8 @@ void Present() {
 		window->drawRectangle((float)W-t, 0,   t, (float)H,      1,0,0,1);
 
 		// Mouse crosshair (thin rectangles instead of GL_LINES)
-		float mx = s_letterboxEnabled ? GetGameMouseX() : GetMouseX();
-		float my = s_letterboxEnabled ? GetGameMouseY() : GetMouseY();
+		float mx = GetGameMouseX();
+		float my = GetGameMouseY();
 		float cs=8.0f;
 		window->drawRectangle(mx-cs, my-0.5f, cs*2, 1.0f, 1,0,0,1);
 		window->drawRectangle(mx-0.5f, my-cs, 1.0f, cs*2, 1,0,0,1);
@@ -523,41 +523,58 @@ float GetLetterboxScale()   { return s_lbScale; }
 float GetLetterboxOffsetX() { return s_lbOffsetX; }
 float GetLetterboxOffsetY() { return s_lbOffsetY; }
 
-// Helper: get window (not framebuffer) size for cursor coordinate scaling
-static void GetWindowSizePixels(int& w, int& h) {
-    if (window) {
-        w = window->getWidth();
-        h = window->getHeight();
-    } else { w = s_designW; h = s_designH; }
+// Get the actual GLFW window-coordinate size (NOT framebuffer — for mouse math)
+static void GetWindowCoordSize(int& w, int& h) {
+    GLFWwindow* handle = glfwGetCurrentContext();
+    if (handle) {
+        glfwGetWindowSize(handle, &w, &h);
+    } else {
+        w = s_designW; h = s_designH;
+    }
 }
 
 float GetGameMouseX() {
-    // Convert raw cursor position to design-resolution coordinates
-    if (s_letterboxEnabled && s_lbScale > 0.0f) {
-        return (GetMouseX() - s_lbOffsetX) / s_lbScale;
+    // glfwGetCursorPos returns WINDOW coordinates, not framebuffer pixels.
+    // We need to map from window coords → design coords, accounting for
+    // letterbox bars if enabled.
+    int winW, winH;
+    GetWindowCoordSize(winW, winH);
+
+    if (s_letterboxEnabled && s_designW > 0 && winW > 0) {
+        // Compute letterbox in WINDOW coords (not framebuffer)
+        float scaleX = (float)winW / (float)s_designW;
+        float scaleY = (float)winH / (float)s_designH;
+        float scale  = (scaleX < scaleY) ? scaleX : scaleY;
+        float viewW  = s_designW * scale;
+        float offsetX = (winW - viewW) * 0.5f;
+        return (GetMouseX() - offsetX) / scale;
     }
-    // No letterbox: scale from actual framebuffer size to design size
-    int fbW, fbH;
-    GetWindowSizePixels(fbW, fbH);
-    if (s_designW > 0 && fbW > 0) {
-        return GetMouseX() * (float)s_designW / (float)fbW;
+    // No letterbox — simple scale from window size to design size
+    if (s_designW > 0 && winW > 0) {
+        return GetMouseX() * (float)s_designW / (float)winW;
     }
     return GetMouseX();
 }
+
 float GetGameMouseY() {
-    if (s_letterboxEnabled && s_lbScale > 0.0f) {
-        return (GetMouseY() - s_lbOffsetY) / s_lbScale;
+    int winW, winH;
+    GetWindowCoordSize(winW, winH);
+
+    if (s_letterboxEnabled && s_designH > 0 && winH > 0) {
+        float scaleX = (float)winW / (float)s_designW;
+        float scaleY = (float)winH / (float)s_designH;
+        float scale  = (scaleX < scaleY) ? scaleX : scaleY;
+        float viewH  = s_designH * scale;
+        float offsetY = (winH - viewH) * 0.5f;
+        return (GetMouseY() - offsetY) / scale;
     }
-    int fbW, fbH;
-    GetWindowSizePixels(fbW, fbH);
-    if (s_designH > 0 && fbH > 0) {
-        return GetMouseY() * (float)s_designH / (float)fbH;
+    if (s_designH > 0 && winH > 0) {
+        return GetMouseY() * (float)s_designH / (float)winH;
     }
     return GetMouseY();
 }
 
 float GetWorldMouseX(const Camera2D& cam) {
-    // Always use design resolution for world-space conversion
     float mx = GetGameMouseX();
     float dw = (s_designW > 0) ? (float)s_designW : (float)GetWindowWidth();
     return cam.x + (mx - dw * 0.5f) / cam.zoom;
