@@ -28,15 +28,47 @@ file(GLOB_RECURSE LIB_SRCS
     src/collision/*.cpp
     src/animation/*.cpp
     src/node/*.cpp
+    src/ui/*.cpp
 )
 
 # anim_compiler.cpp and main.cpp are standalone tools, not part of the library
 list(FILTER LIB_SRCS EXCLUDE REGEX ".*anim_compiler\\.cpp$")
 list(FILTER LIB_SRCS EXCLUDE REGEX ".*/src/main\\.cpp$")
 
+# -----------------------------------------------------------------------
+# Generate embedded logo header at build time
+# -----------------------------------------------------------------------
+set(KON_LOGO_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/window/kon_logo.h")
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_custom_command(
+        OUTPUT  "${KON_LOGO_HEADER}"
+        COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_kon_logo.py"
+                "${KON_LOGO_HEADER}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/logo.png"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_kon_logo.py"
+        COMMENT "Generating embedded KonEngine logo"
+    )
+else()
+    # Fallback: generate a minimal stub if Python isn't available
+    if(NOT EXISTS "${KON_LOGO_HEADER}")
+        file(WRITE "${KON_LOGO_HEADER}"
+            "#pragma once\n"
+            "static const unsigned int KON_ICON_WIDTH = 1;\n"
+            "static const unsigned int KON_ICON_HEIGHT = 1;\n"
+            "static const unsigned char KON_ICON_DATA[4] = {20,30,60,255};\n"
+            "static const unsigned int KON_SPLASH_WIDTH = 1;\n"
+            "static const unsigned int KON_SPLASH_HEIGHT = 1;\n"
+            "static const unsigned char KON_SPLASH_DATA[4] = {20,30,60,255};\n"
+        )
+    endif()
+endif()
+
 add_library(KonEngine STATIC
     ${LIB_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/asset_manager.cpp
+    ${KON_LOGO_HEADER}
 )
 
 target_include_directories(KonEngine PUBLIC src src/glad/include src/stb)
@@ -71,7 +103,11 @@ if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
             # Cross-compile (MXE): bcrypt is always available.
             # For zlib/compression: use bundled miniz if present, otherwise
             # build without compression (store-only mode).
+            # Check for miniz in KonPaktor third_party or engine src
             set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/KonPaktor/third_party")
+            if(NOT EXISTS "${MINIZ_DIR}/miniz.h")
+                set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+            endif()
             if(EXISTS "${MINIZ_DIR}/miniz.h")
                 file(SIZE "${MINIZ_DIR}/miniz.h" MINIZ_SIZE)
                 if(MINIZ_SIZE GREATER 10000)
@@ -88,6 +124,7 @@ if(KON_PACK_SUPPORT OR DEFINED KON_PACK_KEY)
             find_path(BCRYPT_INCLUDE_DIR bcrypt.h
                 HINTS ${CMAKE_FIND_ROOT_PATH}/include
                       /usr/lib/mingw64-toolchain/x86_64-w64-mingw32/include
+                      ${MXE_ROOT}/usr/x86_64-w64-mingw32.static/include
                 NO_DEFAULT_PATH)
             if(BCRYPT_INCLUDE_DIR)
                 target_include_directories(KonEngine PRIVATE ${BCRYPT_INCLUDE_DIR})
@@ -125,11 +162,21 @@ endif()
 
 # Install
 install(TARGETS KonEngine ARCHIVE DESTINATION lib)
-install(FILES src/KonEngine.hpp DESTINATION include)
-install(DIRECTORY src/window src/renderer src/time src/camera src/collision
-                  src/input src/font src/audio src/animation src/node
-    DESTINATION include/KonEngine
+install(FILES src/KonEngine.hpp src/asset_manager.hpp src/kon_script_api.hpp
+    DESTINATION include
+)
+install(DIRECTORY src/color src/window src/renderer src/time src/camera
+                  src/collision src/input src/font src/audio src/animation
+                  src/node src/math src/tilemap src/ui
+    DESTINATION include
     FILES_MATCHING PATTERN "*.hpp"
+)
+# glad and stb headers needed by renderer
+install(DIRECTORY src/glad/include/glad src/glad/include/KHR
+    DESTINATION include
+)
+install(FILES src/stb/stb_image.h src/stb/stb_truetype.h
+    DESTINATION include/stb
 )
 
 # -----------------------------------------------------------------------

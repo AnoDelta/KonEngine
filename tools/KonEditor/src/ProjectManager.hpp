@@ -10,6 +10,7 @@ public:
 
     bool create(const QString& dir);
     bool open(const QString& konprojPath);
+    bool openKsFile(const QString& ksPath);
     bool save();
     bool isOpen() const { return m_open; }
 

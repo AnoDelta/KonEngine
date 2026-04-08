@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=KonEditor
+Comment=KonEngine scene editor and game IDE
+Exec=KonEditor
+Icon=koneditor
+Terminal=false
+Type=Application
+Categories=Development;IDE;
+Keywords=game;engine;editor;konengine;

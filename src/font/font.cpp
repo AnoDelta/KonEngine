@@ -85,6 +85,25 @@ Font& GetDefaultFont() {
     return defaultFont;
 }
 
+// Font cache for different sizes
+#include <unordered_map>
+static std::unordered_map<int, Font> s_fontCache;
+
+Font& GetDefaultFont(int fontSize) {
+    if (fontSize <= 0) fontSize = 20;
+    auto it = s_fontCache.find(fontSize);
+    if (it != s_fontCache.end()) return it->second;
+    s_fontCache[fontSize] = LoadDefaultFont(fontSize);
+    return s_fontCache[fontSize];
+}
+
+void UnloadFontCache() {
+    for (auto& [sz, f] : s_fontCache) {
+        glDeleteTextures(1, &f.atlasID);
+    }
+    s_fontCache.clear();
+}
+
 void UnloadFont(Font& font) {
     glDeleteTextures(1, &font.atlasID);
     font.atlasID = 0;
@@ -113,5 +132,36 @@ void DrawText(const char* text, float x, float y, Color color) {
 }
 
 void DrawText(const char* text, float x, float y, int fontSize, Color color) {
-    DrawText(GetDefaultFont(), text, x, y, fontSize, color);
+    DrawText(GetDefaultFont(fontSize), text, x, y, color);
+}
+
+float MeasureTextWidth(Font& font, const char* text) {
+    float width = 0;
+    for (int i = 0; text[i] != '\0'; i++) {
+        unsigned char c = text[i];
+        if (c < 32 || c > 127) continue;
+        width += font.glyphs[c].advanceX;
+    }
+    return width;
+}
+
+float MeasureTextWidth(const char* text, int fontSize) {
+    return MeasureTextWidth(GetDefaultFont(fontSize), text);
+}
+
+void DrawTextAligned(const char* text, float x, float y, int fontSize, Color color, TextAlign align) {
+    if (align == TextAlign::Left) {
+        DrawText(text, x, y, fontSize, color);
+    } else {
+        float w = MeasureTextWidth(text, fontSize);
+        if (align == TextAlign::Center) {
+            DrawText(text, x - w * 0.5f, y, fontSize, color);
+        } else { // Right
+            DrawText(text, x - w, y, fontSize, color);
+        }
+    }
+}
+
+void DrawTextCentered(const char* text, float x, float y, int fontSize, Color color) {
+    DrawTextAligned(text, x, y, fontSize, color, TextAlign::Center);
 }

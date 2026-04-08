@@ -52,9 +52,30 @@ AR="${PREFIX}/llvm/bin/llvm-ar"
 [ ! -f "$AR" ] && AR=$(command -v llvm-ar 2>/dev/null || command -v ar)
 ok "ar → ${AR}"
 
+# ── Generate embedded logo header ──────────────────────────────────────────
+LOGO_HEADER="${ENGINE_ROOT}/src/window/kon_logo.h"
+LOGO_SCRIPT="${ENGINE_ROOT}/tools/gen_kon_logo.py"
+LOGO_PNG="${ENGINE_ROOT}/logo.png"
+if command -v python3 &>/dev/null && [ -f "$LOGO_SCRIPT" ]; then
+    python3 "$LOGO_SCRIPT" "$LOGO_HEADER" "$LOGO_PNG"
+    ok "Generated kon_logo.h"
+elif [ ! -f "$LOGO_HEADER" ]; then
+    # Minimal 1x1 stub if Python not available
+    cat > "$LOGO_HEADER" << 'STUB'
+#pragma once
+static const unsigned int KON_ICON_WIDTH = 1;
+static const unsigned int KON_ICON_HEIGHT = 1;
+static const unsigned char KON_ICON_DATA[4] = {20,30,60,255};
+static const unsigned int KON_SPLASH_WIDTH = 1;
+static const unsigned int KON_SPLASH_HEIGHT = 1;
+static const unsigned char KON_SPLASH_DATA[4] = {20,30,60,255};
+STUB
+    warn "Python3 not found — using stub logo"
+fi
+
 # ── Collect engine sources ─────────────────────────────────────────────────
 ENGINE_SRCS=()
-for dir in window renderer/opengl time input font audio collision animation; do
+for dir in window renderer/opengl time input font audio collision animation node ui; do
     while IFS= read -r -d '' f; do
         [[ "$f" == *"anim_compiler"* ]] && continue
         [[ "$f" == *"imgui"* ]] && continue
@@ -113,7 +134,7 @@ INCLUDES=(
     -I"${ENGINE_ROOT}/libs/glm"
 )
 
-CXXFLAGS=(-std=c++17 -O2 -fPIC -DNDEBUG "${INCLUDES[@]}")
+CXXFLAGS=(-std=c++17 -O2 -fPIC -DNDEBUG -DKON_USE_PACK "${INCLUDES[@]}")
 CFLAGS=(-O2 -fPIC -DNDEBUG "${INCLUDES[@]}")
 
 # ── Linux64 ───────────────────────────────────────────────────────────────
@@ -191,7 +212,7 @@ if [ "$DO_WINDOWS" = "1" ]; then
         if [[ "$src" == *.c ]]; then
             "$WIN_CC" "${WIN_INCLUDES[@]}" -O2 -DNDEBUG -x c -c "$src" -o "$obj" 2>/dev/null || true
         else
-            "$WIN_CXX" "${WIN_INCLUDES[@]}" -std=c++17 -O2 -DNDEBUG -c "$src" -o "$obj" 2>/dev/null || true
+            "$WIN_CXX" "${WIN_INCLUDES[@]}" -std=c++17 -O2 -DNDEBUG -DKON_USE_PACK -c "$src" -o "$obj" 2>/dev/null || true
         fi
         [ -f "$obj" ] && OBJS_WIN+=("$obj")
     done

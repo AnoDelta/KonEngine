@@ -1,12 +1,34 @@
 #include <QApplication>
+#include <QFileInfo>
+#include <QIcon>
+#include <QDir>
 #include "KonEditor.hpp"
 #include "WelcomeScreen.hpp"
+
+// Try to find logo.png in known locations relative to the binary
+static QString findLogo() {
+    QStringList candidates = {
+        QCoreApplication::applicationDirPath() + "/logo.png",
+        QCoreApplication::applicationDirPath() + "/../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../../logo.png",
+        "logo.png",
+    };
+    for (auto& p : candidates)
+        if (QFileInfo(p).exists()) return p;
+    return QString();
+}
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("KonEditor");
     app.setOrganizationName("AnoDelta");
     app.setApplicationVersion("0.1.0");
+
+    // Set window icon from logo.png if available
+    QString logoPath = findLogo();
+    if (!logoPath.isEmpty())
+        app.setWindowIcon(QIcon(logoPath));
 
     // Dark theme before welcome screen
     qApp->setStyle("Fusion");
@@ -22,17 +44,27 @@ int main(int argc, char* argv[]) {
     dark.setColor(QPalette::HighlightedText, Qt::white);
     qApp->setPalette(dark);
 
-    // Show welcome screen
-    WelcomeScreen welcome;
-    if (welcome.exec() != QDialog::Accepted)
-        return 0; // user closed welcome screen
+    // Allow opening a .ks file directly from the command line
+    QString directFile;
+    if (argc > 1) {
+        QString arg = QString::fromLocal8Bit(argv[1]);
+        if (QFileInfo(arg).suffix().toLower() == "ks" && QFileInfo(arg).exists())
+            directFile = QFileInfo(arg).absoluteFilePath();
+    }
+
+    if (directFile.isEmpty()) {
+        // Show welcome screen
+        WelcomeScreen welcome;
+        if (welcome.exec() != QDialog::Accepted)
+            return 0; // user closed welcome screen
+        directFile = welcome.selectedProject();
+    }
 
     KonEditor editor;
     editor.show();
 
-    QString project = welcome.selectedProject();
-    if (!project.isEmpty())
-        editor.openProject(project);
+    if (!directFile.isEmpty())
+        editor.openProject(directFile);
 
     return app.exec();
 }

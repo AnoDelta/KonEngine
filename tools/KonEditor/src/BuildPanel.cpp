@@ -26,19 +26,6 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     auto* clearBtn = new QPushButton("Clear");
     clearBtn->setFixedHeight(22);
     clearBtn->setFixedWidth(60);
-    connect(clearBtn, &QPushButton::clicked, [this]{ m_log->clear(); });
-    connect(m_log, &QPlainTextEdit::customContextMenuRequested, [this](const QPoint& pos) {
-        QMenu* menu = new QMenu(this);
-        auto* copyAll = menu->addAction("Copy All");
-        auto* copySel = menu->addAction("Copy Selected");
-        auto* clear   = menu->addAction("Clear");
-        copySel->setEnabled(m_log->textCursor().hasSelection());
-        connect(copyAll, &QAction::triggered, [this]{ qApp->clipboard()->setText(m_log->toPlainText()); });
-        connect(copySel, &QAction::triggered, [this]{ m_log->copy(); });
-        connect(clear,   &QAction::triggered, [this]{ m_log->clear(); });
-        menu->exec(m_log->mapToGlobal(pos));
-        delete menu;
-    });
     bar->addWidget(clearBtn);
 
     m_cancelBtn = new QPushButton("Cancel");
@@ -67,6 +54,7 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     m_progress->hide();
     layout->addWidget(m_progress);
 
+    // m_log must be created BEFORE connecting signals that reference it
     m_log = new QPlainTextEdit();
     m_log->setReadOnly(true);
     m_log->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -75,6 +63,21 @@ BuildPanel::BuildPanel(QWidget* parent) : QWidget(parent) {
     m_log->setStyleSheet("background: #111; color: #ccc; border: none;");
     m_log->setMaximumBlockCount(5000);
     layout->addWidget(m_log);
+
+    // Wire up signals now that m_log exists
+    connect(clearBtn, &QPushButton::clicked, [this]{ m_log->clear(); });
+    connect(m_log, &QPlainTextEdit::customContextMenuRequested, [this](const QPoint& pos) {
+        QMenu* menu = new QMenu(this);
+        auto* copyAll = menu->addAction("Copy All");
+        auto* copySel = menu->addAction("Copy Selected");
+        auto* clear   = menu->addAction("Clear");
+        copySel->setEnabled(m_log->textCursor().hasSelection());
+        connect(copyAll, &QAction::triggered, [this]{ qApp->clipboard()->setText(m_log->toPlainText()); });
+        connect(copySel, &QAction::triggered, [this]{ m_log->copy(); });
+        connect(clear,   &QAction::triggered, [this]{ m_log->clear(); });
+        menu->exec(m_log->mapToGlobal(pos));
+        delete menu;
+    });
 }
 
 void BuildPanel::appendLog(const QString& text) {
@@ -104,15 +107,17 @@ void BuildPanel::appendLog(const QString& text) {
 }
 
 void BuildPanel::build(const QString& entryFile, const QString& target,
-                       const QString& outDir, bool runAfter) {
+                       const QString& outDir, bool runAfter,
+                       const QString& packPassword) {
     if (m_proc && m_proc->state() != QProcess::NotRunning) {
         appendLog("⚠ Build already in progress.");
         return;
     }
-    m_entryFile = entryFile;
-    m_target    = target;
-    m_outDir    = outDir;
-    m_runAfter  = runAfter;
+    m_entryFile     = entryFile;
+    m_target        = target;
+    m_outDir        = outDir;
+    m_runAfter      = runAfter;
+    m_packPassword  = packPassword;
 
     QDir().mkpath(outDir);
     m_log->clear();
@@ -153,6 +158,8 @@ void BuildPanel::startBuild() {
     m_proc = new QProcess(this);
     // Separate channels so we can colour stdout/stderr differently
     m_proc->setProcessChannelMode(QProcess::SeparateChannels);
+    // Set working directory to the entry file's parent so relative includes resolve
+    m_proc->setWorkingDirectory(QFileInfo(m_entryFile).absolutePath());
 
     connect(m_proc, &QProcess::readyReadStandardOutput, this, &BuildPanel::onProcessOutput);
     connect(m_proc, &QProcess::readyReadStandardError,  this, &BuildPanel::onProcessError);
@@ -161,8 +168,13 @@ void BuildPanel::startBuild() {
 
     QString outBinary = m_outDir + (m_target == "windows64" ? "/game.exe" : "/game");
     QStringList args;
-    if (!m_target.isEmpty() && m_target != "linux64")
-        args << "--target" << m_target;
+    if (!m_target.isEmpty() && m_target != "linux64") {
+        // Map editor target names to konscript --target flag values
+        // "windows64" → "windows" (konscript handles 64-bit via MXE)
+        QString ksTarget = m_target;
+        if (ksTarget == "windows64") ksTarget = "windows";
+        args << "--target" << ksTarget;
+    }
     args << m_entryFile << "-o" << outBinary;
 
     appendLog("$ " + m_konscript + " " + args.join(' '));
@@ -236,6 +248,10 @@ void BuildPanel::onProcessFinished(int exitCode, QProcess::ExitStatus) {
                   QString::number(m_timer.elapsed() / 1000.0, 'f', 1) + "s");
         m_status->setText("✓ Build succeeded");
         m_status->setStyleSheet("color: #4caf50; font-size: 11px;");
+        // Run konpak if password was provided (konpak enabled)
+        if (!m_packPassword.isEmpty()) {
+            runKonpak();
+        }
         if (m_runAfter) runGame();
     } else {
         appendLog("✗ Build failed (exit code " + QString::number(exitCode) + ")");
@@ -250,6 +266,69 @@ void BuildPanel::onProcessFinished(int exitCode, QProcess::ExitStatus) {
     m_cancelBtn->setEnabled(false);
 }
 
+void BuildPanel::runKonpak() {
+    // Find konpak binary
+    QString konpakPath;
+    QStringList candidates = {
+        QCoreApplication::applicationDirPath() + "/konpak",
+        QCoreApplication::applicationDirPath() + "/../KonPaktor/build/konpak",
+        QCoreApplication::applicationDirPath() + "/../../KonPaktor/build/konpak",
+        "/usr/local/bin/konpak",
+        "/usr/bin/konpak"
+    };
+    for (auto& c : candidates) {
+        if (QFile::exists(c)) { konpakPath = c; break; }
+    }
+    if (konpakPath.isEmpty()) {
+        appendLog("⚠ konpak not found — skipping asset packing.");
+        return;
+    }
+
+    // Determine assets directory and output pack file
+    QString assetsDir = QFileInfo(m_entryFile).absolutePath();
+    // If there's an assets/ subdirectory, use it; otherwise use the entry file's directory
+    if (QDir(assetsDir + "/assets").exists())
+        assetsDir = assetsDir + "/assets";
+    else if (QDir(assetsDir + "/../assets").exists())
+        assetsDir = QDir::cleanPath(assetsDir + "/../assets");
+
+    QString packFile = m_outDir + "/game.konpak";
+    appendLog("");
+    appendLog("▶ Creating asset pack...");
+
+    QStringList args;
+    args << "create" << packFile << assetsDir + "/*";
+    if (!m_packPassword.isEmpty())
+        args << "--pass" << m_packPassword;
+
+    appendLog("$ " + konpakPath + " " + args.join(' '));
+
+    auto* pakProc = new QProcess(this);
+    pakProc->setWorkingDirectory(QFileInfo(m_entryFile).absolutePath());
+    pakProc->start(konpakPath, args);
+    if (!pakProc->waitForStarted(3000)) {
+        appendLog("✗ Failed to start konpak: " + pakProc->errorString());
+        delete pakProc;
+        return;
+    }
+    pakProc->waitForFinished(30000);
+    QString pakOut = pakProc->readAllStandardOutput();
+    QString pakErr = pakProc->readAllStandardError();
+    if (!pakOut.isEmpty()) appendLog(pakOut);
+    if (!pakErr.isEmpty()) appendLog(pakErr);
+    if (pakProc->exitCode() == 0) {
+        QFileInfo fi(packFile);
+        qint64 sz = fi.size();
+        QString sizeStr = sz < 1048576
+            ? QString("%1 KB").arg(sz / 1024.0, 0, 'f', 1)
+            : QString("%1 MB").arg(sz / 1048576.0, 0, 'f', 2);
+        appendLog("✓ Asset pack created: " + fi.fileName() + " (" + sizeStr + ")");
+    } else {
+        appendLog("✗ konpak failed (exit code " + QString::number(pakProc->exitCode()) + ")");
+    }
+    delete pakProc;
+}
+
 void BuildPanel::runGame() {
     QString binary = m_outDir + (m_target == "windows64" ? "/game.exe" : "/game");
     if (!QFile::exists(binary)) {
@@ -258,7 +337,13 @@ void BuildPanel::runGame() {
     }
     appendLog("▶ Running: " + binary + "\n");
     auto* gameProc = new QProcess();
-    gameProc->setWorkingDirectory(QFileInfo(m_entryFile).absolutePath() + "/..");
+    // Set CWD to where assets live:
+    // - Project layout (src/main.ks): go up to project root
+    // - Monolithic (main.ks in root): stay in the file's directory
+    QString entryDir = QFileInfo(m_entryFile).absolutePath();
+    QString gameDir = QFileInfo(entryDir).fileName() == "src"
+        ? entryDir + "/.." : entryDir;
+    gameProc->setWorkingDirectory(gameDir);
     // Don't connect any signals — just fire and forget
     // Parent is nullptr so it won't be deleted with BuildPanel
     gameProc->start(binary, QStringList());

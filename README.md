@@ -1,44 +1,55 @@
 # KonEngine
 
-A lightweight 2D game engine written in C++, built for old and low-end machines.
-Made primarily for personal use and for friends — simple, fast, and fits the workflow
-of making games without the overhead of larger engines.
+A lightweight 2D game engine written in C++17, built for old and low-end machines.
+Simple, fast, and designed for making games without the overhead of larger engines.
 
-Heavily inspired by Raylib's simplicity and API style, with a Godot-style node system
-and plans for a full editor.
+Inspired by Raylib's simplicity and API style, with a Godot-style node system,
+a custom scripting language (KonScript), and a full visual editor (KonEditor).
 
 ---
 
 ## Features
 
-- Simple Raylib-style API — `InitWindow`, `DrawRectangle`, `PlaySound`, done
-- OpenGL 2D renderer — rectangles, circles, lines, textures
-- Sprite sheet support
-- Text rendering — custom TTF fonts or built-in Inconsolata
-- Camera system — pan, zoom, rotation
-- `GetWorldMouseX/Y(cam)` — correct world-space mouse position
-- Collision detection — AABB, circle, SAT (convex polygons)
-- CollisionWorld with enter/exit signals and layer/mask filtering
-- Input — keyboard, mouse, gamepad
-- Color system with presets (`RED`, `WHITE`, `TRANSPARENT`...)
-- Audio — sound effects + music streaming (miniaudio)
-- Delta time + FPS cap + VSync toggle
-- Cross-platform — Linux and Windows
-- Node/scene system — Godot-style hierarchy, signals, parent pointers
-- `Node::OnCollisionEnter/Exit` virtual callbacks on parent nodes
-- Node2D with pivot/origin support
-- Sprite2D with texture and tint
-- Animation — sprite sheet frame-by-frame + keyframe tracks, 16 easing curves
-- `DebugMode(true)` — FPS overlay, mouse crosshair, world-space grid, auto collider outlines
-- **KonAnimator** — standalone Qt animation editor with working timeline scrubbing
-- **anim_compiler** — CLI + Qt GUI tool, compiles `.anim` → `.konani`
-- **KonPaktor / konpak** — AES-256 asset encryption and `.konpak` archive tool
-- **KonScript** — statically-typed scripting language that compiles to C++
-- Test suite (`./build-test.sh`)
+**Core Engine**
+- Simple Raylib-style API -- `InitWindow`, `DrawRectangle`, `PlaySound`, done
+- OpenGL 2D renderer -- rectangles, circles, lines, textures, sprite sheets
+- Batched rendering -- quads, lines, and glyphs batched for performance
+- Text rendering -- custom TTF fonts or built-in Inconsolata, cached at any size
+- Camera system -- pan, zoom, rotation, smooth follow, clamping, screen shake
+- Letterbox scaling -- design-resolution coordinates with automatic black bars
+- Input -- keyboard, mouse, gamepad (multi-player), delta tracking
+- Collision detection -- AABB, circle, SAT (convex polygons), layer/mask filtering
+- CollisionWorld with enter/exit signals and automatic depenetration
+- Physics nodes -- StaticBody2D (walls), KinematicBody2D (players), RigidBody2D (physics objects)
+- Animation -- sprite sheet frame-by-frame + keyframe tracks with 16 easing curves
+- Audio -- sound effects + music streaming via miniaudio (.wav, .ogg, .mp3)
+- Node/scene system -- Godot-style hierarchy with parent pointers and virtual lifecycle
+- Signal system -- lightweight callbacks for decoupled node communication
+- UI system -- screen-space Button, Label, Panel with click detection and input blocking
+- Tilemap system -- tile data storage, tileset rendering, coordinate conversion, click detection
+- Isometric grid -- diamond-shaped tile support for isometric games
+- `DebugMode(true)` -- FPS overlay, mouse crosshair, world grid, auto collider outlines
+- Timer system -- frame-rate independent timers with lambda callbacks, pause/resume/reset
+- Color presets, Vector2 math, random number utilities, tile grid helpers
+- Delta time, FPS cap, VSync toggle
+- Cross-platform -- Linux and Windows
+
+**KonScript**
+- Statically-typed scripting language that compiles to C++
+- Nodes, structs, classes, enums, generics, interfaces, closures
+- Ternary operator, f-strings, nullable types, null coalescing
+- Full engine API: rendering, input (keyboard + mouse + gamepad), audio, physics, camera, random, UI, tilemap
+- CMake integration with `konscript_sources()`
+
+**Tools**
+- **KonEditor** -- Qt-based visual game editor with scene tree, viewport, inspector, and build system
+- **KonAnimator** -- standalone Qt animation editor with timeline, live preview, and spritesheet support
+- **anim_compiler** -- CLI/GUI tool that compiles `.anim` text files to `.konani` binary
+- **KonPaktor / konpak** -- AES-256 encrypted asset packing and `.konpak` archive tool
 
 ---
 
-## Getting Started
+## Quick Start
 
 ### 1. Clone
 
@@ -49,63 +60,36 @@ cd KonEngine
 
 ### 2. Install system dependencies
 
-**Linux — Ubuntu/Debian:**
+**Ubuntu/Debian:**
 ```bash
 sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
   libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
 ```
 
-**Linux — Fedora:**
+**Fedora:**
 ```bash
 sudo dnf install -y mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
   wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
 ```
 
-**Linux — Arch:**
+**Arch:**
 ```bash
 sudo pacman -S mesa libx11 libxrandr libxi wayland wayland-protocols \
   libxkbcommon libxinerama libxcursor
-```
-
-**Linux — Gentoo:**
-```bash
-emerge --ask x11-libs/libX11 x11-libs/libXrandr x11-libs/libXi media-libs/mesa
 ```
 
 **Windows:** No extra dependencies needed.
 
 ### 3. Build
 
-**Linux:**
 ```bash
-./build.sh
+make            # or: cmake -B build && cmake --build build -j$(nproc)
+sudo make install   # installs to /usr/local
 ```
 
-**Windows:**
-```bat
-build.bat
-```
+### 4. Write your first game
 
-### 4. Link against the engine in your game
-
-```cmake
-cmake_minimum_required(VERSION 3.16)
-project(MyGame)
-
-find_package(KonEngine REQUIRED)
-
-add_executable(MyGame src/main.cpp)
-target_link_libraries(MyGame PRIVATE KonEngine)
-```
-
-Or without installing:
-```cmake
-add_subdirectory(KonEngine)
-target_link_libraries(MyGame PRIVATE KonEngine)
-```
-
-### 5. Write your first game
-
+**In C++:**
 ```cpp
 #include "KonEngine.hpp"
 
@@ -131,8 +115,7 @@ int main() {
 }
 ```
 
-Or write it in KonScript:
-
+**In KonScript:**
 ```ks
 #include <engine>
 
@@ -142,6 +125,8 @@ node Player : Node2D {
     func Update(dt: F64) {
         if KeyDown(Key.D) { x += speed * dt; }
         if KeyDown(Key.A) { x -= speed * dt; }
+        if KeyDown(Key.W) { y -= speed * dt; }
+        if KeyDown(Key.S) { y += speed * dt; }
     }
 
     func Draw() {
@@ -158,100 +143,111 @@ func main() {
         ClearBackground(0.1, 0.1, 0.1);
         scene.update(GetDeltaTime());
         scene.draw();
+        DrawText("WASD to move", 10, 10, WHITE);
         Present();
         PollEvents();
     }
 }
 ```
 
+Compile and run KonScript:
+```bash
+cd tools/KonScript && ./build.sh && ./install.sh
+ksc game.ks
+```
+
+### 5. Link the engine from CMake
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(MyGame)
+
+add_subdirectory(KonEngine)
+add_executable(MyGame src/main.cpp)
+target_link_libraries(MyGame PRIVATE KonEngine)
+
+# Optional: compile KonScript files
+konscript_sources(MyGame src/main.ks)
+```
+
+---
+
+## Project Structure
+
+```
+KonEngine/
+  src/
+    KonEngine.hpp          # Single include header
+    window/                # Window creation, letterbox scaling, debug mode
+    renderer/              # OpenGL 2D renderer (rectangles, circles, lines, textures)
+    input/                 # Keyboard, mouse, gamepad input
+    camera/                # Camera2D with follow, clamp, shake
+    collision/             # CollisionWorld, SAT, AABB, circle overlap
+    node/                  # Node, Node2D, Sprite2D, Collider2D, Scene, bodies
+    animation/             # Animation clips, keyframe tracks, AnimationPlayer
+    audio/                 # Sound and music via miniaudio
+    font/                  # TTF font rendering with glyph caching
+    ui/                    # Screen-space UI (Button, Label, Panel)
+    color/                 # Color struct and presets
+    math/                  # Vector2, Random
+    tilemap/               # Tilemap, TileGrid, IsometricGrid
+    time/                  # Delta time, FPS cap
+    asset_manager.*        # AssetManager for loose files or .konpak packs
+  tools/
+    KonScript/             # KonScript compiler (lexer, parser, typechecker, codegen)
+    KonEditor/             # Visual game editor (Qt)
+    KonAnimator/           # Animation editor (Qt)
+    KonPaktor/             # Asset packer GUI + CLI
+  libs/
+    glfw/                  # Window/input (submodule)
+    glm/                   # Math library (submodule)
+  examples/                # Example games in KonScript and C++
+    hello_world.ks         # Basic window and drawing
+    platformer.ks          # Platformer with KinematicBody2D
+    physics_test.ks        # Physics: gravity, jumping, collision, platforms
+    tilemap_test.ks        # Tilemap: tile placement, grid, camera, click detection
+    ui_test.ks             # UI: buttons, labels, panels, click handlers, signals
+    timer_test.ks          # Timers: repeating, one-shot, pause/resume, progress bar
+    pong.ks                # Pong game
+    cpp_example/           # C++ example with CMake
+  tests/                   # Engine test suite
+```
+
 ---
 
 ## Tools
 
-### KonAnimator & anim_compiler
-
-Visual animation editor and CLI compiler for `.anim` → `.konani` files.
-
-Requires Qt5:
-```bash
-# Ubuntu/Debian
-sudo apt-get install -y qtbase5-dev libqt5opengl5-dev
-# Arch
-sudo pacman -S qt5-base
-# Gentoo
-emerge --ask dev-qt/qtbase:5 dev-qt/qtopengl:5
-```
-
-Build:
-```bash
-./build-tools.sh
-```
-
-See [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) for full usage.
-
-### KonPaktor / konpak
-
-Asset encryption and bundling. Packs your game's assets into AES-256 encrypted
-`.konpak` archives for distribution. End users cannot extract the contents.
-
-```bash
-# CLI
-konpak create game.konpak assets/ --pass mykey
-
-# Bake the key into your release binary so the engine can decrypt at runtime
-# but the key is never exposed to end users
-target_compile_definitions(MyGame PRIVATE KON_PACK_KEY="mykey")
-```
-
-See [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) for full usage.
-
-### KonScript
-
-A statically-typed scripting language that compiles `.ks` files to C++.
-
-```bash
-# Install
-cd tools/KonScript && ./build.sh && ./install.sh
-
-# Compile and run
-ksc game.ks
-
-# Neovim syntax highlighting
-./tools/KonScript/install-nvim-konscript.sh
-```
-
-See [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) for full usage.
-
----
-
-## Running Tests
-
-```bash
-./build-test.sh
-```
-
-Headless unit tests run automatically. A visual test window then opens for
-manual verification of rendering, collision, and animation.
+| Tool | Description | Build |
+|---|---|---|
+| **KonScript** | Scripting language compiler | `cd tools/KonScript && ./build.sh && ./install.sh` |
+| **KonEditor** | Visual game editor | `cd tools/KonEditor && ./build.sh` |
+| **KonAnimator** | Animation editor | `make tools` or `./build-tools.sh` |
+| **anim_compiler** | .anim to .konani compiler | Built with KonAnimator |
+| **KonPaktor** | Asset packer (GUI) | `cd tools/KonPaktor && ./build.sh` |
+| **konpak** | Asset packer (CLI) | Built with KonPaktor |
 
 ---
 
 ## Documentation
 
+Start with **[DOCS.md](DOCS.md)** for a full guide to the engine, or **[KonScript DOCS](tools/KonScript/DOCS.md)** if you're using the scripting language.
+
 | Document | Contents |
 |---|---|
-| [DOCS.md](DOCS.md) | Full engine API reference |
+| [DOCS.md](DOCS.md) | Full engine guide: rendering, input, camera, physics, collision, audio, animation, UI, timers, tilemaps -- with KonScript and C++ examples |
+| [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) | KonScript language reference: types, variables, functions, lambdas, nodes, structs, enums, control flow, and full engine API listing |
 | [ROADMAP.md](ROADMAP.md) | What's done, what's next, release policy |
-| [DEPENDENCIES.md](DEPENDENCIES.md) | All libraries and system deps |
+| [DEPENDENCIES.md](DEPENDENCIES.md) | All libraries and system dependencies |
 | [MAINTAINERS.md](MAINTAINERS.md) | How to contribute, build, test, and release |
 | [tools/KonAnimator/DOCS.md](tools/KonAnimator/DOCS.md) | KonAnimator usage |
 | [tools/KonPaktor/DOCS.md](tools/KonPaktor/DOCS.md) | KonPaktor / konpak usage |
-| [tools/KonScript/DOCS.md](tools/KonScript/DOCS.md) | KonScript language reference |
+| [examples/](examples/) | Example games: hello world, pong, platformer, physics test, tilemap test, C++ |
 
 ---
 
 ## Dependencies
 
-All bundled as submodules — no manual installs needed beyond system GL/X11 libs.
+All bundled as submodules -- no manual installs needed beyond system GL/X11 libs.
 
 | Library | Purpose |
 |---|---|
@@ -261,20 +257,31 @@ All bundled as submodules — no manual installs needed beyond system GL/X11 lib
 | stb_image | Texture loading |
 | stb_truetype | Font rendering |
 | miniaudio | Audio playback and streaming |
-| Qt5 | KonAnimator and KonPaktor GUI (optional) |
+| Qt5 | KonEditor, KonAnimator, KonPaktor (optional) |
 | zlib | Compression for .konpak |
 | OpenSSL / BCrypt | AES-256 encryption for .konpak |
 
 ---
 
-## Release Policy
+## Cross-Compilation (Windows from Linux)
 
-Version numbers are only bumped after thorough bug testing on all supported platforms.
-See [ROADMAP.md](ROADMAP.md) for the full plan and [MAINTAINERS.md](MAINTAINERS.md)
-for the release process.
+```bash
+./build-windows.sh              # engine library
+./build-windows.sh --tools      # engine + tools
+```
+
+Requires MXE. See [build-windows.sh](build-windows.sh) for setup instructions.
+
+---
+
+## Running Tests
+
+```bash
+make test
+```
 
 ---
 
 ## License
 
-MIT — free to use in personal, commercial, and open source projects.
+MIT -- free to use in personal, commercial, and open source projects.

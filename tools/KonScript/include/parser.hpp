@@ -955,14 +955,28 @@ private:
 
     ExprPtr parseNullCoal() {
         int l = peek().line, c = peek().col;
-        auto left = parseOr();
+        auto left = parseTernary();
         while (check(TokenType::NullCoal)) {
             advance();
-            auto right = parseOr();
+            auto right = parseTernary();
             left = std::make_unique<NullCoalExpr>(
                 std::move(left), std::move(right), l, c);
         }
         return left;
+    }
+
+    ExprPtr parseTernary() {
+        int l = peek().line, c = peek().col;
+        auto cond = parseOr();
+        if (check(TokenType::Question)) {
+            advance();
+            auto trueVal = parseOr();
+            expect(TokenType::Colon, "expected ':' in ternary expression");
+            auto falseVal = parseTernary(); // right-associative
+            return std::make_unique<TernaryExpr>(
+                std::move(cond), std::move(trueVal), std::move(falseVal), l, c);
+        }
+        return cond;
     }
 
     ExprPtr parseOr() {
@@ -1223,7 +1237,40 @@ private:
             return std::make_unique<SpawnExpr>(std::move(call), l, c);
         }
 
+        // C++-style lambda: []() { } or [&]() { }
+        // Distinguished from array literal by: [ followed by ] or &]
         if (check(TokenType::LBracket)) {
+            // Peek ahead to see if this is a lambda
+            bool isLambda = false;
+            if (peek(1).type == TokenType::RBracket) isLambda = true;  // []
+            if (peek(1).type == TokenType::Amp &&
+                peek(2).type == TokenType::RBracket) isLambda = true;  // [&]
+
+            if (isLambda) {
+                advance(); // consume [
+                if (check(TokenType::Amp)) advance(); // consume & if present
+                expect(TokenType::RBracket, "expected ']'");
+                // Parse parameters: (params) or ()
+                expect(TokenType::LParen, "expected '(' in lambda");
+                std::vector<Param> cparams;
+                while (!check(TokenType::RParen) && !atEnd()) {
+                    Param p;
+                    p.mut  = match(TokenType::Mut);
+                    p.name = expect(TokenType::Ident, "expected parameter name").value;
+                    expect(TokenType::Colon, "expected ':'");
+                    p.type = parseType();
+                    cparams.push_back(std::move(p));
+                    if (!match(TokenType::Comma)) break;
+                }
+                expect(TokenType::RParen, "expected ')'");
+                std::optional<TypeAnnotation> cret;
+                if (match(TokenType::Arrow)) cret = parseType();
+                auto cbody = parseBlock();
+                return std::make_unique<FuncExpr>(
+                    std::move(cparams), cret, std::move(cbody), l, c);
+            }
+
+            // Array literal: [1, 2, 3]
             advance();
             std::vector<ExprPtr> elems;
             while (!check(TokenType::RBracket) && !atEnd()) {

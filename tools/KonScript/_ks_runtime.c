@@ -2,6 +2,7 @@
 // Implements the stdlib functions declared in irgen's emitRuntimeDecls().
 // Compiled once: clang -c _ks_runtime.c -o _ks_runtime.o
 // Linked with every native KonScript binary.
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,12 +13,12 @@
 typedef struct { int ok; char* value; char* error; } _KsResult;
 
 static _KsResult* _ks_result_ok_val(char* v) {
-    _KsResult* r = malloc(sizeof(_KsResult));
+    _KsResult* r = calloc(1, sizeof(_KsResult));
     r->ok = 1; r->value = v ? strdup(v) : strdup(""); r->error = strdup("");
     return r;
 }
 static _KsResult* _ks_result_err_val(const char* e) {
-    _KsResult* r = malloc(sizeof(_KsResult));
+    _KsResult* r = calloc(1, sizeof(_KsResult));
     r->ok = 0; r->value = strdup(""); r->error = strdup(e);
     return r;
 }
@@ -31,7 +32,10 @@ void* _ks_file_read(const char* path) {
     FILE* f = fopen(path, "r");
     if (!f) { char msg[256]; snprintf(msg,256,"cannot open: %s",path); return _ks_result_err_val(msg); }
     fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
-    char* buf = malloc(sz + 1); fread(buf, 1, sz, f); buf[sz] = '\0'; fclose(f);
+    char* buf = malloc(sz + 1);
+    size_t nr = fread(buf, 1, sz, f);
+    buf[nr] = '\0';
+    fclose(f);
     _KsResult* r = _ks_result_ok_val(buf); free(buf); return r;
 }
 void* _ks_file_write(const char* path, const char* content) {
@@ -59,9 +63,10 @@ void* _ks_file_delete(const char* path) {
 // ── String methods ────────────────────────────────────────────────────────────
 int   _ks_str_len(const char* s)       { return s ? (int)strlen(s) : 0; }
 int   _ks_str_isEmpty(const char* s)   { return !s || *s == '\0'; }
-int   _ks_str_contains(const char* s, const char* sub) { return strstr(s, sub) != NULL; }
-int   _ks_str_starts(const char* s, const char* p)     { return strncmp(s, p, strlen(p)) == 0; }
+int   _ks_str_contains(const char* s, const char* sub) { if (!s || !sub) return 0; return strstr(s, sub) != NULL; }
+int   _ks_str_starts(const char* s, const char* p)     { if (!s || !p) return 0; return strncmp(s, p, strlen(p)) == 0; }
 int   _ks_str_ends(const char* s, const char* e) {
+    if (!s || !e) return 0;
     size_t sl = strlen(s), el = strlen(e);
     return sl >= el && strcmp(s + sl - el, e) == 0;
 }
@@ -94,7 +99,16 @@ char* _ks_str_replace(const char* s, const char* from, const char* to) {
     *w = '\0'; return r;
 }
 char* _ks_str_substr(const char* s, int pos, int len) {
-    char* r = malloc(len + 1); memcpy(r, s + pos, len); r[len] = '\0'; return r;
+    if (!s) return strdup("");
+    int slen = (int)strlen(s);
+    if (pos < 0) pos = 0;
+    if (pos > slen) pos = slen;
+    if (len < 0) len = 0;
+    if (pos + len > slen) len = slen - pos;
+    char* r = malloc(len + 1);
+    if (len > 0) memcpy(r, s + pos, len);
+    r[len] = '\0';
+    return r;
 }
 /* Avoid atoi/strtol/strtod: all redirected to __isoc23_* on glibc 2.38+
    which is not present in the bundled musl sysroot. Hand-roll instead. */
@@ -158,6 +172,12 @@ void* _ks_array_get(void* arr, int idx) {
     _KsArray* a = arr;
     if (idx < 0 || idx >= a->len) return NULL;
     return a->data[idx];
+}
+
+void _ks_array_set(void* arr, int idx, void* val) {
+    _KsArray* a = arr;
+    if (idx >= 0 && idx < a->len)
+        a->data[idx] = val;
 }
 
 void _ks_array_clear(void* arr) {
@@ -241,10 +261,14 @@ int _ks_hashmap_len(void* map)  { return map ? ((_KsMap*)map)->len : 0; }
 char* _ks_str_concat(const char* a, const char* b) {
     if (!a) a = "";
     if (!b) b = "";
-    size_t la = strlen(a), lb = strlen(b);
+    // Validate pointers before strlen (crash guard)
+    size_t la = 0, lb = 0;
+    // Use volatile reads to check for truly invalid pointers
+    la = strlen(a);
+    lb = strlen(b);
     char* r = malloc(la + lb + 1);
-    memcpy(r, a, la);
-    memcpy(r + la, b, lb);
+    if (la > 0) memcpy(r, a, la);
+    if (lb > 0) memcpy(r + la, b, lb);
     r[la + lb] = '\0';
     return r;
 }
@@ -276,4 +300,123 @@ char* _ks_str_fromCharCode(int code) {
     r[0] = (char)(unsigned char)code;
     r[1] = '\0';
     return r;
+}
+
+// ── Shell execution ──────────────────────────────────────────────────────────
+int _ks_system(const char* cmd) {
+    return system(cmd);
+}
+
+// ── Missing runtime functions (needed by self-hosted compiler) ───────────────
+
+// Convert integer to heap-allocated string
+char* _ks_int_to_str(int val) {
+    char buf[32];
+    int neg = 0, i = 0;
+    if (val < 0) { neg = 1; val = -val; }
+    if (val == 0) { buf[i++] = '0'; }
+    else { while (val > 0) { buf[i++] = '0' + (val % 10); val /= 10; } }
+    if (neg) buf[i++] = '-';
+    char* r = malloc(i + 1);
+    for (int j = 0; j < i; j++) r[j] = buf[i - 1 - j];
+    r[i] = '\0';
+    return r;
+}
+
+// Compare two strings (wrapper around strcmp for self-hosted irgen)
+int _ks_str_compare(const char* a, const char* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    return strcmp(a, b);
+}
+
+// ── Array clone and free ─────────────────────────────────────────────────────
+
+void* _ks_array_clone(void* arr) {
+    if (!arr) return _ks_array_new(8);
+    _KsArray* src = arr;
+    _KsArray* dst = _ks_array_new(src->cap);
+    for (int i = 0; i < src->len; i++)
+        _ks_array_push(dst, src->data[i]);
+    return dst;
+}
+
+void _ks_array_free(void* arr) {
+    if (!arr) return;
+    _KsArray* a = arr;
+    free(a->data);
+    free(a);
+}
+
+// ── Closure runtime ──────────────────────────────────────────────────────────
+
+typedef struct { void* fn; void* env; } _KsClosure;
+
+void* _ks_closure_new(void* fn, void* env) {
+    _KsClosure* c = malloc(sizeof(_KsClosure));
+    c->fn = fn;
+    c->env = env;
+    return c;
+}
+
+void* _ks_closure_fn(void* c)  { return c ? ((_KsClosure*)c)->fn : NULL; }
+void* _ks_closure_env(void* c) { return c ? ((_KsClosure*)c)->env : NULL; }
+
+void _ks_closure_free(void* c) {
+    if (!c) return;
+    _KsClosure* cl = c;
+    if (cl->env) free(cl->env);
+    free(cl);
+}
+
+// ── Timing ──────────────────────────────────────────────────────────────────
+#include <time.h>
+#include <unistd.h>
+double _ks_time_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+// ── Self-directory (for finding _ks_runtime.c next to the binary) ───────────
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+char* _ks_self_dir() {
+    static char buf[4096];
+#ifdef _WIN32
+    // Windows: use GetModuleFileName
+    extern unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
+    unsigned long len = GetModuleFileNameA(0, buf, sizeof(buf));
+    if (len > 0) {
+        char* last = strrchr(buf, '\\');
+        if (last) { *last = '\0'; return buf; }
+    }
+#else
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        char* last = strrchr(buf, '/');
+        if (last) { *last = '\0'; return buf; }
+    }
+#endif
+    return ".";
+}
+
+
+// ── Command-line arguments ──────────────────────────────────────────────────
+static int _ks_argc_val = 0;
+static char** _ks_argv_val = NULL;
+
+void _ks_init_args(int argc, char** argv) {
+    _ks_argc_val = argc;
+    _ks_argv_val = argv;
+}
+
+int _ks_argc() { return _ks_argc_val; }
+
+char* _ks_get_argv(int idx) {
+    if (idx < 0 || idx >= _ks_argc_val || !_ks_argv_val) return "";
+    return _ks_argv_val[idx] ? _ks_argv_val[idx] : "";
 }

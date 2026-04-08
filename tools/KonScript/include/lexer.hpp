@@ -57,7 +57,7 @@ enum class TokenType {
     Eq, NotEq, Lt, Gt, LtEq, GtEq,
 
     // Logic
-    And, Or,
+    And, Or, Amp,
 
     // Assignment
     Assign,
@@ -297,6 +297,7 @@ public:
                     break;
                 case '&':
                     if (match('&')) emit(TokenType::And, "&&", startLine, startCol);
+                    else            emit(TokenType::Amp, "&",  startLine, startCol);
                     break;
                 case '|':
                     if (match('|')) emit(TokenType::Or, "||", startLine, startCol);

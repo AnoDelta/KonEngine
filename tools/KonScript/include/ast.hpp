@@ -134,6 +134,9 @@ struct Expr {
 
         // Error propagation
         Propagate,  // expr?  -- if !ok return Err; else value
+
+        // Ternary conditional
+        Ternary,    // cond ? trueVal : falseVal
     } kind;
 };
 
@@ -540,6 +543,15 @@ struct FuncExpr : Expr {
              int l, int c)
         : params(std::move(p)), returnType(std::move(r)), body(std::move(b)) {
         kind = Kind::FuncExpr; line=l; col=c;
+    }
+};
+
+// Ternary conditional: cond ? trueVal : falseVal
+struct TernaryExpr : Expr {
+    ExprPtr condition, trueVal, falseVal;
+    TernaryExpr(ExprPtr cond, ExprPtr t, ExprPtr f, int l, int c)
+        : condition(std::move(cond)), trueVal(std::move(t)), falseVal(std::move(f)) {
+        kind = Kind::Ternary; line=l; col=c;
     }
 };
 

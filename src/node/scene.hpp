@@ -1,12 +1,34 @@
 #pragma once
 #include "node.hpp"
 #include "collider2d.hpp"
+#include "static_body2d.hpp"
+#include "kinematic_body2d.hpp"
+#include "rigid_body2d.hpp"
 #include "../collision/collision_world.hpp"
 #include <cmath>
 #include <functional>
 #include "camera_node2d.hpp"
 
 bool IsDebugMode();
+
+// Auto-mark collider solid/static based on parent body type.
+// Called when colliders are added to body nodes via Ready() or later.
+static inline void AutoMarkCollider(Collider2D* col) {
+    Node* p = col->parent;
+    while (p) {
+        if (dynamic_cast<StaticBody2D*>(p)) {
+            col->solid = true;
+            col->staticBody = true;
+            return;
+        }
+        if (dynamic_cast<KinematicBody2D*>(p) || dynamic_cast<RigidBody2D*>(p)) {
+            col->solid = true;
+            col->staticBody = false;
+            return;
+        }
+        p = p->parent;
+    }
+}
 
 class Scene {
 public:
@@ -17,29 +39,72 @@ public:
         auto node = std::make_unique<T>(nodeName, std::forward<Args>(args)...);
         node->name = nodeName;
         T* ptr = node.get();
+        // Give the node access to the collision world for physics queries
+        ptr->_world = &collisionWorld;
+        // Set up child-added callback so colliders added in Ready() get registered
+        // and automatically marked solid/static based on their parent body type.
+        ptr->_onChildAdded = [this](Node* n) {
+            n->_world = &collisionWorld;
+            if (auto* col = dynamic_cast<Collider2D*>(n)) {
+                AutoMarkCollider(col);
+                collisionWorld.Add(col);
+            }
+        };
         nodes.push_back(std::move(node));
+        // Call Ready() first — sets positions, adds children
+        ptr->Ready();
+        // THEN register colliders — positions are correct, no false overlaps.
+        // Also auto-mark solid/static in case Ready() didn't call super.
         if (auto* col = dynamic_cast<Collider2D*>(ptr))
             collisionWorld.Add(col);
         ptr->ForEachDescendant([this](Node* n) {
-            if (auto* col = dynamic_cast<Collider2D*>(n))
+            if (auto* col = dynamic_cast<Collider2D*>(n)) {
+                AutoMarkCollider(col);
                 collisionWorld.Add(col);
+            }
         });
-        ptr->Ready();
         return ptr;
     }
 
     void Remove(const std::string& nodeName) {
         for (auto it = nodes.begin(); it != nodes.end(); ++it) {
             if ((*it)->name == nodeName) {
+                // Unregister colliders from collision world
                 if (auto* col = dynamic_cast<Collider2D*>(it->get()))
                     collisionWorld.Remove(col);
                 (*it)->ForEachDescendant([this](Node* n) {
                     if (auto* col = dynamic_cast<Collider2D*>(n))
                         collisionWorld.Remove(col);
                 });
+                // Call OnDestroy on the node and all descendants
+                (*it)->ForEachDescendant([](Node* n) { n->OnDestroy(); });
+                (*it)->OnDestroy();
                 nodes.erase(it);
                 return;
             }
+        }
+    }
+
+    // Remove all nodes from the scene — calls OnDestroy on each
+    void Clear() {
+        for (auto& node : nodes) {
+            node->ForEachDescendant([this](Node* n) {
+                if (auto* col = dynamic_cast<Collider2D*>(n))
+                    collisionWorld.Remove(col);
+                n->OnDestroy();
+            });
+            if (auto* col = dynamic_cast<Collider2D*>(node.get()))
+                collisionWorld.Remove(col);
+            node->OnDestroy();
+        }
+        nodes.clear();
+    }
+
+    ~Scene() {
+        // Call OnDestroy on all nodes when the scene is destroyed
+        for (auto& node : nodes) {
+            node->ForEachDescendant([](Node* n) { n->OnDestroy(); });
+            node->OnDestroy();
         }
     }
 
@@ -106,15 +171,24 @@ public:
 private:
     std::vector<std::unique_ptr<Node>> nodes;
 
-    void drawDebug(Node* node) {
+    void drawDebug(Node* node, float parentX = 0, float parentY = 0) {
+        float wx = parentX, wy = parentY;
+        if (auto* n2d = dynamic_cast<Node2D*>(node)) {
+            wx += n2d->x;
+            wy += n2d->y;
+        }
         if (auto* col = dynamic_cast<Collider2D*>(node)) {
+            // Temporarily set world-space position for drawing
+            float savedX = col->x, savedY = col->y;
+            col->x = wx; col->y = wy;
             bool was = col->debugDraw;
             col->debugDraw = true;
             col->Draw();
             col->debugDraw = was;
+            col->x = savedX; col->y = savedY;
         }
         for (auto& child : node->getChildren())
             if (child->active)
-                drawDebug(child.get());
+                drawDebug(child.get(), wx, wy);
     }
 };

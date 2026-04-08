@@ -285,7 +285,10 @@ private:
 
     // Engine types that are plain value types, NOT pointers
     const std::unordered_set<std::string> m_engineValueTypes = {
-        "Camera2D", "Sound", "Music", "Texture", "Scene"
+        "Camera2D", "Sound", "Music", "Texture", "Scene",
+        "Rectangle", "Circle", "Font", "Color", "TileGrid",
+        "Tilemap", "TileCoord", "IsometricGrid", "IsoTilemap",
+        "Vector2", "Vec2"
     };
 
     void error(const std::string& msg, int l = 0, int c = 0) {
@@ -813,7 +816,7 @@ private:
         if (!n->fields.empty()) line("");
 
         for (auto& m : n->methods)
-            genNodeMethod(m.get(), n->name);
+            genNodeMethod(m.get(), n->base);
 
         // Remove field ptrs so they don't leak to other nodes/methods
         for (auto& name : addedFieldPtrs)
@@ -824,7 +827,7 @@ private:
         line("");
     }
 
-    void genNodeMethod(const FuncDecl* f, const std::string&) {
+    void genNodeMethod(const FuncDecl* f, const std::string& base) {
         struct MethodMap { std::string ks, sig; };
         static const std::vector<MethodMap> builtinMethods = {
             {"Ready",            "void Ready() override"},
@@ -837,6 +840,11 @@ private:
             if (f->name == bm.ks) {
                 line(bm.sig + " {");
                 indent();
+                // Call super so base body types initialize properly
+                if (f->name == "Ready")
+                    line(base + "::Ready();");
+                else if (f->name == "Update")
+                    line(base + "::Update(dt);");
                 // Register pointer params so genMember uses -> inside the body.
                 // OnCollisionEnter/Exit take Collider2D* other — must use ->.
                 // Update takes float dt — not a pointer, harmless to skip.
@@ -1259,6 +1267,17 @@ private:
             case Expr::Kind::NullCoal:
                 genNullCoal(static_cast<const NullCoalExpr*>(e));
                 break;
+            case Expr::Kind::Ternary: {
+                auto* te = static_cast<const TernaryExpr*>(e);
+                write("(");
+                genExpr(te->condition.get());
+                write(" ? ");
+                genExpr(te->trueVal.get());
+                write(" : ");
+                genExpr(te->falseVal.get());
+                write(")");
+                break;
+            }
             case Expr::Kind::ForceUnwrap:
                 genExpr(static_cast<const ForceUnwrapExpr*>(e)->value.get());
                 write(".value()");
@@ -1389,6 +1408,57 @@ private:
             {"Lerp",               "glm::mix"},
             {"Min",                "std::min"},
             {"Max",                "std::max"},
+            // Audio query functions
+            {"IsSoundPlaying",     "IsSoundPlaying"},
+            {"IsMusicPlaying",     "IsMusicPlaying"},
+            {"SetMusicLooping",    "SetMusicLooping"},
+            {"UnloadSound",        "UnloadSound"},
+            {"UnloadMusic",        "UnloadMusic"},
+            // Camera utility functions
+            {"Camera2DLerp",       "Camera2DLerp"},
+            {"Camera2DFollow",     "Camera2DFollow"},
+            {"Camera2DClamp",      "Camera2DClamp"},
+            {"Camera2DShake",      "Camera2DShake"},
+            // Camera begin/end
+            {"BeginCamera2D",      "BeginCamera2D"},
+            {"EndCamera2D",        "EndCamera2D"},
+            // Collision detection
+            {"CheckCollisionRecs",      "CheckCollisionRecs"},
+            {"CheckCollisionCircles",   "CheckCollisionCircles"},
+            {"CheckCollisionCircleRec", "CheckCollisionCircleRec"},
+            // Font functions
+            {"LoadFont",           "LoadFont"},
+            {"UnloadFont",         "UnloadFont"},
+            // Texture drawing
+            {"DrawTexture",        "DrawTexture"},
+            {"DrawTextureRec",     "DrawTextureRec"},
+            // Letterbox / design resolution
+            {"GetDesignWidth",     "GetDesignWidth"},
+            {"GetDesignHeight",    "GetDesignHeight"},
+            {"GetLetterboxScale",  "GetLetterboxScale"},
+            {"GetLetterboxOffsetX","GetLetterboxOffsetX"},
+            {"GetLetterboxOffsetY","GetLetterboxOffsetY"},
+            {"GetGameMouseX",      "GetGameMouseX"},
+            {"GetGameMouseY",      "GetGameMouseY"},
+            // Window
+            {"SetVsync",           "SetVsync"},
+            {"SetWindowIcon",      "SetWindowIcon"},
+            // Gamepad input
+            {"GamepadConnected",   "IsGamepadConnected"},
+            {"CollisionDebug",     "CollisionDebug"},
+            // Text measurement
+            {"MeasureTextWidth",   "MeasureTextWidth"},
+            // Timer system
+            {"TimerCreate",        "TimerCreate"},
+            {"TimerRemove",        "TimerRemove"},
+            {"TimerRemoveAll",     "TimerRemoveAll"},
+            {"TimerPause",         "TimerPause"},
+            {"TimerResume",        "TimerResume"},
+            {"TimerReset",         "TimerReset"},
+            {"TimerExists",        "TimerExists"},
+            {"TimerFinished",      "TimerFinished"},
+            {"TimerRemaining",     "TimerRemaining"},
+            {"TimerUpdateAll",     "TimerUpdateAll"},
         };
         auto it = builtins.find(e->name);
         if (it != builtins.end()) {
@@ -1540,6 +1610,87 @@ private:
                 return;
             }
 
+            // GamepadDown/Pressed/Released(player, button) -> IsGamepadButton* with cast
+            static const std::unordered_map<std::string,std::string> gamepadBtnFuncs = {
+                {"GamepadDown",     "IsGamepadButtonDown"},
+                {"GamepadPressed",  "IsGamepadButtonPressed"},
+                {"GamepadReleased", "IsGamepadButtonReleased"},
+            };
+            auto gf = gamepadBtnFuncs.find(id->name);
+            if (gf != gamepadBtnFuncs.end() && e->args.size() == 2) {
+                write(gf->second + "((int)(");
+                genExpr(e->args[0].get());
+                write("), (Gamepad::Button)(");
+                genExpr(e->args[1].get());
+                write("))");
+                return;
+            }
+
+            // GamepadAxis(player, axis) -> GetGamepadAxis with cast
+            if (id->name == "GamepadAxis" && e->args.size() == 2) {
+                write("GetGamepadAxis((int)(");
+                genExpr(e->args[0].get());
+                write("), (Gamepad::Axis)(");
+                genExpr(e->args[1].get());
+                write("))");
+                return;
+            }
+
+            // Rectangle(x, y, w, h) -> Rectangle{x, y, w, h}
+            if (id->name == "Rectangle") {
+                write("Rectangle{");
+                for (size_t i = 0; i < e->args.size(); i++) {
+                    if (i > 0) write(", ");
+                    genExpr(e->args[i].get());
+                }
+                write("}");
+                return;
+            }
+
+            // Circle(x, y, radius) -> Circle{x, y, radius}
+            if (id->name == "Circle") {
+                write("Circle{");
+                for (size_t i = 0; i < e->args.size(); i++) {
+                    if (i > 0) write(", ");
+                    genExpr(e->args[i].get());
+                }
+                write("}");
+                return;
+            }
+
+            // Color(r, g, b, a) -> Color{r, g, b, a}
+            if (id->name == "Color") {
+                write("Color{");
+                for (size_t i = 0; i < e->args.size(); i++) {
+                    if (i > 0) write(", ");
+                    genExpr(e->args[i].get());
+                }
+                write("}");
+                return;
+            }
+
+            // TileGrid(tileW, tileH) -> TileGrid{tileW, tileH}
+            if (id->name == "TileGrid" || id->name == "IsometricGrid") {
+                write(id->name + "{");
+                for (size_t i = 0; i < e->args.size(); i++) {
+                    if (i > 0) write(", ");
+                    genExpr(e->args[i].get());
+                }
+                write("}");
+                return;
+            }
+
+            // Tilemap(cols, rows, tileW, tileH) -> Tilemap(cols, rows, tileW, tileH)
+            if (id->name == "Tilemap" || id->name == "IsoTilemap") {
+                write(id->name + "(");
+                for (size_t i = 0; i < e->args.size(); i++) {
+                    if (i > 0) write(", ");
+                    genExpr(e->args[i].get());
+                }
+                write(")");
+                return;
+            }
+
             // scene.add(TypeName, "name") -> scene.Add<TypeName>("name")
             // node.add(TypeName, "name")  -> node->AddChild<TypeName>("name")
             if (e->callee->kind == Expr::Kind::Ident) {
@@ -1607,6 +1758,50 @@ private:
                 }
                 write(")");
                 return;
+            }
+
+            // ── Random.method(args) ─────────────────────────────────────
+            // Random.Seed()        → Random::Seed()
+            // Random.Range(a, b)   → Random::Range(a, b)  etc.
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                if (objId->name == "Random") {
+                    write("Random::" + m->member + "(");
+                    for (size_t i = 0; i < e->args.size(); i++) {
+                        if (i > 0) write(", ");
+                        genExpr(e->args[i].get());
+                    }
+                    write(")");
+                    return;
+                }
+            }
+
+            // ── UI.method(args) ─────────────────────────────────────────
+            // UI.AddButton("id", "text", x, y)  → UIAddButton(...)
+            // UI.Draw()                          → UIDrawAll()
+            if (m->object->kind == Expr::Kind::Ident) {
+                auto* objId = static_cast<const IdentExpr*>(m->object.get());
+                if (objId->name == "UI") {
+                    static const std::unordered_map<std::string,std::string> uiMethodMap = {
+                        {"Draw", "UIDrawAll"}, {"WantsInput", "UIWantsInput"},
+                        {"Update", "UIUpdate"}, {"Clear", "UIClear"},
+                        {"AddButton", "UIAddButton"}, {"AddLabel", "UIAddLabel"},
+                        {"AddPanel", "UIAddPanel"}, {"AddImage", "UIAddImage"},
+                        {"AddTextBox", "UIAddTextBox"},
+                        {"PanelAddChild", "UIPanelAddChild"},
+                        {"Remove", "UIRemove"}, {"OnClick", "UIOnClick"},
+                        {"Connect", "UIConnect"}, {"GetElement", "UIGetElement"},
+                    };
+                    auto uit = uiMethodMap.find(m->member);
+                    std::string cppName = (uit != uiMethodMap.end()) ? uit->second : ("UI" + m->member);
+                    write(cppName + "(");
+                    for (size_t i = 0; i < e->args.size(); i++) {
+                        if (i > 0) write(", ");
+                        genExpr(e->args[i].get());
+                    }
+                    write(")");
+                    return;
+                }
             }
 
             // ── File.method(args) ───────────────────────────────────────
@@ -1943,7 +2138,7 @@ private:
         if (e->object->kind == Expr::Kind::Ident) {
             auto* id = static_cast<const IdentExpr*>(e->object.get());
             static const std::unordered_set<std::string> cppNamespaces = {
-                "Key", "Mouse", "Gamepad", "AssetManager"
+                "Key", "Mouse", "Gamepad", "AssetManager", "Random", "UI"
             };
             // User-defined enums also use :: for variant access
             if (cppNamespaces.count(id->name) || m_enumNames.count(id->name)) {
@@ -1953,9 +2148,18 @@ private:
                     return;
                 }
             if (cppNamespaces.count(id->name)) {
-                // AssetManager uses :: (static methods)
+                // AssetManager and Random use :: (static methods)
                 if (id->name == "AssetManager") {
                     write("AssetManager::" + e->member);
+                    return;
+                }
+                if (id->name == "Random") {
+                    write("Random::" + e->member);
+                    return;
+                }
+                if (id->name == "UI") {
+                    // Member access on UI namespace (non-call)
+                    write("UI" + e->member);
                     return;
                 }
                 static const std::unordered_map<std::string,std::string> keyAliases = {

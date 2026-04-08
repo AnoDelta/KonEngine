@@ -28,6 +28,7 @@ set(SOURCES
     src/BuildPanel.cpp
     src/DebugConsole.cpp
     src/WelcomeScreen.cpp
+    src/AssetPackPanel.cpp
     ${KONSCRIPTIDE_DIR}/KonScriptEditor.cpp
     ${KONSCRIPTIDE_DIR}/KonScriptHighlighter.hpp
 )

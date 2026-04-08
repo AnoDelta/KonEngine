@@ -565,7 +565,7 @@ private:
         reg("WindowShouldClose", {}, Bool);
         reg("Present",       {}, Void);
         reg("PollEvents",    {}, Void);
-        reg("ClearBackground", {F64, F64, F64}, Void);
+        reg("ClearBackground", {}, Void);  // overloaded: (r,g,b) or (Color)
         reg("SetTargetFPS",  {I32}, Void);
         reg("GetDeltaTime",  {}, F64);
         reg("GetFPS",        {}, I32);
@@ -1211,11 +1211,11 @@ private:
             case Expr::Kind::SafeMember: {
                 auto* m = static_cast<const MemberExpr*>(e);
                 Type obj = checkExpr(m->object.get(), scope);
-                // Safe member on non-nullable is a warning but not an error
+                // Safe member on non-nullable is an error — operand is never null
                 if (e->kind == Expr::Kind::SafeMember &&
                     obj.kind != Type::Kind::Nullable && !obj.isUnknown())
                     error("safe access '?.' used on non-nullable type '" +
-                          obj.toString() + "'", e->line, e->col);
+                          obj.toString() + "' — operand is never null", e->line, e->col);
 
                 // ── Result<T> members ──────────────────────────────────
                 // result.ok    -> Bool
@@ -1401,6 +1401,16 @@ private:
                                   e->line, e->col);
                     }
                 }
+                // Check all required fields are provided
+                for (auto& [fname, ftype] : it->second.fields) {
+                    bool found = false;
+                    for (auto& f : si->fields) {
+                        if (f.name == fname) { found = true; break; }
+                    }
+                    if (!found && ftype.kind != Type::Kind::Nullable)
+                        error("missing field '" + fname + "' in struct '" +
+                              si->typeName + "' initializer", e->line, e->col);
+                }
                 return Type::make(Type::Kind::Struct, si->typeName);
             }
 
@@ -1471,9 +1481,14 @@ private:
             return typesCompatible(expected.inner[0], actual.inner[0]);
         }
 
-        // Nullable: T? is compatible with T and null
+        // Nullable: T? is compatible with T? (if inner types match), T, and null
         if (expected.kind == Type::Kind::Nullable) {
-            if (actual.kind == Type::Kind::Nullable) return true;
+            if (actual.kind == Type::Kind::Nullable) {
+                // Both nullable: check inner types match
+                if (expected.inner.empty() || actual.inner.empty()) return true;
+                return typesCompatible(expected.inner[0], actual.inner[0]);
+            }
+            // Non-nullable T assigned to T? — allowed (implicit wrap)
             if (!expected.inner.empty())
                 return typesCompatible(expected.inner[0], actual);
         }
@@ -1502,22 +1517,40 @@ private:
             actual.kind == Type::Kind::Struct &&
             actual.name == "Result") return true;
 
-        // Two HashMaps are compatible regardless of type params (like two arrays)
+        // Two HashMaps are compatible if key and value types match
         if (expected.kind == Type::Kind::HashMap &&
-            actual.kind == Type::Kind::HashMap) return true;
+            actual.kind == Type::Kind::HashMap) {
+            if (expected.inner.size() < 2 || actual.inner.size() < 2) return true;
+            return typesCompatible(expected.inner[0], actual.inner[0]) &&
+                   typesCompatible(expected.inner[1], actual.inner[1]);
+        }
 
-        // Two Results are compatible regardless of inner type (covariant-ish)
+        // Two Results are compatible if inner types match
         if (expected.kind == Type::Kind::Result &&
-            actual.kind == Type::Kind::Result) return true;
+            actual.kind == Type::Kind::Result) {
+            if (expected.inner.empty() || actual.inner.empty()) return true;
+            return typesCompatible(expected.inner[0], actual.inner[0]);
+        }
 
-        // Function types: compatible if same arity
+        // Function types: compatible if param types and return type match
         if (expected.kind == Type::Kind::FuncType &&
-            actual.kind == Type::Kind::FuncType) return true;
+            actual.kind == Type::Kind::FuncType) {
+            if (expected.inner.size() != actual.inner.size()) return false;
+            for (size_t i = 0; i < expected.inner.size(); i++) {
+                if (!typesCompatible(expected.inner[i], actual.inner[i])) return false;
+            }
+            return true;
+        }
 
-        // Pointer types: permissive — any ptr ↔ ptr, ptr ↔ integer
-        if (expected.kind == Type::Kind::Ptr) return true;
+        // Pointer types: ptr ↔ ptr (with compatible inner types), ptr ↔ integer for casts
+        if (expected.kind == Type::Kind::Ptr && actual.kind == Type::Kind::Ptr) {
+            // *void is compatible with any pointer
+            if (expected.inner.empty() || actual.inner.empty()) return true;
+            return typesCompatible(expected.inner[0], actual.inner[0]);
+        }
+        // ptr ↔ integer for low-level casts (needed for systems programming)
+        if (expected.kind == Type::Kind::Ptr && actual.isNumeric()) return true;
         if (actual.kind == Type::Kind::Ptr && expected.isNumeric()) return true;
-        if (actual.kind == Type::Kind::Ptr && expected.kind == Type::Kind::Ptr) return true;
 
         return false;
     }

@@ -1,8 +1,26 @@
 #!/bin/bash
-# Install KonEngine library and optionally tools
+# Install KonEngine library, headers, and optionally tools
+#
 # Usage:
-#   ./install.sh           -- engine library only
-#   ./install.sh --tools   -- engine + KonAnimator + anim_compiler + KonPaktor + konpak
+#   ./install.sh                      -- engine library + headers
+#   ./install.sh --tools              -- engine + all tools
+#   ./install.sh --prefix=/opt/kon    -- custom install prefix
+#
+# After install:
+#   /usr/local/lib/libKonEngine.a     -- static library
+#   /usr/local/include/KonEngine.hpp  -- main header
+#   /usr/local/include/color/         -- color system
+#   /usr/local/include/window/        -- windowing
+#   /usr/local/include/renderer/      -- rendering (OpenGL)
+#   /usr/local/include/node/          -- scene graph
+#   /usr/local/include/...            -- all subsystem headers
+#
+# Build a game:
+#   g++ -std=c++17 game.cpp -I/usr/local/include \
+#       -L/usr/local/lib -lKonEngine -lglfw -lGL -ldl -lpthread -lX11 -lXrandr -lXi -lm
+#
+# Or use KonScript:
+#   konscript game.ks -o game
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -17,7 +35,6 @@ done
 
 # ---- Build + install engine ----
 echo "Building KonEngine..."
-mkdir -p build
 cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
@@ -27,30 +44,33 @@ sudo cmake --install build
 
 echo ""
 echo "KonEngine installed to $INSTALL_PREFIX"
+echo "  Library: $INSTALL_PREFIX/lib/libKonEngine.a"
+echo "  Headers: $INSTALL_PREFIX/include/KonEngine.hpp"
 
 # ---- Install tools ----
 if [ "$INSTALL_TOOLS" = "ON" ]; then
     echo ""
     echo "Installing tools..."
 
-    sudo cp build/anim_compiler "$INSTALL_PREFIX/bin/anim_compiler"
-    sudo cp build/tools/KonAnimator/KonAnimator "$INSTALL_PREFIX/bin/KonAnimator"
+    if [ -f build/anim_compiler ]; then
+        sudo install -m 755 build/anim_compiler "$INSTALL_PREFIX/bin/anim_compiler"
+    fi
+    if [ -f build/tools/KonAnimator/KonAnimator ]; then
+        sudo install -m 755 build/tools/KonAnimator/KonAnimator "$INSTALL_PREFIX/bin/KonAnimator"
+    fi
 
     # KonPaktor
-    cd tools/KonPaktor
-    mkdir -p build
-    cmake -B build -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX"
-    cmake --build build --target KonPaktor --target konpak
-    sudo cmake --install build
-    cd "$SCRIPT_DIR"
+    if [ -d tools/KonPaktor ]; then
+        cd tools/KonPaktor
+        cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX"
+        cmake --build build --target KonPaktor --target konpak 2>/dev/null || true
+        sudo cmake --install build 2>/dev/null || true
+        cd "$SCRIPT_DIR"
+    fi
 
     echo ""
-    echo "Tools installed:"
-    echo "  $INSTALL_PREFIX/bin/KonAnimator"
-    echo "  $INSTALL_PREFIX/bin/anim_compiler"
-    echo "  $INSTALL_PREFIX/bin/KonPaktor"
-    echo "  $INSTALL_PREFIX/bin/konpak"
+    echo "Tools installed to $INSTALL_PREFIX/bin/"
 fi
 
 echo ""

@@ -5,15 +5,20 @@
 #include <functional>
 #include <unordered_map>
 #include <algorithm>
+#include <mutex>
 
 // Forward declare so Node can have OnCollisionEnter/Exit
 class Collider2D;
+class CollisionWorld;
 
 class Node {
 public:
     std::string name;
     bool active = true;
     Node* parent = nullptr;
+
+    // Set by Scene::Add — gives body nodes access to collision queries
+    CollisionWorld* _world = nullptr;
 
     // Optional callback set by Scene so dynamically added collider children
     // get registered with the CollisionWorld automatically, no Scan() needed.
@@ -26,6 +31,7 @@ public:
     virtual void Ready() {}
     virtual void Update(float dt) {}
     virtual void Draw() {}
+    virtual void OnDestroy() {}  // called when node is removed from scene/parent
 
     // Collision callbacks -- override in nodes that have collider children
     // Called by Collider2D::Emit() when a collision signal fires on a child collider
@@ -38,21 +44,35 @@ public:
         auto node = std::make_unique<T>(childName, std::forward<Args>(args)...);
         node->name   = childName;
         node->parent = this;
-        // Propagate the scene registration callback down
+        // Propagate scene pointers down to children
         if (_onChildAdded) node->_onChildAdded = _onChildAdded;
+        if (_world) node->_world = _world;
         T* ptr = node.get();
-        children.push_back(std::move(node));
+        {
+            std::lock_guard<std::mutex> lock(m_childMutex);
+            children.push_back(std::unique_ptr<Node>(std::move(node)));
+        }
         ptr->Ready();
         // Notify scene so it can register any colliders
-        if (_onChildAdded) _onChildAdded(ptr);
+        if (_onChildAdded) _onChildAdded(static_cast<Node*>(ptr));
         return ptr;
     }
 
     void RemoveChild(const std::string& childName) {
-        children.erase(
-            std::remove_if(children.begin(), children.end(),
-                [&](const std::unique_ptr<Node>& n) { return n->name == childName; }),
-            children.end());
+        std::lock_guard<std::mutex> lock(m_childMutex);
+        auto it = std::remove_if(children.begin(), children.end(),
+            [&](const std::unique_ptr<Node>& n) { return n->name == childName; });
+        // Call OnDestroy recursively: descendants first, then the child
+        for (auto ri = it; ri != children.end(); ++ri) {
+            (*ri)->ForEachDescendant([](Node* n) { n->OnDestroy(); });
+            (*ri)->OnDestroy();
+        }
+        children.erase(it, children.end());
+    }
+
+    // Remove this node from its parent (calls OnDestroy recursively)
+    void Remove() {
+        if (parent) parent->RemoveChild(name);
     }
 
     void ForEachDescendant(std::function<void(Node*)> fn) {
@@ -82,6 +102,7 @@ public:
     }
 
     virtual void UpdateChildren(float dt) {
+        std::lock_guard<std::mutex> lock(m_childMutex);
         for (auto& child : children)
             if (child->active) {
                 child->Update(dt);
@@ -90,6 +111,7 @@ public:
     }
 
     virtual void DrawChildren() {
+        std::lock_guard<std::mutex> lock(m_childMutex);
         for (auto& child : children)
             if (child->active) {
                 child->Draw();
@@ -100,6 +122,7 @@ public:
     const std::vector<std::unique_ptr<Node>>& getChildren() const { return children; }
 
 protected:
+    mutable std::mutex m_childMutex;
     std::vector<std::unique_ptr<Node>> children;
     std::unordered_map<std::string, std::vector<std::function<void()>>> signals;
 };

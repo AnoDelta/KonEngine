@@ -89,19 +89,19 @@ if [ "$CLEAN" = "1" ]; then
     exit 0
 fi
 
-# ---- Compile ----
-"$KSC_BACKEND" "$KS_FILE" -o "$CPP_FILE"
+# ---- Compile + Link via konscript (handles include paths + libraries) ----
+"$KSC_BACKEND" "$KS_FILE"
 
-# ---- Build ----
-"$CXX" $CXXFLAGS "$CPP_FILE" -o "./$BIN_FILE"
+# The binary name is the .ks filename without extension
+BIN_NAME="$(basename "${KS_FILE%.ks}")"
 
 # ---- Run ----
-"./$BIN_FILE"
+"./$BIN_NAME"
 EXIT_CODE=$?
 
 # ---- Clean up unless --keep ----
 if [ "$KEEP" = "0" ]; then
-    rm -f "$CPP_FILE" "./$BIN_FILE"
+    rm -f "./$BIN_NAME"
 fi
 
 exit $EXIT_CODE

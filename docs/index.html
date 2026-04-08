@@ -1,0 +1,4499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KonEngine Documentation</title>
+<style>
+:root {
+    --bg: #1a1b2e;
+    --sidebar-bg: #141524;
+    --card-bg: #222339;
+    --text: #ccd0e0;
+    --text-dim: #8888aa;
+    --accent: #50a0ff;
+    --accent2: #7b68ee;
+    --border: #333456;
+    --code-bg: #1c1d30;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; min-height: 100vh;
+}
+#sidebar {
+    width: 280px; min-width: 280px; background: var(--sidebar-bg);
+    border-right: 1px solid var(--border); padding: 20px 0;
+    overflow-y: auto; position: fixed; height: 100vh;
+}
+#sidebar h2 { color: var(--accent); padding: 0 20px 15px; font-size: 18px; }
+#sidebar .doc-group { margin-bottom: 8px; }
+#sidebar .doc-group-title {
+    display: block; padding: 10px 20px; color: var(--text);
+    font-weight: 600; font-size: 14px; cursor: pointer;
+    border-left: 3px solid transparent; transition: 0.15s;
+}
+#sidebar .doc-group-title:hover,
+#sidebar .doc-group-title.active {
+    background: var(--card-bg); border-left-color: var(--accent); color: var(--accent);
+}
+#sidebar .toc-list { display: none; padding: 0; }
+#sidebar .doc-group.open .toc-list { display: block; }
+#sidebar .toc-item {
+    display: block; padding: 4px 20px 4px 30px; color: var(--text-dim);
+    font-size: 13px; text-decoration: none; transition: 0.1s;
+}
+#sidebar .toc-item:hover { color: var(--accent); background: rgba(80,160,255,0.05); }
+#sidebar .toc-item.h3 { padding-left: 45px; font-size: 12px; }
+#content {
+    margin-left: 280px; flex: 1; padding: 40px 60px; max-width: 900px;
+}
+.doc-section { display: none; }
+.doc-section.active { display: block; }
+h1 { color: var(--accent); font-size: 28px; margin: 0 0 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+h2 { color: var(--accent2); font-size: 22px; margin: 35px 0 12px; }
+h3 { color: var(--text); font-size: 17px; margin: 25px 0 8px; }
+h4, h5, h6 { color: var(--text-dim); margin: 15px 0 5px; }
+p { line-height: 1.7; margin: 8px 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px 18px; overflow-x: auto; margin: 10px 0; font-size: 13px; line-height: 1.5;
+}
+code { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; }
+p code, li code, td code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    border: 1px solid var(--border);
+}
+table {
+    border-collapse: collapse; margin: 12px 0; width: 100%;
+}
+th, td {
+    border: 1px solid var(--border); padding: 8px 12px; text-align: left; font-size: 14px;
+}
+th { background: var(--card-bg); color: var(--accent); font-weight: 600; }
+tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+ul { padding-left: 24px; margin: 8px 0; }
+li { line-height: 1.7; margin: 2px 0; }
+blockquote {
+    border-left: 3px solid var(--accent2); padding: 8px 16px; margin: 12px 0;
+    background: rgba(123,104,238,0.08); color: var(--text-dim); font-style: italic;
+}
+hr { border: none; border-top: 1px solid var(--border); margin: 30px 0; }
+img { max-width: 100%; }
+@media (max-width: 800px) {
+    #sidebar { display: none; }
+    #content { margin-left: 0; padding: 20px; }
+}
+</style>
+</head>
+<body>
+<nav id="sidebar">
+    <h2>KonEngine Docs</h2>
+    
+        <div class="doc-group">
+            <span class="doc-group-title">README</span>
+            <div class="toc-list"><a class="toc-item" href="#konengine" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">KonEngine</a>
+<a class="toc-item" href="#features" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Features</a>
+<a class="toc-item" href="#quick-start" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Quick Start</a>
+<a class="toc-item h3" href="#1-clone" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">1. Clone</a>
+<a class="toc-item h3" href="#2-install-system-dependencies" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">2. Install system dependencies</a>
+<a class="toc-item h3" href="#3-build" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">3. Build</a>
+<a class="toc-item h3" href="#4-write-your-first-game" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">4. Write your first game</a>
+<a class="toc-item h3" href="#5-link-the-engine-from-cmake" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">5. Link the engine from CMake</a>
+<a class="toc-item" href="#optional-compile-konscript-files" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Optional: compile KonScript files</a>
+<a class="toc-item" href="#project-structure" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Project Structure</a>
+<a class="toc-item" href="#tools" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Tools</a>
+<a class="toc-item" href="#documentation" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Documentation</a>
+<a class="toc-item" href="#dependencies" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Dependencies</a>
+<a class="toc-item" href="#cross-compilation-windows-from-linux" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Cross-Compilation (Windows from Linux)</a>
+<a class="toc-item" href="#running-tests" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">Running Tests</a>
+<a class="toc-item" href="#license" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===0))">License</a>
+</div>
+        </div>
+        <div class="doc-group">
+            <span class="doc-group-title">Engine Docs</span>
+            <div class="toc-list"><a class="toc-item" href="#konengine-documentation" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">KonEngine Documentation</a>
+<a class="toc-item" href="#table-of-contents" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Table of Contents</a>
+<a class="toc-item" href="#getting-started" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Getting Started</a>
+<a class="toc-item h3" href="#install-dependencies-linux" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Install Dependencies (Linux)</a>
+<a class="toc-item" href="#ubuntu-debian" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Ubuntu/Debian</a>
+<a class="toc-item" href="#gentoo" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Gentoo</a>
+<a class="toc-item h3" href="#build-konscript-compiler" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Build KonScript Compiler</a>
+<a class="toc-item h3" href="#build-engine-library-for-konscript-games" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Build Engine Library (for KonScript games)</a>
+<a class="toc-item h3" href="#hello-world" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Hello World</a>
+<a class="toc-item" href="#konscript-language" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">KonScript Language</a>
+<a class="toc-item h3" href="#types" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Types</a>
+<a class="toc-item h3" href="#variables" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Variables</a>
+<a class="toc-item h3" href="#functions" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Functions</a>
+<a class="toc-item h3" href="#nodes" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Nodes</a>
+<a class="toc-item h3" href="#scene-setup" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Scene Setup</a>
+<a class="toc-item" href="#node-types" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Node Types</a>
+<a class="toc-item h3" href="#sprite2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Sprite2D</a>
+<a class="toc-item h3" href="#node2d-with-manual-textures" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Node2D with manual textures</a>
+<a class="toc-item h3" href="#staticbody2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">StaticBody2D</a>
+<a class="toc-item h3" href="#kinematicbody2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">KinematicBody2D</a>
+<a class="toc-item h3" href="#rigidbody2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">RigidBody2D</a>
+<a class="toc-item h3" href="#collider2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Collider2D</a>
+<a class="toc-item" href="#custom-node-methods" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Custom Node Methods</a>
+<a class="toc-item" href="#node-lifecycle" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Node Lifecycle</a>
+<a class="toc-item" href="#assets-on-nodes-textures-music-sound" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Assets on Nodes (Textures, Music, Sound)</a>
+<a class="toc-item h3" href="#how-it-works" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">How it works</a>
+<a class="toc-item h3" href="#assetmanager" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">AssetManager</a>
+<a class="toc-item" href="#multi-file-projects" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Multi-File Projects</a>
+<a class="toc-item h3" href="#project-structure" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Project structure</a>
+<a class="toc-item h3" href="#player-ks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">player.ks</a>
+<a class="toc-item h3" href="#enemy-ks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">enemy.ks</a>
+<a class="toc-item h3" href="#main-ks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">main.ks</a>
+<a class="toc-item h3" href="#compiling" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Compiling</a>
+<a class="toc-item" href="#fullscreen" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Fullscreen</a>
+<a class="toc-item h3" href="#cameranode2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">CameraNode2D</a>
+<a class="toc-item h3" href="#animationplayer" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">AnimationPlayer</a>
+<a class="toc-item" href="#animation-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Animation System</a>
+<a class="toc-item h3" href="#anim-file-format" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">.anim File Format</a>
+<a class="toc-item h3" href="#creating-animations-in-code-c" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Creating Animations in Code (C++)</a>
+<a class="toc-item h3" href="#easing-curves" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Easing Curves</a>
+<a class="toc-item h3" href="#animation-overlays" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Animation Overlays</a>
+<a class="toc-item h3" href="#compiling-anim-files" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Compiling .anim Files</a>
+<a class="toc-item" href="#physics-collision" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Physics & Collision</a>
+<a class="toc-item h3" href="#overview" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Overview</a>
+<a class="toc-item h3" href="#collision-shapes" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Collision Shapes</a>
+<a class="toc-item" href="#rectangle-collider" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Rectangle collider</a>
+<a class="toc-item" href="#circle-collider" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Circle collider</a>
+<a class="toc-item h3" href="#collision-layers-masks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Collision Layers & Masks</a>
+<a class="toc-item" href="#player-on-layer-1-collides-with-layer-2-enemies" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Player on layer 1, collides with layer 2 (enemies)</a>
+<a class="toc-item" href="#enemy-on-layer-2-collides-with-layer-1-player" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Enemy on layer 2, collides with layer 1 (player)</a>
+<a class="toc-item h3" href="#collision-callbacks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Collision Callbacks</a>
+<a class="toc-item h3" href="#physics-bodies" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Physics Bodies</a>
+<a class="toc-item h3" href="#standalone-collision-checks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Standalone Collision Checks</a>
+<a class="toc-item h3" href="#scene-registration" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Scene Registration</a>
+<a class="toc-item" href="#late-collider-addition" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Late collider addition</a>
+<a class="toc-item h3" href="#debug-visualization" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Debug Visualization</a>
+<a class="toc-item" href="#camera-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Camera System</a>
+<a class="toc-item h3" href="#basic-camera" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Basic Camera</a>
+<a class="toc-item" href="#add-a-cameranode2d-to-the-scene" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Add a CameraNode2D to the scene</a>
+<a class="toc-item h3" href="#camera-utilities" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Camera Utilities</a>
+<a class="toc-item" href="#smooth-follow-speed-0-1-slow-to-0-9-fast" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Smooth follow — speed 0.1 (slow) to 0.9 (fast)</a>
+<a class="toc-item" href="#clamp-to-world-bounds-never-show-outside-the-map" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Clamp to world bounds (never show outside the map)</a>
+<a class="toc-item" href="#screen-shake-decay-magnitude-each-frame" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Screen shake — decay magnitude each frame</a>
+<a class="toc-item" href="#interpolate-between-two-cameras" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Interpolate between two cameras</a>
+<a class="toc-item" href="#manual-camera-control-without-cameranode2d" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Manual camera control (without CameraNode2D)</a>
+<a class="toc-item" href="#draw-world-here" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">... draw world here ...</a>
+<a class="toc-item" href="#audio-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Audio System</a>
+<a class="toc-item h3" href="#sound-effects" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Sound Effects</a>
+<a class="toc-item h3" href="#music-streaming" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Music Streaming</a>
+<a class="toc-item" href="#in-game-loop" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">In game loop:</a>
+<a class="toc-item" href="#query-state" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Query state</a>
+<a class="toc-item" href="#controls" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Controls</a>
+<a class="toc-item h3" href="#master-volume" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Master Volume</a>
+<a class="toc-item" href="#input-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Input System</a>
+<a class="toc-item h3" href="#input-states" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Input States</a>
+<a class="toc-item h3" href="#keyboard" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Keyboard</a>
+<a class="toc-item" href="#movement-held-every-frame" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Movement (held every frame)</a>
+<a class="toc-item" href="#one-shot-actions-fires-once-on-press" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">One-shot actions (fires once on press)</a>
+<a class="toc-item" href="#release-detection" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Release detection</a>
+<a class="toc-item h3" href="#mouse" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Mouse</a>
+<a class="toc-item" href="#click-detection" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Click detection</a>
+<a class="toc-item" href="#screen-space-mouse-position-design-resolution-coordinates" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Screen-space mouse position (design resolution coordinates)</a>
+<a class="toc-item" href="#per-frame-movement-delta" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Per-frame movement delta</a>
+<a class="toc-item" href="#scroll-wheel-positive-up-negative-down" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Scroll wheel (positive = up, negative = down)</a>
+<a class="toc-item h3" href="#world-space-mouse-clicking-game-objects" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">World-Space Mouse (Clicking Game Objects)</a>
+<a class="toc-item" href="#screen-mouse-for-ui-hud-menus" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Screen mouse — for UI, HUD, menus</a>
+<a class="toc-item" href="#world-mouse-for-clicking-game-objects-tiles-enemies" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">World mouse — for clicking game objects, tiles, enemies</a>
+<a class="toc-item" href="#example-click-to-place-a-block-at-the-mouse-s-world-position" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Example: click to place a block at the mouse's world position</a>
+<a class="toc-item" href="#example-check-if-clicking-near-the-player" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Example: check if clicking near the player</a>
+<a class="toc-item h3" href="#gamepad" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Gamepad</a>
+<a class="toc-item" href="#buttons" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Buttons</a>
+<a class="toc-item" href="#analog-sticks-1-0-to-1-0" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Analog sticks (-1.0 to 1.0)</a>
+<a class="toc-item" href="#triggers-0-0-to-1-0" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Triggers (0.0 to 1.0)</a>
+<a class="toc-item" href="#text-font-rendering" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Text & Font Rendering</a>
+<a class="toc-item h3" href="#default-font" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Default Font</a>
+<a class="toc-item h3" href="#custom-fonts" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Custom Fonts</a>
+<a class="toc-item" href="#use-with-drawtext-by-passing-the-font-object" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Use with DrawText by passing the font object</a>
+<a class="toc-item h3" href="#text-alignment" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Text Alignment</a>
+<a class="toc-item" href="#left-aligned-default-text-starts-at-x" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Left-aligned (default — text starts at x)</a>
+<a class="toc-item" href="#centered-on-x-great-for-titles-game-over-text" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Centered on x — great for titles, game over text</a>
+<a class="toc-item" href="#right-aligned-text-ends-at-x" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Right-aligned — text ends at x</a>
+<a class="toc-item" href="#measure-text-width-for-manual-positioning" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Measure text width for manual positioning</a>
+<a class="toc-item h3" href="#texture-loading" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Texture Loading</a>
+<a class="toc-item" href="#pixel-art-sharp-edges-no-blurring-default" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Pixel art — sharp edges, no blurring (default)</a>
+<a class="toc-item" href="#smooth-bilinear-filtering-for-logos-ui-backgrounds" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Smooth — bilinear filtering, for logos/UI/backgrounds</a>
+<a class="toc-item" href="#tilemap-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Tilemap System</a>
+<a class="toc-item h3" href="#tilemap-data-rendering" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Tilemap (Data + Rendering)</a>
+<a class="toc-item h3" href="#tile-click-detection" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Tile Click Detection</a>
+<a class="toc-item h3" href="#coordinate-conversion" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Coordinate Conversion</a>
+<a class="toc-item h3" href="#tilegrid-lightweight-grid-overlay" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">TileGrid (Lightweight Grid Overlay)</a>
+<a class="toc-item h3" href="#isometric-tilemap-full-example" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Isometric Tilemap (Full Example)</a>
+<a class="toc-item h3" href="#isometric-grid-coordinate-helper-only" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Isometric Grid (Coordinate Helper Only)</a>
+<a class="toc-item h3" href="#saving-and-loading-tilemaps" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Saving and Loading Tilemaps</a>
+<a class="toc-item" href="#color-presets" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Color Presets</a>
+<a class="toc-item" href="#vector2-random" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Vector2 & Random</a>
+<a class="toc-item h3" href="#vector2" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Vector2</a>
+<a class="toc-item" href="#vec2-methods-work-directly" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Vec2 methods work directly</a>
+<a class="toc-item h3" href="#random" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Random</a>
+<a class="toc-item" href="#timers" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Timers</a>
+<a class="toc-item" href="#one-shot-timer-fires-once-after-2-seconds" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">One-shot timer: fires once after 2 seconds</a>
+<a class="toc-item" href="#repeating-timer-fires-every-0-5-seconds" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Repeating timer: fires every 0.5 seconds</a>
+<a class="toc-item" href="#in-game-loop-must-call-this-each-frame" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">In game loop — MUST call this each frame</a>
+<a class="toc-item" href="#controls" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Controls</a>
+<a class="toc-item" href="#queries" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Queries</a>
+<a class="toc-item h3" href="#full-timer-example-konscript" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Full Timer Example (KonScript)</a>
+<a class="toc-item" href="#repeating-timer-adds-score-every-second" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Repeating timer: adds score every second</a>
+<a class="toc-item" href="#one-shot-timer-shows-a-message-after-3-seconds" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">One-shot timer: shows a message after 3 seconds</a>
+<a class="toc-item" href="#repeating-timer-blink-effect-every-0-5s" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Repeating timer: blink effect every 0.5s</a>
+<a class="toc-item" href="#important-must-call-every-frame-to-tick-all-timers" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">IMPORTANT: must call every frame to tick all timers</a>
+<a class="toc-item" href="#pause-resume-with-spacebar" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Pause/resume with spacebar</a>
+<a class="toc-item" href="#show-remaining-time-on-welcome-timer" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Show remaining time on welcome timer</a>
+<a class="toc-item" href="#text-boxes-dialogue" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Text Boxes (Dialogue)</a>
+<a class="toc-item" href="#simple-text-box-instant-word-wrapped" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Simple text box (instant, word-wrapped)</a>
+<a class="toc-item" href="#dialogue-box-with-typewriter-effect" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Dialogue box with typewriter effect</a>
+<a class="toc-item" href="#connect-to-finished-signal" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Connect to finished signal</a>
+<a class="toc-item" href="#in-game-loop" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">In game loop</a>
+<a class="toc-item" href="#skip-typewriter-e-g-on-button-press" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Skip typewriter (e.g. on button press)</a>
+<a class="toc-item" href="#get-the-element-and-call-skip-or-just-set-a-new-text" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Get the element and call Skip — or just set a new text</a>
+<a class="toc-item" href="#signals" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Signals</a>
+<a class="toc-item" href="#connect-to-your-own-signal" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Connect to your own signal</a>
+<a class="toc-item" href="#collision-signals-fire-automatically-from-collider2d-children" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Collision signals fire automatically from Collider2D children</a>
+<a class="toc-item" href="#debug-mode" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Debug Mode</a>
+<a class="toc-item" href="#letterbox-scaling" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Letterbox Scaling</a>
+<a class="toc-item" href="#query-design-resolution-and-scaling-info" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Query design resolution and scaling info</a>
+<a class="toc-item" href="#get-mouse-position-in-game-design-resolution-coordinates" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Get mouse position in game (design-resolution) coordinates</a>
+<a class="toc-item" href="#asset-packing-konpak" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Asset Packing (KonPak)</a>
+<a class="toc-item" href="#create-encrypted-pack" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Create encrypted pack</a>
+<a class="toc-item" href="#load-in-game" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Load in game</a>
+<a class="toc-item" href="#build-with-pack-support" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Build with pack support</a>
+<a class="toc-item" href="#window-rendering" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Window & Rendering</a>
+<a class="toc-item" href="#using-c-directly" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Using C++ Directly</a>
+<a class="toc-item" href="#ui-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">UI System</a>
+<a class="toc-item h3" href="#creating-elements" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Creating Elements</a>
+<a class="toc-item" href="#button-auto-sizes-from-text-has-hover-pressed-visual-states" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Button — auto-sizes from text, has hover/pressed visual states</a>
+<a class="toc-item" href="#label-static-text" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Label — static text</a>
+<a class="toc-item" href="#image-display-a-texture" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Image — display a texture</a>
+<a class="toc-item" href="#panel-colored-container" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Panel — colored container</a>
+<a class="toc-item" href="#child-positions-become-relative-to-the-panel-s-top-left" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Child positions become relative to the panel's top-left</a>
+<a class="toc-item h3" href="#handling-clicks-callbacks-signals" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Handling Clicks (Callbacks & Signals)</a>
+<a class="toc-item" href="#direct-callback-simple" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Direct callback (simple)</a>
+<a class="toc-item" href="#signal-system-flexible-supports-multiple-listeners" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Signal system (flexible — supports multiple listeners)</a>
+<a class="toc-item h3" href="#button-images" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Button Images</a>
+<a class="toc-item h3" href="#game-loop-integration" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Game Loop Integration</a>
+<a class="toc-item" href="#handle-world-clicks-here-ui-didn-t-consume-the-click" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">handle world clicks here — UI didn't consume the click</a>
+<a class="toc-item h3" href="#button-styling-c" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Button Styling (C++)</a>
+<a class="toc-item h3" href="#managing-elements" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Managing Elements</a>
+<a class="toc-item h3" href="#api-reference" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">API Reference</a>
+<a class="toc-item h3" href="#full-ui-example-konscript" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Full UI Example (KonScript)</a>
+<a class="toc-item" href="#examples" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Examples</a>
+<a class="toc-item" href="#cross-compilation" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Cross-Compilation</a>
+<a class="toc-item" href="#build-windows-engine" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Build Windows engine</a>
+<a class="toc-item" href="#compile-game-for-windows" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Compile game for Windows</a>
+<a class="toc-item" href="#editor-koneditor" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===1))">Editor (KonEditor)</a>
+</div>
+        </div>
+        <div class="doc-group">
+            <span class="doc-group-title">KonScript Reference</span>
+            <div class="toc-list"><a class="toc-item" href="#konscript-language-reference" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">KonScript Language Reference</a>
+<a class="toc-item" href="#table-of-contents" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Table of Contents</a>
+<a class="toc-item" href="#1-getting-started" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">1. Getting Started</a>
+<a class="toc-item" href="#2-types" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">2. Types</a>
+<a class="toc-item" href="#3-variables" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">3. Variables</a>
+<a class="toc-item" href="#4-constants" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">4. Constants</a>
+<a class="toc-item" href="#5-functions-lambdas" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">5. Functions & Lambdas</a>
+<a class="toc-item" href="#" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">...</a>
+<a class="toc-item" href="#c-style-or-both-work" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">C++ style — [] or [&] both work</a>
+<a class="toc-item" href="#no-parameter-lambdas-common-for-callbacks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">No-parameter lambdas (common for callbacks)</a>
+<a class="toc-item" href="#with-captures-lambdas-can-read-and-modify-surrounding-variables" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">With captures — lambdas can read and modify surrounding variables</a>
+<a class="toc-item" href="#timer-callbacks" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Timer callbacks</a>
+<a class="toc-item" href="#6-control-flow" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">6. Control Flow</a>
+<a class="toc-item h3" href="#if-else" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">if / else</a>
+<a class="toc-item h3" href="#switch" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">switch</a>
+<a class="toc-item" href="#7-loops" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">7. Loops</a>
+<a class="toc-item h3" href="#while" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">while</a>
+<a class="toc-item" href="#game-loop" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">game loop</a>
+<a class="toc-item h3" href="#loop-infinite" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">loop (infinite)</a>
+<a class="toc-item h3" href="#for-in-range-exclusive" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">for-in (range, exclusive)</a>
+<a class="toc-item h3" href="#for-in-range-inclusive" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">for-in (range, inclusive)</a>
+<a class="toc-item h3" href="#for-in-collection" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">for-in (collection)</a>
+<a class="toc-item h3" href="#for-c-style" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">for (C-style)</a>
+<a class="toc-item h3" href="#break-continue" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">break / continue</a>
+<a class="toc-item" href="#8-nodes" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">8. Nodes</a>
+<a class="toc-item" href="#fields" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">fields</a>
+<a class="toc-item" href="#lifecycle-methods" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">lifecycle methods</a>
+<a class="toc-item h3" href="#lifecycle-methods" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Lifecycle methods</a>
+<a class="toc-item h3" href="#custom-methods" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Custom methods</a>
+<a class="toc-item" href="#in-main" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">In main:</a>
+<a class="toc-item h3" href="#asset-fields-texture-music-sound" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Asset fields (Texture, Music, Sound)</a>
+<a class="toc-item h3" href="#inherited-node2d-fields" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Inherited Node2D fields</a>
+<a class="toc-item h3" href="#adding-child-nodes-inside-a-node" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Adding child nodes inside a node</a>
+<a class="toc-item h3" href="#multi-file-projects" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Multi-file projects</a>
+<a class="toc-item" href="#9-scene" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">9. Scene</a>
+<a class="toc-item h3" href="#adding-nodes" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Adding nodes</a>
+<a class="toc-item h3" href="#adding-colliders" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Adding colliders</a>
+<a class="toc-item h3" href="#scene-methods" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Scene methods</a>
+<a class="toc-item" href="#10-operators" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">10. Operators</a>
+<a class="toc-item h3" href="#arithmetic" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Arithmetic</a>
+<a class="toc-item h3" href="#comparison" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Comparison</a>
+<a class="toc-item h3" href="#logic" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Logic</a>
+<a class="toc-item h3" href="#ternary" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Ternary</a>
+<a class="toc-item h3" href="#cast" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Cast</a>
+<a class="toc-item h3" href="#ternary-conditional" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Ternary conditional</a>
+<a class="toc-item" href="#right-associative-chaining" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Right-associative chaining</a>
+<a class="toc-item h3" href="#null-coalescing" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Null coalescing</a>
+<a class="toc-item h3" href="#safe-member-access" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Safe member access</a>
+<a class="toc-item h3" href="#force-unwrap" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Force unwrap</a>
+<a class="toc-item" href="#11-enums" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">11. Enums</a>
+<a class="toc-item" href="#12-structs" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">12. Structs</a>
+<a class="toc-item" href="#13-arrays-tuples" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">13. Arrays & Tuples</a>
+<a class="toc-item h3" href="#dynamic-array" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Dynamic array</a>
+<a class="toc-item h3" href="#fixed-array" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Fixed array</a>
+<a class="toc-item h3" href="#tuple" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Tuple</a>
+<a class="toc-item" href="#14-nullable-types" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">14. Nullable Types</a>
+<a class="toc-item" href="#15-comments" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">15. Comments</a>
+<a class="toc-item" href="#this-is-a-line-comment" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">This is a line comment</a>
+<a class="toc-item" href="#everything-after-is-ignored-unless-it-is-include" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Everything after # is ignored unless it is #include</a>
+<a class="toc-item" href="#16-engine-functions" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">16. Engine Functions</a>
+<a class="toc-item h3" href="#window" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Window</a>
+<a class="toc-item h3" href="#time" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Time</a>
+<a class="toc-item h3" href="#input-keyboard" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Input — Keyboard</a>
+<a class="toc-item h3" href="#input-mouse" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Input — Mouse</a>
+<a class="toc-item h3" href="#input-gamepad" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Input — Gamepad</a>
+<a class="toc-item h3" href="#rendering" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Rendering</a>
+<a class="toc-item h3" href="#textures" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Textures</a>
+<a class="toc-item h3" href="#fonts" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Fonts</a>
+<a class="toc-item h3" href="#audio-sounds" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Audio — Sounds</a>
+<a class="toc-item h3" href="#audio-music" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Audio — Music</a>
+<a class="toc-item h3" href="#debug" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Debug</a>
+<a class="toc-item h3" href="#camera" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Camera</a>
+<a class="toc-item h3" href="#collision-detection" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Collision Detection</a>
+<a class="toc-item h3" href="#random" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Random</a>
+<a class="toc-item h3" href="#color" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Color</a>
+<a class="toc-item h3" href="#vec2" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Vec2</a>
+<a class="toc-item" href="#methods-called-on-a-vec2-value" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Methods (called on a Vec2 value):</a>
+<a class="toc-item h3" href="#tilegrid" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">TileGrid</a>
+<a class="toc-item h3" href="#timer" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Timer</a>
+<a class="toc-item" href="#api" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">API</a>
+<a class="toc-item" href="#repeating-timer-increments-counter-every-second" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Repeating timer: increments counter every second</a>
+<a class="toc-item" href="#one-shot-timer-prints-a-message-after-5-seconds" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">One-shot timer: prints a message after 5 seconds</a>
+<a class="toc-item h3" href="#ui" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">UI</a>
+<a class="toc-item h3" href="#signals" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Signals</a>
+<a class="toc-item" href="#inside-a-node-connect-to-a-signal" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Inside a node — connect to a signal</a>
+<a class="toc-item" href="#inside-a-node-emit-a-signal" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Inside a node — emit a signal</a>
+<a class="toc-item h3" href="#output" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">Output</a>
+<a class="toc-item" href="#17-cmake-integration" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">17. CMake Integration</a>
+<a class="toc-item" href="#18-known-limitations" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===2))">18. Known Limitations</a>
+</div>
+        </div>
+        <div class="doc-group">
+            <span class="doc-group-title">Roadmap</span>
+            <div class="toc-list"><a class="toc-item" href="#roadmap" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">Roadmap</a>
+<a class="toc-item" href="#done" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">Done</a>
+<a class="toc-item h3" href="#v0-4-0" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.4.0</a>
+<a class="toc-item h3" href="#v0-5-0" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.5.0</a>
+<a class="toc-item h3" href="#v0-6-0-node-scene-system" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.6.0 -- Node & Scene System</a>
+<a class="toc-item h3" href="#v0-7-0-animator" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.7.0 -- Animator</a>
+<a class="toc-item h3" href="#v0-8-0-konanimator-polish" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.8.0 -- KonAnimator & Polish</a>
+<a class="toc-item h3" href="#v0-9-0-asset-pipeline-scripting" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.9.0 -- Asset Pipeline + Scripting</a>
+<a class="toc-item h3" href="#v0-9-1-api-polish-performance" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.9.1 -- API Polish + Performance</a>
+<a class="toc-item h3" href="#v0-9-2-ui-tilemap-konscript-expansion" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.9.2 -- UI, Tilemap, KonScript Expansion</a>
+<a class="toc-item" href="#upcoming" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">Upcoming</a>
+<a class="toc-item h3" href="#v0-10-0-editor-mvp" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.10.0 -- Editor MVP</a>
+<a class="toc-item h3" href="#v0-11-0-editor-scripting" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v0.11.0 -- Editor Scripting</a>
+<a class="toc-item h3" href="#v1-0-0-stable-release" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">v1.0.0 -- Stable Release</a>
+<a class="toc-item" href="#far-future" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">Far Future</a>
+<a class="toc-item" href="#no-guarantees" onclick="document.querySelectorAll('.doc-section').forEach((s,j)=>s.classList.toggle('active',j===3))">No Guarantees</a>
+</div>
+        </div>
+</nav>
+<main id="content">
+    <div class="doc-section"><h1 id="konengine">KonEngine</h1>
+
+<p>A lightweight 2D game engine written in C++17, built for old and low-end machines.</p>
+<p>Simple, fast, and designed for making games without the overhead of larger engines.</p>
+
+<p>Inspired by Raylib's simplicity and API style, with a Godot-style node system,</p>
+<p>a custom scripting language (KonScript), and a full visual editor (KonEditor).</p>
+
+<hr>
+
+<h2 id="features">Features</h2>
+
+<p><strong>Core Engine</strong></p>
+<ul>
+<li>Simple Raylib-style API -- <code>InitWindow</code>, <code>DrawRectangle</code>, <code>PlaySound</code>, done</li>
+<li>OpenGL 2D renderer -- rectangles, circles, lines, textures, sprite sheets</li>
+<li>Batched rendering -- quads, lines, and glyphs batched for performance</li>
+<li>Text rendering -- custom TTF fonts or built-in Inconsolata, cached at any size</li>
+<li>Camera system -- pan, zoom, rotation, smooth follow, clamping, screen shake</li>
+<li>Letterbox scaling -- design-resolution coordinates with automatic black bars</li>
+<li>Input -- keyboard, mouse, gamepad (multi-player), delta tracking</li>
+<li>Collision detection -- AABB, circle, SAT (convex polygons), layer/mask filtering</li>
+<li>CollisionWorld with enter/exit signals and automatic depenetration</li>
+<li>Physics nodes -- StaticBody2D (walls), KinematicBody2D (players), RigidBody2D (physics objects)</li>
+<li>Animation -- sprite sheet frame-by-frame + keyframe tracks with 16 easing curves</li>
+<li>Audio -- sound effects + music streaming via miniaudio (.wav, .ogg, .mp3)</li>
+<li>Node/scene system -- Godot-style hierarchy with parent pointers and virtual lifecycle</li>
+<li>Signal system -- lightweight callbacks for decoupled node communication</li>
+<li>UI system -- screen-space Button, Label, Panel with click detection and input blocking</li>
+<li>Tilemap system -- tile data storage, tileset rendering, coordinate conversion, click detection</li>
+<li>Isometric grid -- diamond-shaped tile support for isometric games</li>
+<li><code>DebugMode(true)</code> -- FPS overlay, mouse crosshair, world grid, auto collider outlines</li>
+<li>Timer system -- frame-rate independent timers with lambda callbacks, pause/resume/reset</li>
+<li>Color presets, Vector2 math, random number utilities, tile grid helpers</li>
+<li>Delta time, FPS cap, VSync toggle</li>
+<li>Cross-platform -- Linux and Windows</li>
+</ul>
+
+<p><strong>KonScript</strong></p>
+<ul>
+<li>Statically-typed scripting language that compiles to C++</li>
+<li>Nodes, structs, classes, enums, generics, interfaces, closures</li>
+<li>Ternary operator, f-strings, nullable types, null coalescing</li>
+<li>Full engine API: rendering, input (keyboard + mouse + gamepad), audio, physics, camera, random, UI, tilemap</li>
+<li>CMake integration with <code>konscript_sources()</code></li>
+</ul>
+
+<p><strong>Tools</strong></p>
+<ul>
+<li><strong>KonEditor</strong> -- Qt-based visual game editor with scene tree, viewport, inspector, and build system</li>
+<li><strong>KonAnimator</strong> -- standalone Qt animation editor with timeline, live preview, and spritesheet support</li>
+<li><strong>anim_compiler</strong> -- CLI/GUI tool that compiles <code>.anim</code> text files to <code>.konani</code> binary</li>
+<li><strong>KonPaktor / konpak</strong> -- AES-256 encrypted asset packing and <code>.konpak</code> archive tool</li>
+</ul>
+
+<hr>
+
+<h2 id="quick-start">Quick Start</h2>
+
+<h3 id="1-clone">1. Clone</h3>
+
+<pre><code class="language-bash">
+git clone --recurse-submodules https://github.com/AnoDelta/KonEngine.git
+cd KonEngine
+</code></pre>
+
+<h3 id="2-install-system-dependencies">2. Install system dependencies</h3>
+
+<p><strong>Ubuntu/Debian:</strong></p>
+<pre><code class="language-bash">
+sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+  libwayland-dev wayland-protocols libxkbcommon-dev libxinerama-dev libxcursor-dev
+</code></pre>
+
+<p><strong>Fedora:</strong></p>
+<pre><code class="language-bash">
+sudo dnf install -y mesa-libGL-devel libX11-devel libXrandr-devel libXi-devel \
+  wayland-devel wayland-protocols-devel libxkbcommon-devel libXinerama-devel libXcursor-devel
+</code></pre>
+
+<p><strong>Arch:</strong></p>
+<pre><code class="language-bash">
+sudo pacman -S mesa libx11 libxrandr libxi wayland wayland-protocols \
+  libxkbcommon libxinerama libxcursor
+</code></pre>
+
+<p><strong>Windows:</strong> No extra dependencies needed.</p>
+
+<h3 id="3-build">3. Build</h3>
+
+<pre><code class="language-bash">
+make            # or: cmake -B build &amp;&amp; cmake --build build -j$(nproc)
+sudo make install   # installs to /usr/local
+</code></pre>
+
+<h3 id="4-write-your-first-game">4. Write your first game</h3>
+
+<p><strong>In C++:</strong></p>
+<pre><code class="language-cpp">
+#include &quot;KonEngine.hpp&quot;
+
+int main() {
+    InitWindow(800, 600, &quot;My Game&quot;);
+    SetTargetFPS(60);
+
+    float x = 400, y = 300;
+
+    while (!WindowShouldClose()) {
+        float dt = GetDeltaTime();
+        if (IsKeyDown(Key::D)) x += 200.0f * dt;
+        if (IsKeyDown(Key::A)) x -= 200.0f * dt;
+        if (IsKeyDown(Key::W)) y -= 200.0f * dt;
+        if (IsKeyDown(Key::S)) y += 200.0f * dt;
+
+        ClearBackground(0.1f, 0.1f, 0.1f);
+        DrawRectangle(x - 16, y - 24, 32, 48, BLUE);
+        DrawText(&quot;WASD to move&quot;, 10, 10, WHITE);
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p><strong>In KonScript:</strong></p>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+node Player : Node2D {
+    let mut speed: F64 = 200.0;
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x += speed * dt; }
+        if KeyDown(Key.A) { x -= speed * dt; }
+        if KeyDown(Key.W) { y -= speed * dt; }
+        if KeyDown(Key.S) { y += speed * dt; }
+    }
+
+    func Draw() {
+        DrawRectangle(x - 16.0, y - 24.0, 32.0, 48.0, BLUE);
+    }
+}
+
+func main() {
+    InitWindow(800, 600, &quot;My Game&quot;);
+    SetTargetFPS(60);
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, &quot;player&quot;);
+    while !WindowShouldClose() {
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.update(GetDeltaTime());
+        scene.draw();
+        DrawText(&quot;WASD to move&quot;, 10, 10, WHITE);
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p>Compile and run KonScript:</p>
+<pre><code class="language-bash">
+cd tools/KonScript &amp;&amp; ./build.sh &amp;&amp; ./install.sh
+ksc game.ks
+</code></pre>
+
+<h3 id="5-link-the-engine-from-cmake">5. Link the engine from CMake</h3>
+
+<pre><code class="language-cmake">
+cmake_minimum_required(VERSION 3.20)
+project(MyGame)
+
+add_subdirectory(KonEngine)
+add_executable(MyGame src/main.cpp)
+target_link_libraries(MyGame PRIVATE KonEngine)
+
+# Optional: compile KonScript files
+konscript_sources(MyGame src/main.ks)
+</code></pre>
+
+<hr>
+
+<h2 id="project-structure">Project Structure</h2>
+
+<pre><code>
+KonEngine/
+  src/
+    KonEngine.hpp          # Single include header
+    window/                # Window creation, letterbox scaling, debug mode
+    renderer/              # OpenGL 2D renderer (rectangles, circles, lines, textures)
+    input/                 # Keyboard, mouse, gamepad input
+    camera/                # Camera2D with follow, clamp, shake
+    collision/             # CollisionWorld, SAT, AABB, circle overlap
+    node/                  # Node, Node2D, Sprite2D, Collider2D, Scene, bodies
+    animation/             # Animation clips, keyframe tracks, AnimationPlayer
+    audio/                 # Sound and music via miniaudio
+    font/                  # TTF font rendering with glyph caching
+    ui/                    # Screen-space UI (Button, Label, Panel)
+    color/                 # Color struct and presets
+    math/                  # Vector2, Random
+    tilemap/               # Tilemap, TileGrid, IsometricGrid
+    time/                  # Delta time, FPS cap
+    asset_manager.*        # AssetManager for loose files or .konpak packs
+  tools/
+    KonScript/             # KonScript compiler (lexer, parser, typechecker, codegen)
+    KonEditor/             # Visual game editor (Qt)
+    KonAnimator/           # Animation editor (Qt)
+    KonPaktor/             # Asset packer GUI + CLI
+  libs/
+    glfw/                  # Window/input (submodule)
+    glm/                   # Math library (submodule)
+  examples/                # Example games in KonScript and C++
+    hello_world.ks         # Basic window and drawing
+    platformer.ks          # Platformer with KinematicBody2D
+    physics_test.ks        # Physics: gravity, jumping, collision, platforms
+    tilemap_test.ks        # Tilemap: tile placement, grid, camera, click detection
+    ui_test.ks             # UI: buttons, labels, panels, click handlers, signals
+    timer_test.ks          # Timers: repeating, one-shot, pause/resume, progress bar
+    pong.ks                # Pong game
+    cpp_example/           # C++ example with CMake
+  tests/                   # Engine test suite
+</code></pre>
+
+<hr>
+
+<h2 id="tools">Tools</h2>
+
+<table>
+<tr><th>Tool</th><th>Description</th><th>Build</th></tr>
+<tr><td><strong>KonScript</strong></td><td>Scripting language compiler</td><td><code>cd tools/KonScript && ./build.sh && ./install.sh</code></td></tr>
+<tr><td><strong>KonEditor</strong></td><td>Visual game editor</td><td><code>cd tools/KonEditor && ./build.sh</code></td></tr>
+<tr><td><strong>KonAnimator</strong></td><td>Animation editor</td><td><code>make tools</code> or <code>./build-tools.sh</code></td></tr>
+<tr><td><strong>anim_compiler</strong></td><td>.anim to .konani compiler</td><td>Built with KonAnimator</td></tr>
+<tr><td><strong>KonPaktor</strong></td><td>Asset packer (GUI)</td><td><code>cd tools/KonPaktor && ./build.sh</code></td></tr>
+<tr><td><strong>konpak</strong></td><td>Asset packer (CLI)</td><td>Built with KonPaktor</td></tr>
+</table>
+
+<hr>
+
+<h2 id="documentation">Documentation</h2>
+
+<p>Start with <strong><a href="DOCS.md">DOCS.md</a></strong> for a full guide to the engine, or <strong><a href="tools/KonScript/DOCS.md">KonScript DOCS</a></strong> if you're using the scripting language.</p>
+
+<table>
+<tr><th>Document</th><th>Contents</th></tr>
+<tr><td><a href="DOCS.md">DOCS.md</a></td><td>Full engine guide: rendering, input, camera, physics, collision, audio, animation, UI, timers, tilemaps -- with KonScript and C++ examples</td></tr>
+<tr><td><a href="tools/KonScript/DOCS.md">tools/KonScript/DOCS.md</a></td><td>KonScript language reference: types, variables, functions, lambdas, nodes, structs, enums, control flow, and full engine API listing</td></tr>
+<tr><td><a href="ROADMAP.md">ROADMAP.md</a></td><td>What's done, what's next, release policy</td></tr>
+<tr><td><a href="DEPENDENCIES.md">DEPENDENCIES.md</a></td><td>All libraries and system dependencies</td></tr>
+<tr><td><a href="MAINTAINERS.md">MAINTAINERS.md</a></td><td>How to contribute, build, test, and release</td></tr>
+<tr><td><a href="tools/KonAnimator/DOCS.md">tools/KonAnimator/DOCS.md</a></td><td>KonAnimator usage</td></tr>
+<tr><td><a href="tools/KonPaktor/DOCS.md">tools/KonPaktor/DOCS.md</a></td><td>KonPaktor / konpak usage</td></tr>
+<tr><td><a href="examples/">examples/</a></td><td>Example games: hello world, pong, platformer, physics test, tilemap test, C++</td></tr>
+</table>
+
+<hr>
+
+<h2 id="dependencies">Dependencies</h2>
+
+<p>All bundled as submodules -- no manual installs needed beyond system GL/X11 libs.</p>
+
+<table>
+<tr><th>Library</th><th>Purpose</th></tr>
+<tr><td>GLFW</td><td>Window creation and input</td></tr>
+<tr><td>GLM</td><td>Math library</td></tr>
+<tr><td>GLAD</td><td>OpenGL function loader</td></tr>
+<tr><td>stb_image</td><td>Texture loading</td></tr>
+<tr><td>stb_truetype</td><td>Font rendering</td></tr>
+<tr><td>miniaudio</td><td>Audio playback and streaming</td></tr>
+<tr><td>Qt5</td><td>KonEditor, KonAnimator, KonPaktor (optional)</td></tr>
+<tr><td>zlib</td><td>Compression for .konpak</td></tr>
+<tr><td>OpenSSL / BCrypt</td><td>AES-256 encryption for .konpak</td></tr>
+</table>
+
+<hr>
+
+<h2 id="cross-compilation-windows-from-linux">Cross-Compilation (Windows from Linux)</h2>
+
+<pre><code class="language-bash">
+./build-windows.sh              # engine library
+./build-windows.sh --tools      # engine + tools
+</code></pre>
+
+<p>Requires MXE. See <a href="build-windows.sh">build-windows.sh</a> for setup instructions.</p>
+
+<hr>
+
+<h2 id="running-tests">Running Tests</h2>
+
+<pre><code class="language-bash">
+make test
+</code></pre>
+
+<hr>
+
+<h2 id="license">License</h2>
+
+<p>MIT -- free to use in personal, commercial, and open source projects.</p>
+</div>
+<div class="doc-section"><h1 id="konengine-documentation">KonEngine Documentation</h1>
+
+<h2 id="table-of-contents">Table of Contents</h2>
+
+<ul>
+<li><a href="#getting-started">Getting Started</a></li>
+<li><a href="#konscript-language">KonScript Language</a></li>
+<li><a href="#node-types">Node Types</a></li>
+<li><a href="#custom-node-methods">Custom Node Methods</a></li>
+<li><a href="#node-lifecycle">Node Lifecycle</a></li>
+<li><a href="#assets-on-nodes-textures-music-sound">Assets on Nodes (Textures, Music, Sound)</a></li>
+<li><a href="#multi-file-projects">Multi-File Projects</a></li>
+<li><a href="#fullscreen">Fullscreen</a></li>
+<li><a href="#animation-system">Animation System</a></li>
+<li><a href="#physics--collision">Physics & Collision</a></li>
+<li><a href="#timers">Timers</a></li>
+<li><a href="#ui-system">UI System</a></li>
+<li><a href="#asset-packing-konpak">Asset Packing</a></li>
+<li><a href="#window--rendering">Window & Rendering</a></li>
+<li><a href="#using-c-directly">Using C++ Directly</a></li>
+<li><a href="#cross-compilation">Cross-Compilation</a></li>
+<li><a href="#editor-koneditor">Editor (KonEditor)</a></li>
+</ul>
+
+<hr>
+
+<h2 id="getting-started">Getting Started</h2>
+
+<h3 id="install-dependencies-linux">Install Dependencies (Linux)</h3>
+
+<pre><code class="language-bash">
+# Ubuntu/Debian
+sudo apt install build-essential cmake libgl-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev
+
+# Gentoo
+emerge -av dev-util/cmake media-libs/mesa x11-libs/libX11 x11-libs/libXrandr
+</code></pre>
+
+<h3 id="build-konscript-compiler">Build KonScript Compiler</h3>
+
+<pre><code class="language-bash">
+cd tools/KonScript
+./build.sh          # builds self-hosted compiler
+sudo ./install.sh   # installs to /usr/local/bin/konscript
+</code></pre>
+
+<h3 id="build-engine-library-for-konscript-games">Build Engine Library (for KonScript games)</h3>
+
+<pre><code class="language-bash">
+cd tools/KonScript
+./build-engine-lib.sh            # builds libKonEngine.a for linux64
+./build-engine-lib.sh --windows  # also builds for windows64
+</code></pre>
+
+<h3 id="hello-world">Hello World</h3>
+
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+func main() -&gt; I32 {
+    InitWindow(800, 600, &quot;Hello World&quot;);
+    SetTargetFPS(60);
+
+    while !WindowShouldClose() {
+        ClearBackground(0.1, 0.1, 0.15);
+        DrawRectangle(350, 250, 100, 100, 0.2, 0.8, 1.0, 1.0);
+        Present();
+        PollEvents();
+    }
+    return 0;
+}
+</code></pre>
+
+<pre><code class="language-bash">
+konscript hello.ks &amp;&amp; ./hello
+</code></pre>
+
+<hr>
+
+<h2 id="konscript-language">KonScript Language</h2>
+
+<h3 id="types">Types</h3>
+
+<table>
+<tr><th>Type</th><th>Description</th><th>Example</th></tr>
+<tr><td><code>I32</code></td><td>32-bit integer</td><td><code>let x: I32 = 42;</code></td></tr>
+<tr><td><code>F64</code></td><td>64-bit float</td><td><code>let y: F64 = 3.14;</code></td></tr>
+<tr><td><code>Bool</code></td><td>Boolean</td><td><code>let b: Bool = true;</code></td></tr>
+<tr><td><code>Str</code></td><td>String</td><td><code>let s: Str = "hello";</code></td></tr>
+<tr><td><code>Vec2</code></td><td>2D vector</td><td><code>let v: Vec2 = Vec2(1.0, 0.0);</code></td></tr>
+</table>
+
+<h3 id="variables">Variables</h3>
+
+<pre><code class="language-ks">
+let x: I32 = 10;           // immutable
+let mut y: F64 = 3.14;     // mutable
+const PI: F64 = 3.14159;   // compile-time constant
+</code></pre>
+
+<h3 id="functions">Functions</h3>
+
+<pre><code class="language-ks">
+func add(a: I32, b: I32) -&gt; I32 {
+    return a + b;
+}
+
+func greet(name: Str) {
+    Print(&quot;Hello, &quot;, name, &quot;!&quot;);
+}
+</code></pre>
+
+<h3 id="nodes">Nodes</h3>
+
+<p>Nodes are the building blocks of games. They have a type, a parent class, and lifecycle methods.</p>
+
+<pre><code class="language-ks">
+node Player : Sprite2D {
+    let mut speed: F64 = 200.0;
+
+    func Ready() {
+        let tex: Texture = LoadTexture(&quot;player.png&quot;);
+        this.SetTexture(tex);
+        x = 100.0;
+        y = 300.0;
+        width = 32.0;
+        height = 48.0;
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + speed * dt; }
+        if KeyDown(Key.A) { x = x - speed * dt; }
+    }
+}
+</code></pre>
+
+<h3 id="scene-setup">Scene Setup</h3>
+
+<pre><code class="language-ks">
+func main() -&gt; I32 {
+    InitWindow(800, 600, &quot;My Game&quot;);
+    SetTargetFPS(60);
+
+    let mut scene: Scene = Scene();
+    let mut player: Player = scene.add(Player, &quot;player&quot;);
+
+    while !WindowShouldClose() {
+        scene.update(GetDeltaTime());
+        ClearBackground(0.1, 0.1, 0.15);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+    return 0;
+}
+</code></pre>
+
+<hr>
+
+<h2 id="node-types">Node Types</h2>
+
+<h3 id="sprite2d">Sprite2D</h3>
+
+<p>Textured 2D sprite with built-in rendering. Handles drawing automatically — you don't need to write a <code>Draw()</code> method.</p>
+
+<p><strong>Option A: Load texture in Ready (recommended)</strong></p>
+<pre><code class="language-ks">
+node Player : Sprite2D {
+    func Ready() {
+        let tex: Texture = LoadTexture(&quot;player.png&quot;);
+        this.SetTexture(tex);   // copies texture ID, sets source rect
+        width = 32.0;
+        height = 48.0;
+        x = 400.0;
+        y = 300.0;
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + 200.0 * dt; }
+        if KeyDown(Key.A) { x = x - 200.0 * dt; }
+    }
+    // No Draw() needed — Sprite2D draws the texture automatically
+}
+</code></pre>
+
+<p><strong>Option B: Store texture as a field (for reuse / unloading)</strong></p>
+<pre><code class="language-ks">
+node Player : Sprite2D {
+    let mut myTex: Texture = LoadTexture(&quot;player.png&quot;);
+
+    func Ready() {
+        this.SetTexture(myTex);
+        width = 32.0;
+        height = 48.0;
+    }
+
+    func OnDestroy() {
+        UnloadTexture(myTex);
+    }
+}
+</code></pre>
+
+<p><strong>Option C: Set texture from outside (e.g. shared texture)</strong></p>
+<pre><code class="language-ks">
+// In main():
+let tex: Texture = LoadTexture(&quot;player.png&quot;);
+let player: Player = scene.add(Player, &quot;player&quot;);
+player.SetTexture(tex);
+</code></pre>
+
+<p><strong>Sprite2D vs Node2D — when to use which:</strong></p>
+
+<table>
+<tr><th>Use Sprite2D when</th><th>Use Node2D when</th></tr>
+<tr><td>You have a texture/spritesheet</td><td>You draw shapes manually</td></tr>
+<tr><td>You want automatic Draw()</td><td>You want full control over Draw()</td></tr>
+<tr><td>You need animation support</td><td>You don't need a texture</td></tr>
+<tr><td>You want tint, source rects</td><td>You're making a manager/container</td></tr>
+</table>
+
+<p><strong>If no texture is set</strong>, Sprite2D draws a colored rectangle using <code>tint</code> as a fallback — useful for prototyping.</p>
+
+<p><strong>Properties:</strong> <code>x</code>, <code>y</code>, <code>width</code>, <code>height</code>, <code>scaleX</code>, <code>scaleY</code>, <code>rotation</code>, <code>originX</code>, <code>originY</code>, <code>tint</code>, <code>texture</code>, <code>autoResize</code></p>
+
+<h3 id="node2d-with-manual-textures">Node2D with manual textures</h3>
+
+<p>If you want full control over drawing (multiple textures, custom effects), use Node2D with texture fields:</p>
+
+<pre><code class="language-ks">
+node Character : Node2D {
+    let mut body: Texture = LoadTexture(&quot;body.png&quot;);
+    let mut hat: Texture = LoadTexture(&quot;hat.png&quot;);
+
+    func Draw() {
+        // Draw body
+        DrawTexture(body, x - 16.0, y - 16.0, 32.0, 48.0);
+        // Draw hat on top
+        DrawTexture(hat, x - 12.0, y - 28.0, 24.0, 16.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(body);
+        UnloadTexture(hat);
+    }
+}
+</code></pre>
+
+<h3 id="staticbody2d">StaticBody2D</h3>
+
+<p>Immovable collision body for walls, floors, platforms.</p>
+
+<pre><code class="language-ks">
+node Wall : StaticBody2D {
+    func Ready() {
+        AddCollider(200, 32);  // width, height
+        x = 400; y = 568;
+    }
+}
+</code></pre>
+
+<h3 id="kinematicbody2d">KinematicBody2D</h3>
+
+<p>Player-controlled body with collision response. Use <code>MoveAndCollide(dx, dy)</code> to move without passing through walls.</p>
+
+<pre><code class="language-ks">
+node Player : KinematicBody2D {
+    let mut col: Collider2D = this.add(Collider2D, &quot;col&quot;);
+    let mut speed: F64 = 200;
+
+    func Ready() {
+        col.width = 32; col.height = 48;
+    }
+
+    func Update(dt: F64) {
+        let mut dx: F64 = 0;
+        let mut dy: F64 = 0;
+        if KeyDown(Key.D) { dx = speed * dt; }
+        if KeyDown(Key.A) { dx = -speed * dt; }
+        MoveAndCollide(dx, dy);
+    }
+}
+</code></pre>
+
+<h3 id="rigidbody2d">RigidBody2D</h3>
+
+<p>Physics body with velocity and gravity. Automatically resolves collisions with static bodies.</p>
+
+<p><strong>Properties:</strong> <code>velocity</code> (Vec2), <code>gravity</code> (float, default 980)</p>
+
+<h3 id="collider2d">Collider2D</h3>
+
+<p>Axis-aligned bounding box for collision detection.</p>
+
+<pre><code class="language-ks">
+let mut col: Collider2D = this.add(Collider2D, &quot;col&quot;);
+col.width = 32;
+col.height = 32;
+</code></pre>
+
+<p><strong>Callbacks:</strong></p>
+<pre><code class="language-ks">
+func OnCollisionEnter(other: Collider2D) { Print(&quot;Hit!&quot;); }
+func OnCollisionExit(other: Collider2D)  { Print(&quot;Left&quot;); }
+</code></pre>
+
+<hr>
+
+<h2 id="custom-node-methods">Custom Node Methods</h2>
+
+<p>Nodes can have any number of custom methods beyond the lifecycle methods. Call them from other nodes or from <code>main()</code>.</p>
+
+<pre><code class="language-ks">
+node Enemy : Node2D {
+    let mut health: I32 = 100;
+    let mut alive: Bool = true;
+
+    func TakeDamage(amount: I32) {
+        health = health - amount;
+        if health &lt;= 0 {
+            alive = false;
+            Print(&quot;Enemy defeated!&quot;);
+        }
+    }
+
+    func Heal(amount: I32) {
+        health = health + amount;
+        if health &gt; 100 { health = 100; }
+    }
+
+    func IsAlive() -&gt; Bool {
+        return alive;
+    }
+
+    func Draw() {
+        if alive {
+            DrawRectangle(x - 16.0, y - 16.0, 32.0, 32.0, 1.0, 0.0, 0.0, 1.0);
+        }
+    }
+}
+
+func main() {
+    // ...
+    let enemy: Enemy = scene.add(Enemy, &quot;goblin&quot;);
+    enemy.x = 500.0;
+    enemy.y = 300.0;
+
+    // Call custom methods on the node
+    enemy.TakeDamage(25);
+    Print(&quot;Health: &quot;, enemy.health);        // Access fields
+    Print(&quot;Alive: &quot;, enemy.IsAlive());      // Call methods with return values
+    enemy.Heal(10);
+}
+</code></pre>
+
+<hr>
+
+<h2 id="node-lifecycle">Node Lifecycle</h2>
+
+<p>Every node supports these lifecycle methods. Override the ones you need:</p>
+
+<table>
+<tr><th>Method</th><th>When it runs</th><th>Use for</th></tr>
+<tr><td><code>Ready()</code></td><td>Once, when added to scene via <code>scene.add()</code></td><td>Setup, spawn children</td></tr>
+<tr><td><code>Update(dt: F64)</code></td><td>Every frame via <code>scene.update(dt)</code></td><td>Movement, input, game logic</td></tr>
+<tr><td><code>Draw()</code></td><td>Every frame via <code>scene.draw()</code></td><td>Rendering sprites, shapes, text</td></tr>
+<tr><td><code>OnCollisionEnter(other: Collider2D)</code></td><td>When a collider starts touching</td><td>Damage, pickups, triggers</td></tr>
+<tr><td><code>OnCollisionExit(other: Collider2D)</code></td><td>When a collider stops touching</td><td>Reset states</td></tr>
+<tr><td><code>OnDestroy()</code></td><td>When the node is removed</td><td>Unload textures, stop music, cleanup</td></tr>
+</table>
+
+<pre><code class="language-ks">
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture(&quot;player.png&quot;);
+    let mut theme: Music = LoadMusic(&quot;theme.mp3&quot;);
+
+    func Ready() {
+        x = 400.0;
+        y = 300.0;
+        PlayMusic(theme);
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + 200.0 * dt; }
+        if KeyDown(Key.A) { x = x - 200.0 * dt; }
+        UpdateMusic(theme);
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x - 16.0, y - 16.0, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadMusic(theme);
+        Print(&quot;Player cleaned up&quot;);
+    }
+}
+</code></pre>
+
+<hr>
+
+<h2 id="assets-on-nodes-textures-music-sound">Assets on Nodes (Textures, Music, Sound)</h2>
+
+<p>Nodes can store <code>Texture</code>, <code>Music</code>, and <code>Sound</code> as fields. They load automatically when the node is created.</p>
+
+<h3 id="how-it-works">How it works</h3>
+
+<p><code>LoadTexture</code>, <code>LoadMusic</code>, and <code>LoadSound</code> are <strong>global functions</strong> backed by a singleton <code>AssetManager</code>. There is no "parent's" or "scene's" asset manager — there's one shared instance. Any node, anywhere, can call them as long as <code>InitWindow()</code> has been called.</p>
+
+<pre><code class="language-ks">
+node Character : Node2D {
+    // These load automatically when the node is created via scene.add()
+    let mut sprite: Texture = LoadTexture(&quot;hero.png&quot;);
+    let mut walkSound: Sound = LoadSound(&quot;step.wav&quot;);
+    let mut bgm: Music = LoadMusic(&quot;overworld.mp3&quot;);
+
+    func Ready() {
+        PlayMusic(bgm);
+    }
+
+    func Update(dt: F64) {
+        UpdateMusic(bgm);
+        if KeyPressed(Key.D) {
+            PlaySound(walkSound);
+        }
+    }
+
+    func Draw() {
+        if sprite.width &gt; 0 {
+            DrawTexture(sprite, x, y, 32.0, 32.0);
+        } else {
+            // Fallback if texture failed to load
+            DrawRectangle(x, y, 32.0, 32.0, 1.0, 0.0, 1.0, 1.0);
+        }
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadSound(walkSound);
+        UnloadMusic(bgm);
+    }
+}
+</code></pre>
+
+<h3 id="assetmanager">AssetManager</h3>
+
+<p>The <code>AssetManager</code> resolves file paths. It defaults to <code>"./"</code> (current directory) if you never call <code>init()</code>.</p>
+
+<pre><code class="language-ks">
+// Optional — defaults to &quot;./&quot; if you skip this
+AssetManager.init(&quot;./&quot;);
+
+// For packed games (.konpak archives):
+AssetManager.init(&quot;game.konpak&quot;);
+
+// With encryption:
+AssetManager.init(&quot;game.konpak&quot;, &quot;secret_password&quot;);
+</code></pre>
+
+<p>Once initialized, all <code>LoadTexture</code>, <code>LoadMusic</code>, <code>LoadSound</code> calls go through it automatically. You don't need to pass it around.</p>
+
+<hr>
+
+<h2 id="multi-file-projects">Multi-File Projects</h2>
+
+<p>Split nodes into separate <code>.ks</code> files and include them with <code>#include "file.ks"</code>.</p>
+
+<h3 id="project-structure">Project structure</h3>
+<pre><code>
+my_game/
+  main.ks            # entry point, includes other files
+  player.ks          # Player node
+  enemy.ks           # Enemy node
+  assets/
+    player.png
+    enemy.png
+    bgm.mp3
+</code></pre>
+
+<h3 id="player-ks">player.ks</h3>
+<pre><code class="language-ks">
+// No #include &lt;engine&gt; here — main.ks handles that
+
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture(&quot;assets/player.png&quot;);
+    let mut speed: F64 = 200.0;
+    let mut health: I32 = 100;
+
+    func TakeDamage(amount: I32) {
+        health = health - amount;
+        Print(&quot;Player took &quot;, amount, &quot; damage! HP: &quot;, health);
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + speed * dt; }
+        if KeyDown(Key.A) { x = x - speed * dt; }
+        if KeyDown(Key.W) { y = y - speed * dt; }
+        if KeyDown(Key.S) { y = y + speed * dt; }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x - 16.0, y - 16.0, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+    }
+}
+</code></pre>
+
+<h3 id="enemy-ks">enemy.ks</h3>
+<pre><code class="language-ks">
+node Enemy : Node2D {
+    let mut sprite: Texture = LoadTexture(&quot;assets/enemy.png&quot;);
+    let mut hp: I32 = 50;
+    let mut alive: Bool = true;
+
+    func TakeDamage(amount: I32) {
+        hp = hp - amount;
+        if hp &lt;= 0 { alive = false; }
+    }
+
+    func IsAlive() -&gt; Bool {
+        return alive;
+    }
+
+    func Draw() {
+        if alive {
+            DrawTexture(sprite, x - 16.0, y - 16.0, 32.0, 32.0);
+        }
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+    }
+}
+</code></pre>
+
+<h3 id="main-ks">main.ks</h3>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+#include &quot;player.ks&quot;
+#include &quot;enemy.ks&quot;
+
+func main() -&gt; I32 {
+    InitWindow(800, 600, &quot;My Game&quot;, false);
+    SetTargetFPS(60);
+
+    let mut scene: Scene = Scene();
+    let mut player: Player = scene.add(Player, &quot;player&quot;);
+    player.x = 400.0;
+    player.y = 300.0;
+
+    let mut enemy: Enemy = scene.add(Enemy, &quot;goblin&quot;);
+    enemy.x = 600.0;
+    enemy.y = 300.0;
+
+    let mut bgm: Music = LoadMusic(&quot;assets/bgm.mp3&quot;);
+    PlayMusic(bgm);
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        scene.update(dt);
+        UpdateMusic(bgm);
+
+        // Spacebar damages enemy
+        if KeyPressed(Key.Space) {
+            enemy.TakeDamage(10);
+            if !enemy.IsAlive() {
+                Print(&quot;Enemy defeated!&quot;);
+            }
+        }
+
+        ClearBackground(0.08, 0.08, 0.12);
+        scene.draw();
+
+        // HUD
+        DrawText(&quot;HP: &quot; + ToString(player.health), 10.0, 10.0, 20, WHITE);
+        DrawText(&quot;Enemy HP: &quot; + ToString(enemy.hp), 10.0, 35.0, 16, RED);
+        if !enemy.IsAlive() {
+            DrawText(&quot;VICTORY!&quot;, 350.0, 280.0, 32, YELLOW);
+        }
+
+        Present();
+        PollEvents();
+    }
+
+    UnloadMusic(bgm);
+    return 0;
+}
+</code></pre>
+
+<h3 id="compiling">Compiling</h3>
+
+<pre><code class="language-bash">
+cd my_game
+konscript main.ks    # compiles main.ks + all included files
+./main               # run the game
+</code></pre>
+
+<blockquote><strong>Note:</strong> <code>#include "file.ks"</code> resolves relative to the current working directory. Run <code>konscript</code> from your project folder.</blockquote>
+
+<hr>
+
+<h2 id="fullscreen">Fullscreen</h2>
+
+<p>Toggle fullscreen mode at runtime:</p>
+
+<pre><code class="language-ks">
+// Toggle with F11
+if KeyPressed(Key.F11) {
+    SetFullscreen(!IsFullscreen());
+}
+</code></pre>
+
+<table>
+<tr><th>Function</th><th>Description</th></tr>
+<tr><td><code>SetFullscreen(enabled: Bool)</code></td><td>Enter/exit borderless fullscreen on primary monitor</td></tr>
+<tr><td><code>IsFullscreen() -> Bool</code></td><td>Check if currently fullscreen</td></tr>
+</table>
+
+<p>When exiting fullscreen, the window restores to its previous position and size.</p>
+
+<h3 id="cameranode2d">CameraNode2D</h3>
+
+<p>Camera with zoom for viewport control.</p>
+
+<h3 id="animationplayer">AnimationPlayer</h3>
+
+<p>Plays keyframe animations. Tracks modify properties as rendering overlays:</p>
+<ul>
+<li><code>x</code>, <code>y</code> -- added to position</li>
+<li><code>scaleX</code>, <code>scaleY</code> -- multiplied to scale</li>
+<li><code>rotation</code> -- added to rotation</li>
+<li><code>alpha</code> -- multiplied to tint alpha</li>
+</ul>
+
+<pre><code class="language-ks">
+let mut anim: AnimationPlayer = this.add(AnimationPlayer, &quot;anim&quot;);
+anim.LoadFromFile(&quot;walk.konani&quot;);
+anim.Play(&quot;walk&quot;);
+</code></pre>
+
+<hr>
+
+<h2 id="animation-system">Animation System</h2>
+
+<h3 id="anim-file-format">.anim File Format</h3>
+
+<pre><code>
+spritesheet assets/player.png
+
+anim idle loop
+    display 32 32 1.0
+    frame 0 0 32 32 0.2
+    frame 32 0 32 32 0.2
+    track scaleX 0.0 1.0 linear
+    track scaleX 0.5 1.1 easein
+    track scaleX 1.0 1.0 easeout
+end
+</code></pre>
+
+<p><strong>Track format:</strong> <code>track <property> <time> <value> <curve></code></p>
+
+<p><strong>Curves:</strong> <code>linear</code>, <code>easein</code>, <code>easeout</code>, <code>easeinout</code>, <code>easeincubic</code>, <code>easeoutcubic</code>, <code>easeinelastic</code>, <code>easeoutelastic</code>, <code>easeinbounce</code>, <code>easeoutbounce</code>, <code>easeinback</code>, <code>easeoutback</code></p>
+
+<p>The curve on a keyframe controls interpolation FROM that keyframe TO the next. The last keyframe's curve has no effect.</p>
+
+<h3 id="creating-animations-in-code-c">Creating Animations in Code (C++)</h3>
+
+<pre><code class="language-cpp">
+// Sprite sheet animation
+Animation walkAnim(&quot;walk&quot;, true);  // name, loop
+walkAnim.AddFrame(0, 0, 32, 32, 0.1f);   // srcX, srcY, srcW, srcH, duration
+walkAnim.AddFrame(32, 0, 32, 32, 0.1f);
+walkAnim.AddFrame(64, 0, 32, 32, 0.1f);
+walkAnim.AddFrame(96, 0, 32, 32, 0.1f);
+
+// Keyframe animation with easing
+Animation bounce(&quot;bounce&quot;);
+bounce.Track(&quot;y&quot;).AddKey(0.0f, 0.0f, Ease::EaseOut)
+                 .AddKey(0.3f, -20.0f, Ease::EaseIn)
+                 .AddKey(0.6f, 0.0f);
+bounce.Track(&quot;scaleX&quot;).AddKey(0.0f, 1.0f, Ease::EaseOutElastic)
+                      .AddKey(0.6f, 1.2f);
+bounce.AutoDuration();  // sets duration from last keyframe
+
+// Attach to a Sprite2D via AnimationPlayer
+auto* anim = sprite-&gt;AddChild&lt;AnimationPlayer&gt;(&quot;anim&quot;);
+anim-&gt;Add(walkAnim);
+anim-&gt;Add(bounce);
+anim-&gt;Play(&quot;walk&quot;);
+</code></pre>
+
+<h3 id="easing-curves">Easing Curves</h3>
+
+<table>
+<tr><th>Curve</th><th>Description</th></tr>
+<tr><td><code>Linear</code></td><td>Constant speed</td></tr>
+<tr><td><code>EaseIn</code> / <code>EaseOut</code> / <code>EaseInOut</code></td><td>Quadratic acceleration</td></tr>
+<tr><td><code>EaseInCubic</code> / <code>EaseOutCubic</code> / <code>EaseInOutCubic</code></td><td>Cubic acceleration</td></tr>
+<tr><td><code>EaseInElastic</code> / <code>EaseOutElastic</code> / <code>EaseInOutElastic</code></td><td>Spring-like bounce</td></tr>
+<tr><td><code>EaseInBounce</code> / <code>EaseOutBounce</code> / <code>EaseInOutBounce</code></td><td>Ball-drop bounce</td></tr>
+<tr><td><code>EaseInBack</code> / <code>EaseOutBack</code> / <code>EaseInOutBack</code></td><td>Slight overshoot</td></tr>
+</table>
+
+<p>The curve on a keyframe controls interpolation <strong>from</strong> that keyframe <strong>to</strong> the next. The last keyframe's curve has no effect.</p>
+
+<h3 id="animation-overlays">Animation Overlays</h3>
+
+<p>Animation values are applied as <strong>non-destructive overlays</strong> during rendering only. This means animations never modify the actual <code>x</code>, <code>y</code>, <code>scaleX</code>, <code>scaleY</code>, <code>rotation</code>, or <code>alpha</code> of a node. Gameplay code and animation can both modify properties without conflict.</p>
+
+<table>
+<tr><th>Track</th><th>Overlay</th><th>Effect</th></tr>
+<tr><td><code>x</code>, <code>y</code></td><td><code>animOffsetX/Y</code></td><td>Added to position</td></tr>
+<tr><td><code>scaleX</code>, <code>scaleY</code></td><td><code>animScaleX/Y</code></td><td>Multiplied with scale</td></tr>
+<tr><td><code>rotation</code></td><td><code>animRotation</code></td><td>Added to rotation</td></tr>
+<tr><td><code>alpha</code></td><td><code>animAlpha</code></td><td>Multiplied with tint alpha</td></tr>
+</table>
+
+<h3 id="compiling-anim-files">Compiling .anim Files</h3>
+
+<pre><code class="language-bash">
+anim_compiler player.anim    # outputs player.konani
+</code></pre>
+
+<hr>
+
+<h2 id="physics-collision">Physics & Collision</h2>
+
+<h3 id="overview">Overview</h3>
+
+<p>KonEngine uses a <strong>CollisionWorld</strong> that runs SAT (Separating Axis Theorem) collision detection each frame. Colliders are added as children of nodes. The world handles enter/exit signals and automatic depenetration.</p>
+
+<h3 id="collision-shapes">Collision Shapes</h3>
+
+<p>Colliders support three shapes: <strong>Rectangle</strong> (AABB), <strong>Circle</strong>, and <strong>Custom</strong> (convex polygon).</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+node Player : Node2D {
+    func Ready() {
+        # Rectangle collider
+        let col: Collider2D = this.add(Collider2D, &quot;hitbox&quot;);
+        col.width  = 32.0;
+        col.height = 48.0;
+
+        # Circle collider
+        let sensor: Collider2D = this.add(Collider2D, &quot;range&quot;);
+        sensor.shape  = ColliderShape.Circle;
+        sensor.radius = 64.0;
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+class Player : public Node2D {
+public:
+    Player(const std::string&amp; name = &quot;Player&quot;) : Node2D(name) {}
+
+    void Ready() override {
+        // Rectangle collider
+        auto* col = AddChild&lt;Collider2D&gt;(&quot;hitbox&quot;);
+        col-&gt;width  = 32.0f;
+        col-&gt;height = 48.0f;
+
+        // Circle collider
+        auto* sensor = AddChild&lt;Collider2D&gt;(&quot;range&quot;);
+        sensor-&gt;shape  = ColliderShape::Circle;
+        sensor-&gt;radius = 64.0f;
+    }
+};
+</code></pre>
+
+<h3 id="collision-layers-masks">Collision Layers & Masks</h3>
+
+<p>Each collider has a <code>layer</code> (what it is) and a <code>mask</code> (what it collides with), both 32-bit bitfields. Two colliders only interact when <code>(a.layer & b.mask) || (b.layer & a.mask)</code> is true.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Player on layer 1, collides with layer 2 (enemies)
+col.layer = 1;
+col.mask  = 2;
+
+# Enemy on layer 2, collides with layer 1 (player)
+enemyCol.layer = 2;
+enemyCol.mask  = 1;
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+col-&gt;layer = 1;
+col-&gt;mask  = 2;
+
+enemyCol-&gt;layer = 2;
+enemyCol-&gt;mask  = 1;
+</code></pre>
+
+<h3 id="collision-callbacks">Collision Callbacks</h3>
+
+<p>Define <code>OnCollisionEnter</code> and <code>OnCollisionExit</code> on the <strong>parent node</strong> of the collider. The engine routes collision signals up from child colliders.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+node Player : Node2D {
+    let mut hp: I32 = 100;
+
+    func OnCollisionEnter(other: Collider2D) {
+        if other.name == &quot;enemy_hitbox&quot; {
+            hp -= 10;
+            Print(&quot;Ouch! HP: %d\n&quot;, hp);
+        }
+    }
+
+    func OnCollisionExit(other: Collider2D) {
+        Print(&quot;No longer touching: %s\n&quot;, other.name);
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+class Player : public Node2D {
+public:
+    int hp = 100;
+    Player(const std::string&amp; name = &quot;Player&quot;) : Node2D(name) {}
+
+    void OnCollisionEnter(Collider2D* other) override {
+        if (other-&gt;name == &quot;enemy_hitbox&quot;) {
+            hp -= 10;
+            printf(&quot;Ouch! HP: %d\n&quot;, hp);
+        }
+    }
+
+    void OnCollisionExit(Collider2D* other) override {
+        printf(&quot;No longer touching: %s\n&quot;, other-&gt;name.c_str());
+    }
+};
+</code></pre>
+
+<h3 id="physics-bodies">Physics Bodies</h3>
+
+<h4 id="staticbody2d-immovable-walls-floors-platforms">StaticBody2D — Immovable walls, floors, platforms</h4>
+
+<p>Child colliders are automatically marked <code>solid = true</code> and <code>staticBody = true</code>. They never move during depenetration.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+node Floor : StaticBody2D {
+    func Ready() {
+        x = 0.0; y = 568.0;
+        let col: Collider2D = this.add(Collider2D, &quot;floor&quot;);
+        col.width  = 800.0;
+        col.height = 32.0;
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+class Floor : public StaticBody2D {
+public:
+    Floor(const std::string&amp; name = &quot;Floor&quot;) : StaticBody2D(name) {}
+    void Ready() override {
+        x = 0; y = 568;
+        auto* col = AddChild&lt;Collider2D&gt;(&quot;floor&quot;);
+        col-&gt;width  = 800;
+        col-&gt;height = 32;
+    }
+};
+</code></pre>
+
+<h4 id="kinematicbody2d-player-controlled-slides-along-walls">KinematicBody2D — Player-controlled, slides along walls</h4>
+
+<p>Use <code>MoveAndCollide(dx, dy)</code> to move with automatic wall sliding. Returns the actual movement applied.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+node Player : KinematicBody2D {
+    let mut speed: F64 = 200.0;
+
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, &quot;col&quot;);
+        col.width = 32.0; col.height = 48.0;
+    }
+
+    func Update(dt: F64) {
+        let mut dx: F64 = 0.0;
+        let mut dy: F64 = 0.0;
+        if KeyDown(Key.D) { dx =  speed * dt; }
+        if KeyDown(Key.A) { dx = -speed * dt; }
+        if KeyDown(Key.S) { dy =  speed * dt; }
+        if KeyDown(Key.W) { dy = -speed * dt; }
+        MoveAndCollide(dx, dy);
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+class Player : public KinematicBody2D {
+public:
+    float speed = 200.0f;
+    Player(const std::string&amp; name = &quot;Player&quot;) : KinematicBody2D(name) {}
+
+    void Ready() override {
+        auto* col = AddChild&lt;Collider2D&gt;(&quot;col&quot;);
+        col-&gt;width = 32; col-&gt;height = 48;
+    }
+
+    void Update(float dt) override {
+        float dx = 0, dy = 0;
+        if (IsKeyDown(Key::D)) dx =  speed * dt;
+        if (IsKeyDown(Key::A)) dx = -speed * dt;
+        if (IsKeyDown(Key::S)) dy =  speed * dt;
+        if (IsKeyDown(Key::W)) dy = -speed * dt;
+        MoveAndCollide(dx, dy);
+    }
+};
+</code></pre>
+
+<h4 id="rigidbody2d-gravity-driven-physics-objects">RigidBody2D — Gravity-driven physics objects</h4>
+
+<p>Automatically applies gravity and resolves collisions with statics. Detects floor contact via <code>onFloor</code>.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+node Crate : RigidBody2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, &quot;col&quot;);
+        col.width = 32.0; col.height = 32.0;
+        gravity = 980.0;   # pixels/s² (default)
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+class Crate : public RigidBody2D {
+public:
+    Crate(const std::string&amp; name = &quot;Crate&quot;) : RigidBody2D(name) {}
+    void Ready() override {
+        auto* col = AddChild&lt;Collider2D&gt;(&quot;col&quot;);
+        col-&gt;width = 32; col-&gt;height = 32;
+        gravity = 980.0f;
+    }
+};
+</code></pre>
+
+<h3 id="standalone-collision-checks">Standalone Collision Checks</h3>
+
+<p>For quick collision tests outside the node system, use these functions with <code>Rectangle</code> and <code>Circle</code> structs.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let a: Rectangle = Rectangle(10.0, 10.0, 50.0, 50.0);  # x, y, w, h
+let b: Rectangle = Rectangle(40.0, 40.0, 50.0, 50.0);
+
+if CheckCollisionRecs(a, b) {
+    Print(&quot;Rectangles overlap!&quot;);
+}
+
+let c1: Circle = Circle(100.0, 100.0, 25.0);   # x, y, radius
+let c2: Circle = Circle(120.0, 110.0, 20.0);
+
+if CheckCollisionCircles(c1, c2) {
+    Print(&quot;Circles overlap!&quot;);
+}
+
+if CheckCollisionCircleRec(c1, a) {
+    Print(&quot;Circle hits rectangle!&quot;);
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Rectangle a(10, 10, 50, 50);
+Rectangle b(40, 40, 50, 50);
+
+if (CheckCollisionRecs(a, b)) { /* overlap */ }
+
+Circle c1(100, 100, 25);
+Circle c2(120, 110, 20);
+
+if (CheckCollisionCircles(c1, c2)) { /* overlap */ }
+if (CheckCollisionCircleRec(c1, a)) { /* overlap */ }
+</code></pre>
+
+<h3 id="scene-registration">Scene Registration</h3>
+
+<p>Colliders added during <code>Ready()</code> are registered with the <code>CollisionWorld</code> automatically. If you add colliders later (e.g., in <code>Update</code>), call <code>scene.scan()</code> to register them.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Late collider addition
+let newCol: Collider2D = player.add(Collider2D, &quot;shield&quot;);
+newCol.width = 48.0; newCol.height = 48.0;
+scene.scan();  # register the new collider
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+auto* newCol = player-&gt;AddChild&lt;Collider2D&gt;(&quot;shield&quot;);
+newCol-&gt;width = 48; newCol-&gt;height = 48;
+scene.Scan();
+</code></pre>
+
+<h3 id="debug-visualization">Debug Visualization</h3>
+
+<p>Enable <code>DebugMode(true)</code> to see all collider outlines drawn automatically. Active collisions are highlighted in a different color.</p>
+
+<hr>
+
+<h2 id="camera-system">Camera System</h2>
+
+<h3 id="basic-camera">Basic Camera</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+node Player : Node2D {
+    func Ready() { x = 400.0; y = 300.0; }
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x += 200.0 * dt; }
+        if KeyDown(Key.A) { x -= 200.0 * dt; }
+    }
+}
+
+func main() {
+    InitWindow(800, 600, &quot;Camera Demo&quot;);
+    SetTargetFPS(60);
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, &quot;player&quot;);
+
+    # Add a CameraNode2D to the scene
+    let cam: CameraNode2D = scene.add(CameraNode2D, &quot;cam&quot;);
+    cam.current = true;   # marks this as the active camera
+    cam.zoom = 1.5;
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.update(dt);
+        scene.draw();   # auto-applies the active CameraNode2D
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+#include &quot;KonEngine.hpp&quot;
+
+int main() {
+    InitWindow(800, 600, &quot;Camera Demo&quot;);
+    SetTargetFPS(60);
+    Scene scene;
+
+    auto* player = scene.Add&lt;Node2D&gt;(&quot;player&quot;);
+    player-&gt;x = 400; player-&gt;y = 300;
+
+    auto* cam = scene.Add&lt;CameraNode2D&gt;(&quot;cam&quot;);
+    cam-&gt;current = true;
+    cam-&gt;zoom = 1.5f;
+
+    while (!WindowShouldClose()) {
+        float dt = GetDeltaTime();
+        ClearBackground(0.1f, 0.1f, 0.1f);
+        scene.Update(dt);
+        scene.Draw();
+        Present(); PollEvents();
+    }
+}
+</code></pre>
+
+<h3 id="camera-utilities">Camera Utilities</h3>
+
+<p>These free functions operate on the <code>Camera2D</code> struct directly.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let mut cam: Camera2D = Camera2D(400.0, 300.0, 1.0, 0.0);
+
+# Smooth follow — speed 0.1 (slow) to 0.9 (fast)
+Camera2DFollow(cam, player.x, player.y, 0.5, dt);
+
+# Clamp to world bounds (never show outside the map)
+Camera2DClamp(cam, 0.0, 0.0, worldW, worldH,
+              GetWindowWidth() as F64, GetWindowHeight() as F64);
+
+# Screen shake — decay magnitude each frame
+Camera2DShake(cam, shakeMag);
+shakeMag *= 0.9;
+
+# Interpolate between two cameras
+let blended: Camera2D = Camera2DLerp(camA, camB, 0.5);
+
+# Manual camera control (without CameraNode2D)
+BeginCamera2D(cam);
+# ... draw world here ...
+EndCamera2D();
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Camera2D cam(400, 300, 1.0f, 0.0f);
+
+Camera2DFollow(cam, player-&gt;x, player-&gt;y, 0.5f, dt);
+Camera2DClamp(cam, 0, 0, worldWidth, worldHeight,
+              GetWindowWidth(), GetWindowHeight());
+
+static float shakeMag = 0.0f;
+if (hitTaken) shakeMag = 8.0f;
+Camera2DShake(cam, shakeMag);
+shakeMag *= 0.9f;
+
+Camera2D blended = Camera2DLerp(camA, camB, 0.5f);
+
+BeginCamera2D(cam);
+// ... draw world here ...
+EndCamera2D();
+</code></pre>
+
+<hr>
+
+<h2 id="audio-system">Audio System</h2>
+
+<h3 id="sound-effects">Sound Effects</h3>
+
+<p>Short one-shot sounds loaded fully into memory.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let snd: Sound = LoadSound(&quot;assets/jump.wav&quot;);
+PlaySound(snd);
+StopSound(snd);
+PauseSound(snd);
+ResumeSound(snd);
+SetSoundVolume(snd, 0.8);
+
+if IsSoundPlaying(snd) { Print(&quot;playing&quot;); }
+
+UnloadSound(snd);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Sound jump = LoadSound(&quot;assets/jump.wav&quot;);
+PlaySound(jump);
+StopSound(jump);
+PauseSound(jump);
+ResumeSound(jump);
+SetSoundVolume(jump, 0.8f);
+
+if (IsSoundPlaying(jump)) { /* ... */ }
+
+UnloadSound(jump);
+</code></pre>
+
+<h3 id="music-streaming">Music Streaming</h3>
+
+<p>Long tracks streamed from disk. Call <code>UpdateMusic()</code> each frame to keep the stream fed.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let bgm: Music = LoadMusic(&quot;assets/bgm.ogg&quot;);
+PlayMusic(bgm);
+SetMusicVolume(bgm, 0.5);
+SetMusicLooping(bgm, true);
+
+# In game loop:
+UpdateMusic(bgm);
+
+# Query state
+if IsMusicPlaying(bgm) { Print(&quot;music on&quot;); }
+
+# Controls
+PauseMusic(bgm);
+ResumeMusic(bgm);
+StopMusic(bgm);
+UnloadMusic(bgm);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Music bgm = LoadMusic(&quot;assets/bgm.ogg&quot;);
+bgm.looping = true;
+PlayMusic(bgm);
+SetMusicVolume(bgm, 0.5f);
+
+// In game loop — required each frame
+UpdateMusic(bgm);
+
+if (IsMusicPlaying(bgm)) { /* ... */ }
+
+PauseMusic(bgm);
+ResumeMusic(bgm);
+StopMusic(bgm);
+SetMusicLooping(bgm, false);
+UnloadMusic(bgm);
+</code></pre>
+
+<h3 id="master-volume">Master Volume</h3>
+
+<pre><code class="language-ks">
+SetMasterVolume(0.7);   # KonScript
+</code></pre>
+<pre><code class="language-cpp">
+SetMasterVolume(0.7f);  // C++ — affects all sounds and music
+</code></pre>
+
+<p><strong>Supported formats:</strong> <code>.wav</code>, <code>.ogg</code>, <code>.mp3</code> (via miniaudio)</p>
+
+<hr>
+
+<h2 id="input-system">Input System</h2>
+
+<h3 id="input-states">Input States</h3>
+
+<p>Every input source (keyboard, mouse, gamepad) has three states:</p>
+
+<table>
+<tr><th>State</th><th>Meaning</th><th>Use for</th></tr>
+<tr><td><strong>Down</strong></td><td>Held right now</td><td>Movement, continuous actions</td></tr>
+<tr><td><strong>Pressed</strong></td><td>Just pressed this frame</td><td>Jump, attack, menu select</td></tr>
+<tr><td><strong>Released</strong></td><td>Just let go this frame</td><td>Release charge, stop sprint</td></tr>
+</table>
+
+<h3 id="keyboard">Keyboard</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Movement (held every frame)
+if KeyDown(Key.D) { x += speed * dt; }
+if KeyDown(Key.A) { x -= speed * dt; }
+if KeyDown(Key.W) { y -= speed * dt; }
+if KeyDown(Key.S) { y += speed * dt; }
+
+# One-shot actions (fires once on press)
+if KeyPressed(Key.Space) { jump(); }
+if KeyPressed(Key.Enter) { confirm(); }
+if KeyPressed(Key.Esc)   { pauseMenu(); }
+
+# Release detection
+if KeyReleased(Key.Shift) { stopSprint(); }
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+if (IsKeyDown(Key::D)) x += speed * dt;
+if (IsKeyDown(Key::A)) x -= speed * dt;
+if (IsKeyDown(Key::W)) y -= speed * dt;
+if (IsKeyDown(Key::S)) y += speed * dt;
+
+if (IsKeyPressed(Key::Space)) jump();
+if (IsKeyPressed(Key::Enter)) confirm();
+if (IsKeyPressed(Key::Escape)) pauseMenu();
+
+if (IsKeyReleased(Key::Shift)) stopSprint();
+</code></pre>
+
+<p><strong>Key constants:</strong></p>
+
+<table>
+<tr><th>Category</th><th>Keys</th></tr>
+<tr><td>Letters</td><td><code>A</code> - <code>Z</code></td></tr>
+<tr><td>Numbers</td><td><code>Num0</code> - <code>Num9</code></td></tr>
+<tr><td>Arrows</td><td><code>Up</code>, <code>Down</code>, <code>Left</code>, <code>Right</code></td></tr>
+<tr><td>Actions</td><td><code>Space</code>, <code>Enter</code>, <code>Escape</code> (or <code>Esc</code>), <code>Tab</code>, <code>Backspace</code></td></tr>
+<tr><td>Modifiers</td><td><code>Shift</code>, <code>Ctrl</code>, <code>Alt</code></td></tr>
+<tr><td>Function</td><td><code>F1</code> - <code>F12</code></td></tr>
+</table>
+
+<p>Access as <code>Key.Space</code> in KonScript, <code>Key::Space</code> in C++.</p>
+
+<h3 id="mouse">Mouse</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Click detection
+if MouseDown(Mouse.Left)     { shoot(); }       # held (auto-fire)
+if MousePressed(Mouse.Left)  { singleShot(); }  # just clicked
+if MouseReleased(Mouse.Left) { releaseCharge(); }
+if MousePressed(Mouse.Right) { aim(); }
+
+# Screen-space mouse position (design resolution coordinates)
+let mx: F64 = GetMouseX();
+let my: F64 = GetMouseY();
+
+# Per-frame movement delta
+let dx: F64 = GetMouseDeltaX();
+let dy: F64 = GetMouseDeltaY();
+
+# Scroll wheel (positive = up, negative = down)
+let scroll: F64 = GetMouseScroll();
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+if (IsMouseButtonDown(Mouse::Left))     shoot();
+if (IsMouseButtonPressed(Mouse::Left))  singleShot();
+if (IsMouseButtonReleased(Mouse::Left)) releaseCharge();
+
+float mx = GetMouseX(), my = GetMouseY();
+float dx = GetMouseDeltaX(), dy = GetMouseDeltaY();
+float scroll = GetMouseScroll();
+</code></pre>
+
+<p><strong>Mouse buttons:</strong> <code>Mouse.Left</code>, <code>Mouse.Right</code>, <code>Mouse.Middle</code> (KonScript) / <code>Mouse::Left</code>, etc. (C++)</p>
+
+<h3 id="world-space-mouse-clicking-game-objects">World-Space Mouse (Clicking Game Objects)</h3>
+
+<p><code>GetMouseX/Y()</code> returns screen coordinates. To click on things in the game world (affected by camera pan/zoom), use <code>GetWorldMouseX/Y(camera)</code>:</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let cam: Camera2D = Camera2D(400.0, 300.0, 1.0, 0.0);
+
+# Screen mouse — for UI, HUD, menus
+let screenX: F64 = GetMouseX();
+let screenY: F64 = GetMouseY();
+
+# World mouse — for clicking game objects, tiles, enemies
+let worldX: F64 = GetWorldMouseX(cam);
+let worldY: F64 = GetWorldMouseY(cam);
+
+# Example: click to place a block at the mouse&#x27;s world position
+if MousePressed(Mouse.Left) {
+    spawnBlock(worldX, worldY);
+}
+
+# Example: check if clicking near the player
+let dist: F64 = Distance(worldX, worldY, player.x, player.y);
+if dist &lt; 32.0 &amp;&amp; MousePressed(Mouse.Left) {
+    Print(&quot;Clicked on player!&quot;);
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Camera2D cam(400, 300, 1.0f, 0.0f);
+
+// Screen-space (for UI)
+float screenX = GetMouseX();
+float screenY = GetMouseY();
+
+// World-space (for game objects)
+float worldX = GetWorldMouseX(cam);
+float worldY = GetWorldMouseY(cam);
+
+// Click to place at world position
+if (IsMouseButtonPressed(Mouse::Left)) {
+    spawnBlock(worldX, worldY);
+}
+</code></pre>
+
+<p><strong>When to use which:</strong></p>
+
+<table>
+<tr><th>Function</th><th>Coordinate space</th><th>Use for</th></tr>
+<tr><td><code>GetMouseX/Y()</code></td><td>Screen (design resolution)</td><td>UI buttons, HUD, menus</td></tr>
+<tr><td><code>GetGameMouseX/Y()</code></td><td>Screen (letterbox-corrected)</td><td>Same as above, with letterbox</td></tr>
+<tr><td><code>GetWorldMouseX/Y(cam)</code></td><td>World (camera-transformed)</td><td>Clicking game objects, tiles, placing items</td></tr>
+</table>
+
+<h3 id="gamepad">Gamepad</h3>
+
+<p>Supports multiple gamepads for local multiplayer (player index 0-3).</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+if GamepadConnected(0) {
+    # Buttons
+    if GamepadPressed(0, Gamepad.A) { jump(); }
+    if GamepadDown(0, Gamepad.RightBumper) { sprint(); }
+
+    # Analog sticks (-1.0 to 1.0)
+    let moveX: F64 = GamepadAxis(0, Gamepad.LeftX);
+    let moveY: F64 = GamepadAxis(0, Gamepad.LeftY);
+
+    # Triggers (0.0 to 1.0)
+    let brake: F64 = GamepadAxis(0, Gamepad.LeftTrigger);
+    let gas: F64   = GamepadAxis(0, Gamepad.RightTrigger);
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+if (IsGamepadConnected(0)) {
+    if (IsGamepadButtonPressed(0, Gamepad::A)) jump();
+    if (IsGamepadButtonDown(0, Gamepad::RightBumper)) sprint();
+
+    float moveX = GetGamepadAxis(0, Gamepad::LeftX);
+    float moveY = GetGamepadAxis(0, Gamepad::LeftY);
+    float brake = GetGamepadAxis(0, Gamepad::LeftTrigger);
+    float gas   = GetGamepadAxis(0, Gamepad::RightTrigger);
+}
+</code></pre>
+
+<p><strong>Gamepad buttons:</strong> <code>A</code>, <code>B</code>, <code>X</code>, <code>Y</code>, <code>LeftBumper</code>, <code>RightBumper</code>, <code>Back</code>, <code>Start</code>, <code>LeftThumb</code>, <code>RightThumb</code>, <code>DPadUp</code>, <code>DPadRight</code>, <code>DPadDown</code>, <code>DPadLeft</code></p>
+
+<p><strong>Gamepad axes:</strong> <code>LeftX</code>, <code>LeftY</code>, <code>RightX</code>, <code>RightY</code>, <code>LeftTrigger</code>, <code>RightTrigger</code></p>
+
+<hr>
+
+<h2 id="text-font-rendering">Text & Font Rendering</h2>
+
+<h3 id="default-font">Default Font</h3>
+
+<p>A built-in Inconsolata font is available at any size without loading a file.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+DrawText(&quot;Hello World&quot;, 10.0, 10.0, 20, WHITE);
+DrawText(&quot;Big text&quot;, 10.0, 40.0, 48, RED);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+// Default font, default size (20)
+DrawText(&quot;Hello World&quot;, 10, 10, WHITE);
+
+// Default font, custom size (cached automatically)
+DrawText(&quot;Big text&quot;, 10, 40, 48, RED);
+
+// Printf-style formatting
+DrawTextF(10, 80, WHITE, &quot;Score: %d&quot;, score);
+DrawTextF(10, 100, 32, YELLOW, &quot;FPS: %d&quot;, GetFPS());
+</code></pre>
+
+<h3 id="custom-fonts">Custom Fonts</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let font: Font = LoadFont(&quot;assets/myfont.ttf&quot;, 24);
+# Use with DrawText by passing the font object
+UnloadFont(font);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Font myFont = LoadFont(&quot;assets/myfont.ttf&quot;, 24);
+DrawText(myFont, &quot;Custom font&quot;, 10, 10, GREEN);
+DrawTextF(myFont, 10, 40, BLUE, &quot;HP: %d/%d&quot;, hp, maxHp);
+
+// Cached loading — same file+size returns the same Font
+Font&amp; cached = GetCachedFont(&quot;assets/myfont.ttf&quot;, 32);
+</code></pre>
+
+<h3 id="text-alignment">Text Alignment</h3>
+
+<p>Draw text centered, left-aligned, or right-aligned relative to an anchor point.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Left-aligned (default — text starts at x)
+DrawText(&quot;Score: 100&quot;, 10.0, 10.0, 24, WHITE);
+
+# Centered on x — great for titles, game over text
+DrawTextCentered(&quot;GAME OVER&quot;, 400.0, 300.0, 48, RED);
+
+# Right-aligned — text ends at x
+DrawTextAligned(&quot;100 HP&quot;, 790.0, 10.0, 20, GREEN, TextAlign.Right);
+
+# Measure text width for manual positioning
+let w: F32 = MeasureTextWidth(&quot;Hello World&quot;, 32);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+DrawTextCentered(&quot;GAME OVER&quot;, 400, 300, 48, RED);
+DrawTextAligned(&quot;100 HP&quot;, 790, 10, 20, GREEN, TextAlign::Right);
+float w = MeasureTextWidth(&quot;Hello World&quot;, 32);
+</code></pre>
+
+<table>
+<tr><th>Function</th><th>Description</th></tr>
+<tr><td><code>DrawText(text, x, y, fontSize, color)</code></td><td>Left-aligned (default)</td></tr>
+<tr><td><code>DrawTextCentered(text, x, y, fontSize, color)</code></td><td>Centered on x</td></tr>
+<tr><td><code>DrawTextAligned(text, x, y, fontSize, color, align)</code></td><td>Left / Center / Right</td></tr>
+<tr><td><code>MeasureTextWidth(text, fontSize)</code></td><td>Returns pixel width of text</td></tr>
+</table>
+
+<p>Alignment modes:</p>
+<pre><code>
+TextAlign.Left     x is the LEFT edge    |Hello World
+TextAlign.Center   x is the CENTER        Hel|lo World
+TextAlign.Right    x is the RIGHT edge    Hello World|
+</code></pre>
+
+<h3 id="texture-loading">Texture Loading</h3>
+
+<p>Two filtering modes for different use cases:</p>
+
+<pre><code class="language-ks">
+# Pixel art — sharp edges, no blurring (default)
+let sprite: Texture = LoadTexture(&quot;player.png&quot;);
+
+# Smooth — bilinear filtering, for logos/UI/backgrounds
+let logo: Texture = LoadTextureSmooth(&quot;logo.png&quot;);
+</code></pre>
+
+<table>
+<tr><th>Function</th><th>Filtering</th><th>Use for</th></tr>
+<tr><td><code>LoadTexture(path)</code></td><td>GL_NEAREST (sharp)</td><td>Pixel art, sprites, tilesets</td></tr>
+<tr><td><code>LoadTextureSmooth(path)</code></td><td>GL_LINEAR (smooth)</td><td>Logos, UI art, backgrounds</td></tr>
+</table>
+
+<hr>
+
+<h2 id="tilemap-system">Tilemap System</h2>
+
+<h3 id="tilemap-data-rendering">Tilemap (Data + Rendering)</h3>
+
+<p><code>Tilemap</code> stores a 2D grid of tile IDs and renders them using a tileset spritesheet. Tile ID 0 = empty.</p>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+// Create a 20x15 tilemap with 32x32 pixel tiles
+Tilemap map(20, 15, 32, 32);
+map.originX = 0;
+map.originY = 0;
+
+// Load tileset spritesheet
+map.SetTileset(LoadTexture(&quot;tiles.png&quot;));
+
+// Place tiles (ID 1 = first tile in sheet, 2 = second, etc.)
+map.Set(5, 3, 1);    // grass
+map.Set(6, 3, 2);    // stone
+map.Fill(1);          // fill entire map with tile 1
+
+// Render the tilemap
+map.Draw();
+
+// Draw debug grid overlay
+map.DrawGrid();
+
+// Draw a single tile from the tileset at any position
+map.DrawTileAt(3, worldX, worldY);
+</code></pre>
+
+<h3 id="tile-click-detection">Tile Click Detection</h3>
+
+<pre><code class="language-cpp">
+// Get which tile the player clicked (using world-space mouse)
+float wmx = GetWorldMouseX(cam);
+float wmy = GetWorldMouseY(cam);
+
+TileCoord clicked = map.GetTileAt(wmx, wmy);
+if (clicked.x &gt;= 0) {
+    int tileId = map.Get(clicked.x, clicked.y);
+    printf(&quot;Clicked tile (%d,%d) = ID %d\n&quot;, clicked.x, clicked.y, tileId);
+
+    // Place a tile where clicked
+    map.Set(clicked.x, clicked.y, 5);
+}
+
+// Or get tile ID directly
+int id = map.GetTileIdAt(wmx, wmy);
+</code></pre>
+
+<h3 id="coordinate-conversion">Coordinate Conversion</h3>
+
+<pre><code class="language-cpp">
+// Tile -&gt; world position (top-left corner)
+WorldPos wp = map.TileToWorld(5, 3);
+
+// Tile -&gt; world position (center)
+WorldPos center = map.TileCenter(5, 3);
+
+// World -&gt; tile coordinates
+TileCoord tc = map.WorldToTile(worldX, worldY);
+
+// Bounds check
+if (map.InBounds(tc.x, tc.y)) { /* valid tile */ }
+</code></pre>
+
+<h3 id="tilegrid-lightweight-grid-overlay">TileGrid (Lightweight Grid Overlay)</h3>
+
+<p>For simple grid snapping and visualization without tile data storage:</p>
+
+<pre><code class="language-cpp">
+TileGrid grid(32, 32);
+grid.DrawGrid(0, 0, 25, 19);
+TileCoord tc = grid.WorldToTile(mouseX, mouseY);
+WorldPos snapped = grid.Snap(mouseX, mouseY);
+</code></pre>
+
+<h3 id="isometric-tilemap-full-example">Isometric Tilemap (Full Example)</h3>
+
+<p><code>IsoTilemap</code> combines isometric coordinate math with tile data storage and rendering. Tiles are drawn at correct diamond-projected positions automatically.</p>
+
+<p><strong>C++ -- complete isometric game setup:</strong></p>
+<pre><code class="language-cpp">
+#include &quot;KonEngine.hpp&quot;
+
+int main() {
+    InitWindow(800, 600, &quot;Isometric Demo&quot;, true);
+    SetTargetFPS(60);
+
+    // 1. Create isometric tilemap (10x10 grid, 64x32 pixel tiles)
+    IsoTilemap map(10, 10, 64, 32);
+    map.originX = 400;  // center the map on screen
+    map.originY = 50;
+
+    // 2. Load tileset spritesheet
+    //    Each tile in the spritesheet is 64x32 pixels.
+    //    Tile ID 1 = first tile (top-left), ID 2 = next, etc.
+    map.SetTileset(LoadTexture(&quot;iso_tiles.png&quot;));
+
+    // 3. Fill the map with grass (tile ID 1)
+    map.Fill(1);
+
+    // 4. Place some different tiles
+    map.Set(3, 3, 2);  // stone
+    map.Set(4, 3, 2);
+    map.Set(5, 5, 3);  // water
+
+    Camera2D cam(400, 300, 1.0f, 0);
+
+    while (!WindowShouldClose()) {
+        float dt = GetDeltaTime();
+
+        // 5. Click detection -- which tile did we click?
+        float wmx = GetWorldMouseX(cam);
+        float wmy = GetWorldMouseY(cam);
+        TileCoord hover = map.GetTileAt(wmx, wmy);
+
+        if (IsMouseButtonPressed(Mouse::Left) &amp;&amp; map.InBounds(hover.x, hover.y)) {
+            map.Set(hover.x, hover.y, 2);  // place stone where clicked
+        }
+
+        // 6. Render
+        ClearBackground(0.15f, 0.15f, 0.2f);
+        BeginCamera2D(cam);
+            map.Draw();                    // draws all tiles at correct iso positions
+            map.DrawGrid(GRAY);            // debug overlay
+        EndCamera2D();
+
+        // HUD
+        if (map.InBounds(hover.x, hover.y)) {
+            DrawTextF(10, 10, WHITE, &quot;Tile: (%d, %d) ID: %d&quot;,
+                      hover.x, hover.y, map.Get(hover.x, hover.y));
+        }
+
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+func main() {
+    InitWindow(800, 600, &quot;Isometric Demo&quot;, true);
+    SetTargetFPS(60);
+
+    let mut map: IsoTilemap = IsoTilemap(10, 10, 64, 32);
+    map.originX = 400.0;
+    map.originY = 50.0;
+    map.SetTileset(LoadTexture(&quot;iso_tiles.png&quot;));
+    map.Fill(1);
+
+    let cam: Camera2D = Camera2D(400.0, 300.0, 1.0, 0.0);
+
+    while !WindowShouldClose() {
+        let wmx: F64 = GetWorldMouseX(cam);
+        let wmy: F64 = GetWorldMouseY(cam);
+        let hover: TileCoord = map.GetTileAt(wmx, wmy);
+
+        if MousePressed(Mouse.Left) &amp;&amp; map.InBounds(hover.x, hover.y) {
+            map.Set(hover.x, hover.y, 2);
+        }
+
+        ClearBackground(0.15, 0.15, 0.2);
+        BeginCamera2D(cam);
+        map.Draw();
+        map.DrawGrid();
+        EndCamera2D();
+
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p><strong>How the tileset spritesheet works:</strong></p>
+
+<pre><code>
+iso_tiles.png (192 x 32 for 3 tiles at 64x32 each):
+┌──────────┬──────────┬──────────┐
+│  Tile 1  │  Tile 2  │  Tile 3  │
+│  (grass) │  (stone) │  (water) │
+│  64x32   │  64x32   │  64x32   │
+└──────────┴──────────┴──────────┘
+   ID 1       ID 2       ID 3
+</code></pre>
+
+<p>Each tile sprite should be a diamond shape drawn within a <code>tileW x tileH</code> rectangle. The transparent areas around the diamond let tiles overlap correctly.</p>
+
+<h3 id="isometric-grid-coordinate-helper-only">Isometric Grid (Coordinate Helper Only)</h3>
+
+<p>If you just need isometric math without tile data storage:</p>
+
+<pre><code class="language-cpp">
+IsometricGrid iso(64, 32);
+
+WorldPos pos = iso.TileToScreen(3, 5, originX, originY);  // tile -&gt; screen
+TileCoord tc = iso.ScreenToTile(mouseX, mouseY, originX, originY);  // click -&gt; tile
+iso.DrawGrid(originX, originY, 10, 10);  // draw diamond grid
+iso.DrawGridHighlight(originX, originY, 10, 10, tc.x, tc.y);  // highlight hovered
+</code></pre>
+
+<h3 id="saving-and-loading-tilemaps">Saving and Loading Tilemaps</h3>
+
+<p>The engine doesn't include a built-in save format, but saving tile data is straightforward since it's just a grid of integers:</p>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+#include &lt;fstream&gt;
+
+// Save tilemap to a simple binary file
+void SaveTilemap(const Tilemap&amp; map, const char* path) {
+    std::ofstream f(path, std::ios::binary);
+    f.write((char*)&amp;map.cols, sizeof(int));
+    f.write((char*)&amp;map.rows, sizeof(int));
+    f.write((char*)&amp;map.tileW, sizeof(int));
+    f.write((char*)&amp;map.tileH, sizeof(int));
+    for (int y = 0; y &lt; map.rows; y++)
+        for (int x = 0; x &lt; map.cols; x++) {
+            int id = map.Get(x, y);
+            f.write((char*)&amp;id, sizeof(int));
+        }
+}
+
+// Load tilemap from binary file
+Tilemap LoadTilemap(const char* path) {
+    std::ifstream f(path, std::ios::binary);
+    int cols, rows, tw, th;
+    f.read((char*)&amp;cols, sizeof(int));
+    f.read((char*)&amp;rows, sizeof(int));
+    f.read((char*)&amp;tw, sizeof(int));
+    f.read((char*)&amp;th, sizeof(int));
+    Tilemap map(cols, rows, tw, th);
+    for (int y = 0; y &lt; rows; y++)
+        for (int x = 0; x &lt; cols; x++) {
+            int id;
+            f.read((char*)&amp;id, sizeof(int));
+            map.Set(x, y, id);
+        }
+    return map;
+}
+
+// Works the same way for IsoTilemap
+</code></pre>
+
+<hr>
+
+<h2 id="color-presets">Color Presets</h2>
+
+<p>Available in both KonScript and C++:</p>
+
+<table>
+<tr><th>Constant</th><th>RGBA</th></tr>
+<tr><td><code>RED</code></td><td>(1, 0, 0, 1)</td></tr>
+<tr><td><code>GREEN</code></td><td>(0, 1, 0, 1)</td></tr>
+<tr><td><code>BLUE</code></td><td>(0, 0, 1, 1)</td></tr>
+<tr><td><code>WHITE</code></td><td>(1, 1, 1, 1)</td></tr>
+<tr><td><code>BLACK</code></td><td>(0, 0, 0, 1)</td></tr>
+<tr><td><code>YELLOW</code></td><td>(1, 1, 0, 1)</td></tr>
+<tr><td><code>CYAN</code></td><td>(0, 1, 1, 1)</td></tr>
+<tr><td><code>MAGENTA</code></td><td>(1, 0, 1, 1)</td></tr>
+<tr><td><code>ORANGE</code></td><td>(1, 0.5, 0, 1)</td></tr>
+<tr><td><code>GRAY</code></td><td>(0.5, 0.5, 0.5, 1)</td></tr>
+<tr><td><code>BLANK</code></td><td>(0, 0, 0, 0)</td></tr>
+</table>
+
+<p>Custom colors:</p>
+<pre><code class="language-ks">
+let myColor: Color = Color(0.2, 0.8, 1.0, 1.0);   # KonScript
+</code></pre>
+<pre><code class="language-cpp">
+Color myColor(0.2f, 0.8f, 1.0f, 1.0f);             // C++
+</code></pre>
+
+<hr>
+
+<h2 id="vector2-random">Vector2 & Random</h2>
+
+<h3 id="vector2">Vector2</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+let pos: Vec2 = Vec2(100.0, 200.0);
+let vel: Vec2 = Vec2(1.0, 0.0);
+
+# Vec2 methods work directly
+let len: F64   = vel.Length();
+let dir: Vec2  = vel.Normalized();
+let d: F64     = pos.Distance(other);
+let dot: F64   = vel.Dot(other);
+let r: Vec2    = vel.Reflected(wallNormal);
+let rot: Vec2  = vel.Rotated(0.785);  # radians (pi/4)
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Vector2 pos(100, 200);
+Vector2 vel(1, 0);
+
+float len   = vel.Length();
+Vector2 dir = vel.Normalized();
+float d     = pos.Distance(other);
+float dot   = vel.Dot(other);
+Vector2 r   = vel.Reflected(wallNormal);
+Vector2 rot = vel.Rotated(3.14159f / 4);
+
+// Interpolation
+Vector2 mid = Vector2::Lerp(a, b, 0.5f);
+
+// Presets
+Vector2 zero  = Vector2::Zero();   // (0, 0)
+Vector2 up    = Vector2::Up();     // (0, -1)
+Vector2 right = Vector2::Right();  // (1, 0)
+</code></pre>
+
+<p><strong>Vec2 methods:</strong> <code>Length()</code>, <code>LengthSq()</code>, <code>Normalized()</code>, <code>Dot(other)</code>, <code>Distance(other)</code>, <code>DistanceSq(other)</code>, <code>Rotated(angle)</code>, <code>Reflected(normal)</code></p>
+
+<p><strong>Static methods (C++):</strong> <code>Vector2::Lerp(a, b, t)</code>, <code>Vector2::Zero()</code>, <code>Vector2::One()</code>, <code>Vector2::Up()</code>, <code>Vector2::Down()</code>, <code>Vector2::Left()</code>, <code>Vector2::Right()</code></p>
+
+<h3 id="random">Random</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+Random.Seed();                     # random seed from clock
+Random.Seed(42);                   # deterministic seed
+
+let r: I32  = Random.Range(1, 6);       # 1-6 inclusive
+let f: F64  = Random.RangeF(0.5, 1.5);  # float range
+let v: F64  = Random.Value();            # 0.0 - 1.0
+let b: Bool = Random.Bool(0.3);          # 30% chance true
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+Random::Seed();
+Random::Seed(42);
+
+int r   = Random::Range(1, 6);
+float f = Random::RangeF(0.5f, 1.5f);
+float v = Random::Value();
+bool b  = Random::Bool(0.3f);
+
+// Random element from a vector (C++ only)
+std::vector&lt;std::string&gt; names = {&quot;Alice&quot;, &quot;Bob&quot;, &quot;Carol&quot;};
+std::string pick = Random::From(names);
+</code></pre>
+
+<table>
+<tr><th>Function</th><th>Description</th></tr>
+<tr><td><code>Random.Seed()</code> / <code>Random.Seed(n)</code></td><td>Seed the RNG (call once at startup)</td></tr>
+<tr><td><code>Random.Range(min, max)</code></td><td>Random integer in [min, max] inclusive</td></tr>
+<tr><td><code>Random.RangeF(min, max)</code></td><td>Random float in [min, max]</td></tr>
+<tr><td><code>Random.Value()</code></td><td>Random float 0.0 to 1.0</td></tr>
+<tr><td><code>Random.Bool(probability)</code></td><td>Random bool (0.0 = never, 1.0 = always)</td></tr>
+<tr><td><code>Random.From(vec)</code></td><td>Random element from a vector (C++ only)</td></tr>
+</table>
+
+<hr>
+
+<h2 id="timers">Timers</h2>
+
+<p>Frame-rate independent timers for gameplay events. Uses delta time so behavior is consistent regardless of FPS.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# One-shot timer: fires once after 2 seconds
+Timer.Create(&quot;explode&quot;, 2.0, false, [&amp;]() {
+    Print(&quot;BOOM!&quot;);
+});
+
+# Repeating timer: fires every 0.5 seconds
+Timer.Create(&quot;spawn&quot;, 0.5, true, [&amp;]() {
+    Print(&quot;Enemy spawned!&quot;);
+});
+
+# In game loop — MUST call this each frame
+Timer.UpdateAll(GetDeltaTime());
+
+# Controls
+Timer.Pause(&quot;spawn&quot;);
+Timer.Resume(&quot;spawn&quot;);
+Timer.Reset(&quot;spawn&quot;);       # restart from 0
+Timer.Remove(&quot;spawn&quot;);      # delete timer
+Timer.RemoveAll();           # delete all timers
+
+# Queries
+let exists: Bool = Timer.Exists(&quot;spawn&quot;);
+let done: Bool = Timer.Finished(&quot;explode&quot;);
+let remaining: F64 = Timer.Remaining(&quot;explode&quot;);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+// One-shot
+TimerCreate(&quot;explode&quot;, 2.0f, false, []{ printf(&quot;BOOM!\n&quot;); });
+
+// Repeating
+TimerCreate(&quot;spawn&quot;, 0.5f, true, [&amp;]{ spawnEnemy(); });
+
+// In game loop
+TimerUpdateAll(GetDeltaTime());
+
+// Controls
+TimerPause(&quot;spawn&quot;);
+TimerResume(&quot;spawn&quot;);
+TimerReset(&quot;spawn&quot;);
+TimerRemove(&quot;spawn&quot;);
+
+// Queries
+bool exists = TimerExists(&quot;spawn&quot;);
+float remaining = TimerRemaining(&quot;explode&quot;);
+</code></pre>
+
+<h3 id="full-timer-example-konscript">Full Timer Example (KonScript)</h3>
+
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+func main() {
+    InitWindow(600, 400, &quot;Timer Demo&quot;, false);
+    SetTargetFPS(60);
+
+    let mut score: I32 = 0;
+    let mut message: Str = &quot;Waiting...&quot;;
+
+    # Repeating timer: adds score every second
+    Timer.Create(&quot;score_tick&quot;, 1.0, true, [&amp;]() {
+        score = score + 10;
+    });
+
+    # One-shot timer: shows a message after 3 seconds
+    Timer.Create(&quot;welcome&quot;, 3.0, false, [&amp;]() {
+        message = &quot;Welcome to the game!&quot;;
+    });
+
+    # Repeating timer: blink effect every 0.5s
+    let mut blink: Bool = true;
+    Timer.Create(&quot;blink&quot;, 0.5, true, [&amp;]() {
+        blink = !blink;
+    });
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+
+        # IMPORTANT: must call every frame to tick all timers
+        Timer.UpdateAll(dt);
+
+        # Pause/resume with spacebar
+        if KeyPressed(Key.Space) {
+            if Timer.Exists(&quot;score_tick&quot;) {
+                Timer.Pause(&quot;score_tick&quot;);
+            }
+        }
+
+        ClearBackground(0.05, 0.05, 0.1);
+        DrawText(message, 10.0, 10.0, 20, WHITE);
+
+        if blink {
+            DrawText(&quot;Score: &quot; + ToString(score), 10.0, 40.0, 24, YELLOW);
+        }
+
+        # Show remaining time on welcome timer
+        if !Timer.Finished(&quot;welcome&quot;) {
+            let rem: F64 = Timer.Remaining(&quot;welcome&quot;);
+            DrawText(&quot;Welcome in: &quot; + ToString(rem) + &quot;s&quot;, 10.0, 80.0, 16, GRAY);
+        }
+
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<table>
+<tr><th>Function</th><th>Description</th></tr>
+<tr><td><code>Timer.Create(id, duration, repeating, callback)</code></td><td>Create a timer with a lambda callback</td></tr>
+<tr><td><code>Timer.UpdateAll(dt)</code></td><td>Tick all timers (call each frame with <code>GetDeltaTime()</code>)</td></tr>
+<tr><td><code>Timer.Pause(id)</code> / <code>Resume(id)</code></td><td>Pause/resume a timer</td></tr>
+<tr><td><code>Timer.Reset(id)</code></td><td>Restart timer from 0</td></tr>
+<tr><td><code>Timer.Remove(id)</code> / <code>RemoveAll()</code></td><td>Delete timers</td></tr>
+<tr><td><code>Timer.Exists(id)</code></td><td>Check if timer exists</td></tr>
+<tr><td><code>Timer.Finished(id)</code></td><td>True if one-shot timer has fired</td></tr>
+<tr><td><code>Timer.Remaining(id)</code></td><td>Seconds left until next fire</td></tr>
+</table>
+
+<blockquote><strong>Note:</strong> Timer callbacks use C++-style lambda syntax: <code>[&]() { ... }</code>. The <code>[&]</code> capture lets the lambda access and modify variables from the surrounding scope.</blockquote>
+
+<hr>
+
+<h2 id="text-boxes-dialogue">Text Boxes (Dialogue)</h2>
+
+<p><code>UITextBox</code> provides word-wrapped text with an optional typewriter effect — characters appear one at a time, perfect for dialogue boxes.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Simple text box (instant, word-wrapped)
+UI.AddTextBox(&quot;desc&quot;, &quot;This is a long description that will automatically wrap words to fit within the box width.&quot;, 50.0, 400.0, 700.0, 120.0);
+
+# Dialogue box with typewriter effect
+UI.AddTextBox(&quot;dialogue&quot;, &quot;Hello, adventurer! Welcome to the village. The elder would like to speak with you about a quest...&quot;, 50.0, 450.0, 700.0, 100.0, true, 40.0);
+
+# Connect to finished signal
+UI.Connect(&quot;dialogue&quot;, &quot;finished&quot;, func() {
+    Print(&quot;Dialogue finished typing!&quot;);
+});
+
+# In game loop
+UI.Update();
+UI.Draw();
+
+# Skip typewriter (e.g. on button press)
+if KeyPressed(Key.Space) {
+    # Get the element and call Skip — or just set a new text
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+// Simple wrapped text
+UIAddTextBox(&quot;desc&quot;, &quot;Long text here...&quot;, 50, 400, 700, 120);
+
+// Typewriter dialogue box (40 chars/sec)
+auto* dlg = UIAddTextBox(&quot;dialogue&quot;,
+    &quot;Hello, adventurer! Welcome to the village...&quot;,
+    50, 450, 700, 100, true, 40.0f);
+
+// Connect to finished signal
+UIConnect(&quot;dialogue&quot;, &quot;finished&quot;, []{ printf(&quot;Done typing!\n&quot;); });
+
+// Skip typewriter on keypress
+if (IsKeyPressed(Key::Space) &amp;&amp; dlg-&gt;IsTyping()) {
+    dlg-&gt;Skip();
+}
+
+// Change text (resets typewriter)
+dlg-&gt;SetText(&quot;New dialogue line here...&quot;);
+
+// Style
+dlg-&gt;backgroundColor = Color(0.0f, 0.0f, 0.0f, 0.85f);
+dlg-&gt;textColor = WHITE;
+dlg-&gt;fontSize = 20;
+dlg-&gt;paddingX = 16;
+dlg-&gt;paddingY = 12;
+</code></pre>
+
+<hr>
+
+<h2 id="signals">Signals</h2>
+
+<p>Nodes have a lightweight signal system for decoupled communication. Connect callbacks to named signals, then emit them from anywhere.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+node Player : Node2D {
+    let mut hp: I32 = 100;
+
+    func Ready() {
+        # Connect to your own signal
+        Connect(&quot;player_dead&quot;, func() {
+            Print(&quot;I died!&quot;);
+        });
+    }
+
+    func Update(dt: F64) {
+        if hp &lt;= 0 {
+            Emit(&quot;player_dead&quot;);
+        }
+    }
+
+    # Collision signals fire automatically from Collider2D children
+    func OnCollisionEnter(other: Collider2D) {
+        Print(&quot;Hit: &quot;, other.name);
+    }
+
+    func OnCollisionExit(other: Collider2D) {
+        Print(&quot;Left: &quot;, other.name);
+    }
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+// Connect a callback to a signal
+player-&gt;Connect(&quot;player_dead&quot;, [&amp;]() {
+    printf(&quot;Game Over!\n&quot;);
+    gameOver = true;
+});
+
+// Emit from inside a node
+void Update(float dt) override {
+    if (hp &lt;= 0) Emit(&quot;player_dead&quot;);
+}
+
+// Collision signals are automatic on parent nodes of Collider2D children
+void OnCollisionEnter(Collider2D* other) override {
+    printf(&quot;Hit: %s\n&quot;, other-&gt;name.c_str());
+}
+void OnCollisionExit(Collider2D* other) override {
+    printf(&quot;Left: %s\n&quot;, other-&gt;name.c_str());
+}
+</code></pre>
+
+<p><strong>Built-in collision signals:</strong></p>
+<ul>
+<li><code>OnCollisionEnter(other)</code> -- called when a child collider first overlaps another</li>
+<li><code>OnCollisionExit(other)</code> -- called when they stop overlapping</li>
+<li>These are virtual methods on Node, not string signals -- override them directly</li>
+</ul>
+
+<hr>
+
+<h2 id="debug-mode">Debug Mode</h2>
+
+<p><code>DebugMode(true)</code> enables a suite of visual debugging tools:</p>
+
+<ul>
+<li><strong>FPS counter</strong> — top-left overlay showing current FPS and delta time</li>
+<li><strong>Mouse crosshair</strong> — lines tracking the cursor position</li>
+<li><strong>Viewport border</strong> — red outline around the game area</li>
+<li><strong>Collider outlines</strong> — all Collider2D shapes drawn as wireframes (green = idle, highlighted = colliding)</li>
+</ul>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+DebugMode(true);
+if IsDebugMode() { Print(&quot;Debug is on\n&quot;); }
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+DebugMode(true);
+if (IsDebugMode()) { printf(&quot;Debug is on\n&quot;); }
+</code></pre>
+
+<hr>
+
+<h2 id="letterbox-scaling">Letterbox Scaling</h2>
+
+<p>When <code>InitWindow</code> is called with <code>canResize = true</code>, the engine maintains your design resolution with automatic black bars. All game coordinates remain unchanged regardless of window size.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+InitWindow(800, 600, &quot;My Game&quot;, true);  # resizable with letterboxing
+
+# Query design resolution and scaling info
+let dw: I32  = GetDesignWidth();
+let dh: I32  = GetDesignHeight();
+let scale: F64 = GetLetterboxScale();
+
+# Get mouse position in game (design-resolution) coordinates
+let gmx: F64 = GetGameMouseX();
+let gmy: F64 = GetGameMouseY();
+
+SetVsync(true);
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+InitWindow(800, 600, &quot;My Game&quot;, true);
+
+int dw = GetDesignWidth();
+int dh = GetDesignHeight();
+float scale = GetLetterboxScale();
+float offX  = GetLetterboxOffsetX();
+float offY  = GetLetterboxOffsetY();
+
+// Mouse in game coordinates
+float gmx = GetGameMouseX();
+float gmy = GetGameMouseY();
+
+SetVsync(true);
+</code></pre>
+
+<hr>
+
+<h2 id="asset-packing-konpak">Asset Packing (KonPak)</h2>
+
+<pre><code class="language-bash">
+# Create encrypted pack
+konpak create game.konpak assets/* --pass mypassword
+
+# Load in game
+AssetManager.init(&quot;game.konpak&quot;, &quot;mypassword&quot;);
+let mut tex: Texture = LoadTexture(&quot;sprite.png&quot;);  // reads from pack
+
+# Build with pack support
+konscript game.ks --pack
+</code></pre>
+
+<hr>
+
+<h2 id="window-rendering">Window & Rendering</h2>
+
+<pre><code class="language-ks">
+InitWindow(800, 600, &quot;Game&quot;);          // fixed size
+InitWindow(800, 600, &quot;Game&quot;, true);    // resizable with letterboxing
+SetTargetFPS(60);                      // 0 = uncapped
+SetVsync(true);
+DebugMode(true);                       // FPS overlay, collider outlines
+</code></pre>
+
+<p>Letterbox scaling: resizable windows maintain aspect ratio with black bars. Game coordinates stay the same.</p>
+
+<hr>
+
+<h2 id="using-c-directly">Using C++ Directly</h2>
+
+<pre><code class="language-cpp">
+#include &quot;KonEngine.hpp&quot;
+
+class Player : public Sprite2D {
+public:
+    Player(const std::string&amp; name = &quot;Player&quot;) : Sprite2D(name) {}
+    void Update(float dt) override {
+        if (IsKeyDown(Key::D)) x += 200 * dt;
+    }
+};
+
+int main() {
+    InitWindow(800, 600, &quot;C++ Game&quot;);
+    Scene scene;
+    auto* p = scene.Add&lt;Player&gt;(&quot;p&quot;);
+    while (!WindowShouldClose()) {
+        scene.Update(GetDeltaTime());
+        ClearBackground(0.1f, 0.1f, 0.15f);
+        scene.Draw();
+        Present(); PollEvents();
+    }
+}
+</code></pre>
+
+<p>See <code>examples/cpp_example/</code> for CMake setup.</p>
+
+<hr>
+
+<h2 id="ui-system">UI System</h2>
+
+<p>Screen-space UI elements that stay fixed on screen regardless of camera. Buttons, labels, and panels for menus and HUDs.</p>
+
+<h3 id="creating-elements">Creating Elements</h3>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Button — auto-sizes from text, has hover/pressed visual states
+UI.AddButton(&quot;play&quot;, &quot;Play Game&quot;, 300.0, 200.0);
+UI.AddButton(&quot;quit&quot;, &quot;Quit&quot;, 300.0, 260.0);
+
+# Label — static text
+UI.AddLabel(&quot;title&quot;, &quot;My Game&quot;, 280.0, 100.0, 32, WHITE);
+
+# Image — display a texture
+let tex: Texture = LoadTexture(&quot;logo.png&quot;);
+UI.AddImage(&quot;logo&quot;, tex, 350.0, 30.0, 100.0, 100.0);
+
+# Panel — colored container
+UI.AddPanel(&quot;menu&quot;, 250.0, 80.0, 300.0, 240.0);
+UI.PanelAddChild(&quot;menu&quot;, &quot;title&quot;);
+UI.PanelAddChild(&quot;menu&quot;, &quot;play&quot;);
+UI.PanelAddChild(&quot;menu&quot;, &quot;quit&quot;);
+# Child positions become relative to the panel&#x27;s top-left
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+UIAddButton(&quot;play&quot;, &quot;Play Game&quot;, 300, 200);
+UIAddButton(&quot;quit&quot;, &quot;Quit&quot;, 300, 260);
+UIAddLabel(&quot;title&quot;, &quot;My Game&quot;, 280, 100, 32, WHITE);
+
+Texture logo = LoadTexture(&quot;logo.png&quot;);
+UIAddImage(&quot;logo&quot;, logo, 350, 30, 100, 100);  // auto-sizes from texture if w/h omitted
+
+auto* panel = UIAddPanel(&quot;menu&quot;, 250, 80, 300, 240);
+UIPanelAddChild(&quot;menu&quot;, &quot;title&quot;);
+UIPanelAddChild(&quot;menu&quot;, &quot;play&quot;);
+UIPanelAddChild(&quot;menu&quot;, &quot;quit&quot;);
+</code></pre>
+
+<h3 id="handling-clicks-callbacks-signals">Handling Clicks (Callbacks & Signals)</h3>
+
+<p>Two ways to handle button clicks: direct callbacks or signals.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+# Direct callback (simple)
+UI.OnClick(&quot;play&quot;, [&amp;]() {
+    Print(&quot;Play clicked!&quot;);
+});
+
+# Signal system (flexible — supports multiple listeners)
+UI.Connect(&quot;play&quot;, &quot;clicked&quot;, [&amp;]() {
+    Print(&quot;Play clicked via signal!&quot;);
+});
+
+UI.Connect(&quot;play&quot;, &quot;hovered&quot;, [&amp;]() {
+    Print(&quot;Mouse entered play button&quot;);
+});
+
+UI.Connect(&quot;play&quot;, &quot;unhovered&quot;, [&amp;]() {
+    Print(&quot;Mouse left play button&quot;);
+});
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+// Direct callback
+UIOnClick(&quot;play&quot;, []{ printf(&quot;Play!\n&quot;); });
+
+// Signal system
+UIConnect(&quot;play&quot;, &quot;clicked&quot;, []{ printf(&quot;Clicked via signal!\n&quot;); });
+UIConnect(&quot;play&quot;, &quot;hovered&quot;, []{ printf(&quot;Hovered!\n&quot;); });
+UIConnect(&quot;play&quot;, &quot;unhovered&quot;, []{ printf(&quot;Left!\n&quot;); });
+</code></pre>
+
+<p><strong>Available signals:</strong></p>
+
+<table>
+<tr><th>Signal</th><th>Fired when</th></tr>
+<tr><td><code>"clicked"</code></td><td>Button is clicked</td></tr>
+<tr><td><code>"hovered"</code></td><td>Mouse enters the button</td></tr>
+<tr><td><code>"unhovered"</code></td><td>Mouse leaves the button</td></tr>
+</table>
+
+<h3 id="button-images">Button Images</h3>
+
+<p>Buttons can have an icon (displayed left of text) and/or a background texture.</p>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+auto* btn = UIAddButton(&quot;shop&quot;, &quot;Shop&quot;, 300, 200);
+
+// Icon — small texture displayed left of the text
+Texture shopIcon = LoadTexture(&quot;shop_icon.png&quot;);
+btn-&gt;SetIcon(shopIcon, 20, 20);  // display size 20x20
+
+// Background texture — replaces the solid color fill
+Texture btnNormal = LoadTexture(&quot;btn_normal.png&quot;);
+Texture btnHover  = LoadTexture(&quot;btn_hover.png&quot;);
+Texture btnPress  = LoadTexture(&quot;btn_pressed.png&quot;);
+btn-&gt;SetBackground(btnNormal, btnHover, btnPress);
+</code></pre>
+
+<p>Panels also support background textures:</p>
+<pre><code class="language-cpp">
+auto* panel = UIAddPanel(&quot;hud&quot;, 0, 0, 800, 60);
+panel-&gt;background = LoadTexture(&quot;hud_bg.png&quot;);
+</code></pre>
+
+<h3 id="game-loop-integration">Game Loop Integration</h3>
+
+<p>Call <code>UIUpdate()</code> and <code>UIDrawAll()</code> <strong>after</strong> <code>scene.draw()</code> (after EndCamera2D). Check <code>UIWantsInput()</code> before processing world clicks.</p>
+
+<p><strong>KonScript:</strong></p>
+<pre><code class="language-ks">
+while !WindowShouldClose() {
+    let dt: F64 = GetDeltaTime();
+    ClearBackground(0.1, 0.1, 0.15);
+    scene.update(dt);
+    scene.draw();
+
+    UI.Update();    # hit-test mouse against UI elements
+    UI.Draw();      # render UI in screen-space (not affected by camera)
+
+    if !UI.WantsInput() &amp;&amp; MousePressed(Mouse.Left) {
+        # handle world clicks here — UI didn&#x27;t consume the click
+    }
+
+    Present();
+    PollEvents();
+}
+</code></pre>
+
+<p><strong>C++:</strong></p>
+<pre><code class="language-cpp">
+while (!WindowShouldClose()) {
+    float dt = GetDeltaTime();
+    ClearBackground(0.1f, 0.1f, 0.15f);
+    scene.Update(dt);
+    scene.Draw();
+
+    UIUpdate();
+    UIDrawAll();
+
+    if (!UIWantsInput() &amp;&amp; IsMouseButtonPressed(Mouse::Left)) {
+        // world clicks
+    }
+
+    Present(); PollEvents();
+}
+</code></pre>
+
+<h3 id="button-styling-c">Button Styling (C++)</h3>
+
+<p>Buttons have sensible defaults but can be customized:</p>
+
+<pre><code class="language-cpp">
+auto* btn = UIAddButton(&quot;play&quot;, &quot;Play&quot;, 300, 200);
+btn-&gt;normalColor  = Color(0.2f, 0.5f, 0.2f, 1.0f);  // green
+btn-&gt;hoverColor   = Color(0.3f, 0.7f, 0.3f, 1.0f);
+btn-&gt;pressedColor = Color(0.1f, 0.3f, 0.1f, 1.0f);
+btn-&gt;textColor    = WHITE;
+btn-&gt;borderColor  = Color(0.4f, 0.8f, 0.4f, 1.0f);
+btn-&gt;fontSize     = 24;
+btn-&gt;paddingX     = 20;  // auto-size padding
+btn-&gt;paddingY     = 12;
+</code></pre>
+
+<h3 id="managing-elements">Managing Elements</h3>
+
+<pre><code class="language-ks">
+UI.Remove(&quot;play&quot;);    # remove a single element
+UI.Clear();           # remove all elements
+</code></pre>
+
+<h3 id="api-reference">API Reference</h3>
+
+<table>
+<tr><th>Function</th><th>Description</th></tr>
+<tr><td><code>UI.AddButton(id, text, x, y)</code></td><td>Create a button (auto-sizes from text)</td></tr>
+<tr><td><code>UI.AddLabel(id, text, x, y, fontSize?, color?)</code></td><td>Create a text label</td></tr>
+<tr><td><code>UI.AddPanel(id, x, y, w, h)</code></td><td>Create a panel container</td></tr>
+<tr><td><code>UI.AddImage(id, tex, x, y, w?, h?)</code></td><td>Display a texture (auto-sizes from texture)</td></tr>
+<tr><td><code>UI.PanelAddChild(panelId, childId)</code></td><td>Add element as panel child</td></tr>
+<tr><td><code>UI.OnClick(id, callback)</code></td><td>Set button click handler (shortcut)</td></tr>
+<tr><td><code>UI.Connect(id, signal, callback)</code></td><td>Connect to any UI signal</td></tr>
+<tr><td><code>UI.Update()</code></td><td>Per-frame hit testing (call before Draw)</td></tr>
+<tr><td><code>UI.Draw()</code></td><td>Render all visible elements</td></tr>
+<tr><td><code>UI.WantsInput()</code></td><td>True if UI consumed mouse this frame</td></tr>
+<tr><td><code>UI.Remove(id)</code></td><td>Remove element by ID</td></tr>
+<tr><td><code>UI.Clear()</code></td><td>Remove all elements</td></tr>
+</table>
+
+<h3 id="full-ui-example-konscript">Full UI Example (KonScript)</h3>
+
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+func main() {
+    InitWindow(800, 600, &quot;UI Demo&quot;, false);
+    SetTargetFPS(60);
+
+    let mut score: I32 = 0;
+    let mut message: Str = &quot;Click a button!&quot;;
+
+    // Create buttons
+    UI.AddButton(&quot;add10&quot;, &quot;+10 Points&quot;, 50.0, 100.0);
+    UI.AddButton(&quot;reset&quot;, &quot;Reset&quot;, 50.0, 160.0);
+    UI.AddLabel(&quot;title&quot;, &quot;UI Demo&quot;, 50.0, 30.0, 28, WHITE);
+    UI.AddLabel(&quot;score_label&quot;, &quot;Score: 0&quot;, 50.0, 250.0);
+
+    // Panel with child buttons
+    UI.AddPanel(&quot;menu&quot;, 400.0, 80.0, 250.0, 200.0);
+    UI.AddButton(&quot;btn_a&quot;, &quot;Panel Btn A&quot;, 20.0, 30.0);
+    UI.AddButton(&quot;btn_b&quot;, &quot;Panel Btn B&quot;, 20.0, 90.0);
+    UI.PanelAddChild(&quot;menu&quot;, &quot;btn_a&quot;);
+    UI.PanelAddChild(&quot;menu&quot;, &quot;btn_b&quot;);
+
+    // Connect click handlers
+    UI.OnClick(&quot;add10&quot;, [&amp;]() {
+        score = score + 10;
+        message = &quot;Score: &quot; + ToString(score);
+    });
+
+    UI.OnClick(&quot;reset&quot;, [&amp;]() {
+        score = 0;
+        message = &quot;Score reset!&quot;;
+    });
+
+    UI.OnClick(&quot;btn_a&quot;, [&amp;]() {
+        message = &quot;Panel button A!&quot;;
+    });
+
+    UI.OnClick(&quot;btn_b&quot;, [&amp;]() {
+        message = &quot;Panel button B!&quot;;
+    });
+
+    while !WindowShouldClose() {
+        UI.Update();
+
+        // World clicks only when UI doesn&#x27;t want input
+        if !UI.WantsInput() &amp;&amp; MousePressed(Mouse.Left) {
+            message = &quot;Clicked on background&quot;;
+        }
+
+        ClearBackground(0.1, 0.1, 0.15);
+
+        // Update dynamic labels
+        UI.Remove(&quot;score_label&quot;);
+        UI.AddLabel(&quot;score_label&quot;, message, 50.0, 250.0);
+
+        // Draw UI on top of everything
+        UI.Draw();
+
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<blockquote><strong>Note:</strong> Lambda callbacks use <code>[&]()</code> to capture surrounding variables by reference, allowing them to modify <code>score</code>, <code>message</code>, etc.</blockquote>
+
+<hr>
+
+<h2 id="examples">Examples</h2>
+
+<p>The <code>examples/</code> directory contains ready-to-run KonScript demos:</p>
+
+<table>
+<tr><th>Example</th><th>What it tests</th></tr>
+<tr><td><code>physics_test.ks</code></td><td>KinematicBody2D, gravity, jumping, StaticBody2D walls/platforms, collision signals, floor detection</td></tr>
+<tr><td><code>tilemap_test.ks</code></td><td>Tile placement/removal, grid overlay, camera pan/zoom, world-space click detection, tile selection</td></tr>
+<tr><td><code>platformer.ks</code></td><td>Simple platformer with KinematicBody2D and MoveAndCollide</td></tr>
+<tr><td><code>hello_world.ks</code></td><td>Basic window, drawing, and game loop</td></tr>
+<tr><td><code>pong.ks</code></td><td>Classic pong with collision</td></tr>
+<tr><td><code>cpp_example/</code></td><td>C++ example with CMake integration, camera follow, collision callbacks</td></tr>
+</table>
+
+<p>Run any KonScript example:</p>
+<pre><code class="language-bash">
+ksc examples/physics_test.ks
+ksc examples/tilemap_test.ks
+</code></pre>
+
+<hr>
+
+<h2 id="cross-compilation">Cross-Compilation</h2>
+
+<pre><code class="language-bash">
+# Build Windows engine
+cd tools/KonScript &amp;&amp; ./build-engine-lib.sh --windows
+
+# Compile game for Windows
+konscript game.ks --target windows  # outputs game.exe
+</code></pre>
+
+<hr>
+
+<h2 id="editor-koneditor">Editor (KonEditor)</h2>
+
+<ul>
+<li><strong>Project mode</strong>: Open <code>.konproj</code>, edit scenes with viewport/inspector</li>
+<li><strong>Monolithic mode</strong>: Open single <code>.ks</code> files directly</li>
+<li><strong>Project Settings</strong>: window size, FPS, VSync, resizable, debug, KonPak</li>
+<li><strong>Build</strong>: <code>Ctrl+B</code> build, <code>Ctrl+R</code> run, target: linux64/windows64</li>
+<li><strong>Animation</strong>: Double-click <code>.anim</code> files to open KonAnimator</li>
+</ul>
+
+<pre><code class="language-bash">
+cd tools/KonEditor &amp;&amp; ./build.sh &amp;&amp; sudo ./install.sh
+</code></pre>
+</div>
+<div class="doc-section"><h1 id="konscript-language-reference">KonScript Language Reference</h1>
+
+<blockquote>Version 0.1.0 — Compiles to C++ and links against KonEngine.</blockquote>
+
+<p>KonScript is a statically typed scripting language designed for KonEngine.</p>
+<p>It compiles to C++ via <code>konscript</code> and is fully interoperable with the engine.</p>
+
+<hr>
+
+<h2 id="table-of-contents">Table of Contents</h2>
+
+<ul>
+<li><a href="#1-getting-started">Getting Started</a></li>
+<li><a href="#2-types">Types</a></li>
+<li><a href="#3-variables">Variables</a></li>
+<li><a href="#4-constants">Constants</a></li>
+<li><a href="#5-functions">Functions</a></li>
+<li><a href="#6-control-flow">Control Flow</a></li>
+<li><a href="#7-loops">Loops</a></li>
+<li><a href="#8-nodes">Nodes</a></li>
+<li><a href="#9-scene">Scene</a></li>
+<li><a href="#10-operators">Operators</a></li>
+<li><a href="#11-enums">Enums</a></li>
+<li><a href="#12-structs">Structs</a></li>
+<li><a href="#13-arrays--tuples">Arrays & Tuples</a></li>
+<li><a href="#14-nullable-types">Nullable Types</a></li>
+<li><a href="#15-comments">Comments</a></li>
+<li><a href="#16-engine-functions">Engine Functions</a></li>
+<li><a href="#17-cmake-integration">CMake Integration</a></li>
+<li><a href="#18-known-limitations">Known Limitations</a></li>
+</ul>
+
+<hr>
+
+<h2 id="1-getting-started">1. Getting Started</h2>
+
+<p><strong>Install the compiler:</strong></p>
+<pre><code class="language-bash">
+cd tools/KonScript
+./build.sh
+./install.sh   # installs konscript and ksc to /usr/local/bin
+</code></pre>
+
+<p><strong>Write a game:</strong></p>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+node Player : Node2D {
+    let mut speed: F64 = 200.0;
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x += speed * dt; }
+        if KeyDown(Key.A) { x -= speed * dt; }
+    }
+}
+
+func main() {
+    InitWindow(800, 600, &quot;My Game&quot;);
+    SetTargetFPS(60);
+
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, &quot;player&quot;);
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.update(dt);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p><strong>Compile and run:</strong></p>
+<pre><code class="language-bash">
+ksc main.ks            # compile and run
+ksc main.ks --keep     # keep the generated .cpp
+ksc --compile main.ks  # compile only, no run
+ksc --check main.ks    # typecheck only
+ksc --parse main.ks    # dump AST
+ksc --lex main.ks      # dump tokens
+</code></pre>
+
+<hr>
+
+<h2 id="2-types">2. Types</h2>
+
+<table>
+<tr><th>KonScript</th><th>C++</th><th>Notes</th></tr>
+<tr><td><code>I8</code></td><td><code>int8_t</code></td><td></td></tr>
+<tr><td><code>I16</code></td><td><code>int16_t</code></td><td></td></tr>
+<tr><td><code>I32</code></td><td><code>int32_t</code></td><td>default integer</td></tr>
+<tr><td><code>I64</code></td><td><code>int64_t</code></td><td></td></tr>
+<tr><td><code>U8</code></td><td><code>uint8_t</code></td><td></td></tr>
+<tr><td><code>U16</code></td><td><code>uint16_t</code></td><td></td></tr>
+<tr><td><code>U32</code></td><td><code>uint32_t</code></td><td></td></tr>
+<tr><td><code>U64</code></td><td><code>uint64_t</code></td><td></td></tr>
+<tr><td><code>F32</code></td><td><code>float</code></td><td></td></tr>
+<tr><td><code>F64</code></td><td><code>double</code></td><td>default float</td></tr>
+<tr><td><code>Bool</code></td><td><code>bool</code></td><td></td></tr>
+<tr><td><code>str</code></td><td><code>const char*</code></td><td>string literals</td></tr>
+<tr><td><code>String</code></td><td><code>std::string</code></td><td></td></tr>
+<tr><td><code>Vec2</code></td><td><code>Vector2</code></td><td></td></tr>
+<tr><td><code>[T]</code></td><td><code>std::vector<T></code></td><td>dynamic array</td></tr>
+<tr><td><code>[T; N]</code></td><td><code>std::array<T, N></code></td><td>fixed array</td></tr>
+<tr><td><code>(T, T)</code></td><td><code>std::tuple<T, T></code></td><td>tuple</td></tr>
+<tr><td><code>T?</code></td><td><code>std::optional<T></code></td><td>nullable</td></tr>
+<tr><td><code>Node2D</code></td><td><code>Node2D*</code></td><td>engine node types are always pointers</td></tr>
+<tr><td><code>Collider2D</code></td><td><code>Collider2D*</code></td><td></td></tr>
+<tr><td><code>Scene</code></td><td><code>Scene</code></td><td>value type, not a pointer</td></tr>
+<tr><td><code>Sound</code></td><td><code>Sound</code></td><td>value type</td></tr>
+<tr><td><code>Music</code></td><td><code>Music</code></td><td>value type</td></tr>
+<tr><td><code>Font</code></td><td><code>Font</code></td><td>value type</td></tr>
+<tr><td><code>Rectangle</code></td><td><code>Rectangle</code></td><td>collision shape</td></tr>
+<tr><td><code>Circle</code></td><td><code>Circle</code></td><td>collision shape</td></tr>
+<tr><td><code>Camera2D</code></td><td><code>Camera2D</code></td><td>camera struct</td></tr>
+<tr><td><code>TileGrid</code></td><td><code>TileGrid</code></td><td>tile helper</td></tr>
+</table>
+
+<p>Node types declared with <code>node</code> are also treated as pointers when used in <code>let</code> declarations.</p>
+
+<hr>
+
+<h2 id="3-variables">3. Variables</h2>
+
+<pre><code class="language-ks">
+let x: I32 = 10;          # immutable
+let mut y: F64 = 3.14;    # mutable
+</code></pre>
+
+<p>Variables must be initialized. Immutable variables cannot be reassigned.</p>
+
+<p>Node pointer types are always mutable regardless of <code>mut</code>:</p>
+<pre><code class="language-ks">
+let player: Player = scene.add(Player, &quot;player&quot;);  # always mutable
+</code></pre>
+
+<hr>
+
+<h2 id="4-constants">4. Constants</h2>
+
+<pre><code class="language-ks">
+const MAX_SPEED: F64 = 500.0;
+const TILE_SIZE: I32 = 32;
+</code></pre>
+
+<p>Top-level constants compile to <code>constexpr</code>. Constants inside functions compile to <code>const</code>.</p>
+
+<hr>
+
+<h2 id="5-functions-lambdas">5. Functions & Lambdas</h2>
+
+<pre><code class="language-ks">
+func Add(a: I32, b: I32) -&gt; I32 {
+    return a + b;
+}
+
+func Greet(name: str) {
+    Print(&quot;Hello, %s!\n&quot;, name);
+}
+</code></pre>
+
+<p>The entry point is always <code>func main()</code>:</p>
+<pre><code class="language-ks">
+func main() {
+    InitWindow(800, 600, &quot;My Game&quot;);
+    # ...
+}
+</code></pre>
+
+<p><strong>Public functions</strong> (exported from a node):</p>
+<pre><code class="language-ks">
+node Player : Node2D {
+    pub func GetHealth() -&gt; I32 { return health; }
+}
+</code></pre>
+
+<p><strong>Lambdas / closures:</strong></p>
+
+<p>KonScript supports C++ style lambdas with <code>[]</code> or <code>[&]</code> captures. Both compile to <code>[&]</code> in C++ (captures are always by reference).</p>
+
+<pre><code class="language-ks">
+# C++ style — [] or [&amp;] both work
+let triple = [](x: I32) -&gt; I32 { return x * 3; };
+let quad = [&amp;](x: I32) -&gt; I32 { return x * 4; };
+
+# No-parameter lambdas (common for callbacks)
+UI.OnClick(&quot;btn&quot;, []() { Print(&quot;clicked!&quot;); });
+
+# With captures — lambdas can read and modify surrounding variables
+let mut score: I32 = 0;
+UI.OnClick(&quot;score&quot;, [&amp;]() {
+    score = score + 10;
+    Print(&quot;Score: &quot;, score);
+});
+
+# Timer callbacks
+Timer.Create(&quot;tick&quot;, 1.0, true, [&amp;]() {
+    score = score + 1;
+    Print(&quot;Tick! Score: &quot;, score);
+});
+</code></pre>
+
+<hr>
+
+<h2 id="6-control-flow">6. Control Flow</h2>
+
+<h3 id="if-else">if / else</h3>
+
+<pre><code class="language-ks">
+if x &gt; 0 {
+    Print(&quot;positive\n&quot;);
+} else if x &lt; 0 {
+    Print(&quot;negative\n&quot;);
+} else {
+    Print(&quot;zero\n&quot;);
+}
+</code></pre>
+
+<h3 id="switch">switch</h3>
+
+<pre><code class="language-ks">
+switch state {
+    case 0: { Print(&quot;idle\n&quot;); }
+    case 1: { Print(&quot;running\n&quot;); }
+    default: { Print(&quot;unknown\n&quot;); }
+}
+</code></pre>
+
+<hr>
+
+<h2 id="7-loops">7. Loops</h2>
+
+<h3 id="while">while</h3>
+
+<pre><code class="language-ks">
+while !WindowShouldClose() &amp;&amp; running {
+    # game loop
+}
+</code></pre>
+
+<h3 id="loop-infinite">loop (infinite)</h3>
+
+<pre><code class="language-ks">
+loop {
+    if done { break; }
+}
+</code></pre>
+
+<h3 id="for-in-range-exclusive">for-in (range, exclusive)</h3>
+
+<pre><code class="language-ks">
+for i: I32 in 0..10 {
+    Print(&quot;%d\n&quot;, i);  # 0 through 9
+}
+</code></pre>
+
+<h3 id="for-in-range-inclusive">for-in (range, inclusive)</h3>
+
+<pre><code class="language-ks">
+for i: I32 in 1..=3 {
+    Print(&quot;%d\n&quot;, i);  # 1, 2, 3
+}
+</code></pre>
+
+<h3 id="for-in-collection">for-in (collection)</h3>
+
+<pre><code class="language-ks">
+for item: I32 in myArray {
+    Print(&quot;%d\n&quot;, item);
+}
+</code></pre>
+
+<h3 id="for-c-style">for (C-style)</h3>
+
+<pre><code class="language-ks">
+for i: I32 = 0; i &lt; 10; i++ {
+    Print(&quot;%d\n&quot;, i);
+}
+</code></pre>
+
+<h3 id="break-continue">break / continue</h3>
+
+<pre><code class="language-ks">
+for i: I32 in 0..100 {
+    if i == 50 { break; }
+    if i % 2 == 0 { continue; }
+    Print(&quot;%d\n&quot;, i);
+}
+</code></pre>
+
+<hr>
+
+<h2 id="8-nodes">8. Nodes</h2>
+
+<p>Nodes are the primary way to define game objects. They inherit from a KonEngine node type.</p>
+
+<pre><code class="language-ks">
+node Player : Node2D {
+    # fields
+    let mut health: I32    = 3;
+    let mut speed:  F64    = 200.0;
+    let mut grounded: Bool = false;
+
+    # lifecycle methods
+    func Ready() {
+        x = 100.0;
+        y = 400.0;
+    }
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x += speed * dt; }
+        if KeyDown(Key.A) { x -= speed * dt; }
+    }
+
+    func Draw() {
+        DrawRectangle(x - 16.0, y - 24.0, 32.0, 48.0, 0.2, 0.5, 1.0, 1.0);
+    }
+
+    func OnCollisionEnter(other: Collider2D) {
+        if other.name == &quot;enemy&quot; {
+            health -= 1;
+            Print(&quot;Hit! HP: %d\n&quot;, health);
+        }
+    }
+
+    func OnCollisionExit(other: Collider2D) {
+        Print(&quot;Stopped touching: %s\n&quot;, other.name);
+    }
+
+    pub func GetHealth() -&gt; I32 { return health; }
+}
+</code></pre>
+
+<h3 id="lifecycle-methods">Lifecycle methods</h3>
+
+<table>
+<tr><th>Method</th><th>When called</th><th>Use for</th></tr>
+<tr><td><code>Ready()</code></td><td>Once, when added to scene</td><td>Setup, load resources</td></tr>
+<tr><td><code>Update(dt: F64)</code></td><td>Every frame</td><td>Movement, input, logic</td></tr>
+<tr><td><code>Draw()</code></td><td>Every frame after Update</td><td>Render sprites, shapes, text</td></tr>
+<tr><td><code>OnCollisionEnter(other: Collider2D)</code></td><td>When a collider starts touching</td><td>Damage, triggers</td></tr>
+<tr><td><code>OnCollisionExit(other: Collider2D)</code></td><td>When they stop touching</td><td>Reset states</td></tr>
+<tr><td><code>OnDestroy()</code></td><td>When the node is removed</td><td>Unload textures, stop music</td></tr>
+</table>
+
+<h3 id="custom-methods">Custom methods</h3>
+
+<p>Nodes can have any number of custom methods beyond lifecycle methods:</p>
+
+<pre><code class="language-ks">
+node Enemy : Node2D {
+    let mut hp: I32 = 50;
+
+    func TakeDamage(amount: I32) {
+        hp = hp - amount;
+    }
+
+    func IsAlive() -&gt; Bool {
+        return hp &gt; 0;
+    }
+
+    func Heal(amount: I32) {
+        hp = hp + amount;
+        if hp &gt; 100 { hp = 100; }
+    }
+}
+
+# In main:
+let enemy: Enemy = scene.add(Enemy, &quot;goblin&quot;);
+enemy.TakeDamage(20);
+Print(&quot;Alive: &quot;, enemy.IsAlive());
+</code></pre>
+
+<h3 id="asset-fields-texture-music-sound">Asset fields (Texture, Music, Sound)</h3>
+
+<p>Nodes can store <code>Texture</code>, <code>Music</code>, and <code>Sound</code> as fields. They load when the node is created.</p>
+
+<pre><code class="language-ks">
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture(&quot;player.png&quot;);
+    let mut bgm: Music = LoadMusic(&quot;theme.mp3&quot;);
+    let mut jump: Sound = LoadSound(&quot;jump.wav&quot;);
+
+    func Ready() {
+        PlayMusic(bgm);
+    }
+
+    func Update(dt: F64) {
+        UpdateMusic(bgm);
+        if KeyPressed(Key.Space) { PlaySound(jump); }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x, y, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadMusic(bgm);
+        UnloadSound(jump);
+    }
+}
+</code></pre>
+
+<blockquote><code>LoadTexture</code>/<code>LoadMusic</code>/<code>LoadSound</code> are global — backed by a singleton AssetManager. Any node, anywhere, can call them. No need to pass references.</blockquote>
+
+<h3 id="inherited-node2d-fields">Inherited Node2D fields</h3>
+
+<p>Inside a <code>node : Node2D</code> body these are available directly:</p>
+
+<pre><code class="language-ks">
+x, y          # position (F64)
+scaleX, scaleY
+rotation
+originX, originY  # pivot (0.5 = center)
+active        # Bool
+name          # Str
+</code></pre>
+
+<h3 id="adding-child-nodes-inside-a-node">Adding child nodes inside a node</h3>
+
+<p>Use <code>this.add()</code> to add children from within a node method:</p>
+
+<pre><code class="language-ks">
+node Player : Node2D {
+    func Ready() {
+        let col: Collider2D = this.add(Collider2D, &quot;hitbox&quot;);
+        col.width  = 32.0;
+        col.height = 48.0;
+    }
+}
+</code></pre>
+
+<h3 id="multi-file-projects">Multi-file projects</h3>
+
+<p>Split nodes into separate <code>.ks</code> files and include them:</p>
+
+<p><strong>player.ks:</strong></p>
+<pre><code class="language-ks">
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture(&quot;player.png&quot;);
+    let mut speed: F64 = 200.0;
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + speed * dt; }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x, y, 32.0, 32.0);
+    }
+}
+</code></pre>
+
+<p><strong>main.ks:</strong></p>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+#include &quot;player.ks&quot;
+
+func main() {
+    InitWindow(800, 600, &quot;Game&quot;);
+    SetTargetFPS(60);
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, &quot;p1&quot;);
+    player.x = 400.0;
+
+    while !WindowShouldClose() {
+        scene.update(GetDeltaTime());
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<p>Compile from your project directory:</p>
+<pre><code class="language-bash">
+cd my_game
+konscript main.ks
+./main
+</code></pre>
+
+<hr>
+
+<h2 id="9-scene">9. Scene</h2>
+
+<pre><code class="language-ks">
+let scene: Scene = Scene();
+</code></pre>
+
+<h3 id="adding-nodes">Adding nodes</h3>
+
+<pre><code class="language-ks">
+let player: Player    = scene.add(Player, &quot;player&quot;);
+let enemy:  Enemy     = scene.add(Enemy, &quot;enemy&quot;);
+</code></pre>
+
+<p><code>scene.add()</code> calls <code>Ready()</code> on the node after adding it.</p>
+
+<h3 id="adding-colliders">Adding colliders</h3>
+
+<p>Colliders are added as children of nodes:</p>
+<pre><code class="language-ks">
+let col: Collider2D = player.add(Collider2D, &quot;hitbox&quot;);
+col.width  = 32.0;
+col.height = 48.0;
+</code></pre>
+
+<p>After adding colliders outside of <code>Ready()</code>, call <code>scene.scan()</code> to register them:</p>
+<pre><code class="language-ks">
+scene.scan();
+</code></pre>
+
+<h3 id="scene-methods">Scene methods</h3>
+
+<pre><code class="language-ks">
+scene.update(dt);         # update all nodes + run collision
+scene.draw();             # draw all nodes
+scene.remove(&quot;name&quot;);     # remove a node by name
+scene.get(&quot;name&quot;);        # get a node by name
+scene.scan();             # register late-added colliders
+</code></pre>
+
+<hr>
+
+<h2 id="10-operators">10. Operators</h2>
+
+<h3 id="arithmetic">Arithmetic</h3>
+<pre><code class="language-ks">
+x + y   x - y   x * y   x / y   x % y
+x += y  x -= y  x *= y  x /= y
+x++     x--
+</code></pre>
+
+<h3 id="comparison">Comparison</h3>
+<pre><code class="language-ks">
+x == y   x != y
+x &lt; y    x &gt; y
+x &lt;= y   x &gt;= y
+</code></pre>
+
+<h3 id="logic">Logic</h3>
+<pre><code class="language-ks">
+x &amp;&amp; y   x || y   !x
+</code></pre>
+
+<h3 id="ternary">Ternary</h3>
+<pre><code class="language-ks">
+x ? y : z        # y if x is true, else z
+</code></pre>
+
+<h3 id="cast">Cast</h3>
+<pre><code class="language-ks">
+let f: F64 = 10 as F64;
+</code></pre>
+
+<h3 id="ternary-conditional">Ternary conditional</h3>
+<pre><code class="language-ks">
+let val: Str = condition ? &quot;yes&quot; : &quot;no&quot;;
+let max: I32 = a &gt; b ? a : b;
+
+# Right-associative chaining
+let tier: Str = score &gt; 90 ? &quot;A&quot; : score &gt; 80 ? &quot;B&quot; : &quot;C&quot;;
+</code></pre>
+
+<h3 id="null-coalescing">Null coalescing</h3>
+<pre><code class="language-ks">
+let val: I32 = maybeNull ?? 0;
+</code></pre>
+
+<h3 id="safe-member-access">Safe member access</h3>
+<pre><code class="language-ks">
+let name: str = node?.name ?? &quot;unknown&quot;;
+</code></pre>
+
+<h3 id="force-unwrap">Force unwrap</h3>
+<pre><code class="language-ks">
+let val: I32 = maybeVal!;  # panics if null
+</code></pre>
+
+<hr>
+
+<h2 id="11-enums">11. Enums</h2>
+
+<p>Simple enums:</p>
+<pre><code class="language-ks">
+enum State {
+    Idle,
+    Running,
+    Jumping,
+}
+
+let s: State = State.Idle;
+</code></pre>
+
+<p>Enums with payloads (sum types):</p>
+<pre><code class="language-ks">
+enum Event {
+    Damage(I32),
+    Heal(I32),
+    Die,
+}
+</code></pre>
+
+<hr>
+
+<h2 id="12-structs">12. Structs</h2>
+
+<pre><code class="language-ks">
+struct Point {
+    let x: F64;
+    let y: F64;
+}
+
+let p: Point = Point { x: 10.0, y: 20.0 };
+</code></pre>
+
+<hr>
+
+<h2 id="13-arrays-tuples">13. Arrays & Tuples</h2>
+
+<h3 id="dynamic-array">Dynamic array</h3>
+<pre><code class="language-ks">
+let items: [I32] = [1, 2, 3];
+</code></pre>
+
+<h3 id="fixed-array">Fixed array</h3>
+<pre><code class="language-ks">
+let grid: [I32; 4] = [0, 0, 0, 0];
+</code></pre>
+
+<h3 id="tuple">Tuple</h3>
+<pre><code class="language-ks">
+let pos: (F64, F64) = (10.0, 20.0);
+</code></pre>
+
+<hr>
+
+<h2 id="14-nullable-types">14. Nullable Types</h2>
+
+<pre><code class="language-ks">
+let maybe: I32? = None;
+maybe = 42;
+
+if maybe != None {
+    Print(&quot;has value\n&quot;);
+}
+
+let val: I32 = maybe ?? 0;   # default if null
+let val2: I32 = maybe!;      # force unwrap (unsafe)
+</code></pre>
+
+<hr>
+
+<h2 id="15-comments">15. Comments</h2>
+
+<pre><code class="language-ks">
+# This is a line comment
+# Everything after # is ignored unless it is #include
+</code></pre>
+
+<hr>
+
+<h2 id="16-engine-functions">16. Engine Functions</h2>
+
+<p>These are available when <code>#include <engine></code> is at the top of your file.</p>
+
+<h3 id="window">Window</h3>
+<pre><code class="language-ks">
+InitWindow(width: I32, height: I32, title: str);
+InitWindow(width: I32, height: I32, title: str, resizable: Bool);
+WindowShouldClose() -&gt; Bool
+Present()
+PollEvents()
+ClearBackground(r: F64, g: F64, b: F64)
+SetTargetFPS(fps: I32)
+SetVsync(enabled: Bool)
+GetWindowWidth() -&gt; I32
+GetWindowHeight() -&gt; I32
+GetDesignWidth() -&gt; I32
+GetDesignHeight() -&gt; I32
+GetLetterboxScale() -&gt; F64
+GetLetterboxOffsetX() -&gt; F64
+GetLetterboxOffsetY() -&gt; F64
+GetGameMouseX() -&gt; F64
+GetGameMouseY() -&gt; F64
+</code></pre>
+
+<h3 id="time">Time</h3>
+<pre><code class="language-ks">
+GetDeltaTime() -&gt; F64
+GetTime()      -&gt; F64
+GetFPS()       -&gt; I32
+</code></pre>
+
+<h3 id="input-keyboard">Input — Keyboard</h3>
+<pre><code class="language-ks">
+KeyDown(key: Key)     -&gt; Bool
+KeyPressed(key: Key)  -&gt; Bool
+KeyReleased(key: Key) -&gt; Bool
+</code></pre>
+
+<p><strong>Key constants:</strong> <code>Key.A</code>–<code>Key.Z</code>, <code>Key.Num0</code>–<code>Key.Num9</code>, <code>Key.Space</code>, <code>Key.Enter</code>,</p>
+<p><code>Key.Esc</code>, <code>Key.Tab</code>, <code>Key.Backspace</code>, <code>Key.Shift</code>, <code>Key.Ctrl</code>, <code>Key.Alt</code>,</p>
+<p><code>Key.Up</code>, <code>Key.Down</code>, <code>Key.Left</code>, <code>Key.Right</code>, <code>Key.F1</code>–<code>Key.F12</code></p>
+
+<h3 id="input-mouse">Input — Mouse</h3>
+<pre><code class="language-ks">
+MouseDown(btn: Mouse)     -&gt; Bool
+MousePressed(btn: Mouse)  -&gt; Bool
+MouseReleased(btn: Mouse) -&gt; Bool
+GetMouseX() -&gt; F64
+GetMouseY() -&gt; F64
+GetMouseDeltaX() -&gt; F64
+GetMouseDeltaY() -&gt; F64
+GetMouseScroll() -&gt; F64
+</code></pre>
+
+<p><strong>Mouse constants:</strong> <code>Mouse.Left</code>, <code>Mouse.Right</code>, <code>Mouse.Middle</code></p>
+
+<h3 id="input-gamepad">Input — Gamepad</h3>
+<pre><code class="language-ks">
+GamepadConnected(player: I32)                        -&gt; Bool
+GamepadDown(player: I32, btn: Gamepad.Button)        -&gt; Bool
+GamepadPressed(player: I32, btn: Gamepad.Button)     -&gt; Bool
+GamepadReleased(player: I32, btn: Gamepad.Button)    -&gt; Bool
+GamepadAxis(player: I32, axis: Gamepad.Axis)         -&gt; F64
+</code></pre>
+
+<p><strong>Gamepad buttons:</strong> <code>Gamepad.A</code>, <code>Gamepad.B</code>, <code>Gamepad.X</code>, <code>Gamepad.Y</code>,</p>
+<p><code>Gamepad.LeftBumper</code>, <code>Gamepad.RightBumper</code>, <code>Gamepad.Back</code>, <code>Gamepad.Start</code>,</p>
+<p><code>Gamepad.LeftThumb</code>, <code>Gamepad.RightThumb</code>,</p>
+<p><code>Gamepad.DPadUp</code>, <code>Gamepad.DPadRight</code>, <code>Gamepad.DPadDown</code>, <code>Gamepad.DPadLeft</code></p>
+
+<p><strong>Gamepad axes:</strong> <code>Gamepad.LeftX</code>, <code>Gamepad.LeftY</code>, <code>Gamepad.RightX</code>, <code>Gamepad.RightY</code>,</p>
+<p><code>Gamepad.LeftTrigger</code>, <code>Gamepad.RightTrigger</code></p>
+
+<h3 id="rendering">Rendering</h3>
+<pre><code class="language-ks">
+DrawRectangle(x: F64, y: F64, w: F64, h: F64, r: F64, g: F64, b: F64, a: F64)
+DrawCircle(x: F64, y: F64, radius: F64, r: F64, g: F64, b: F64, a: F64)
+DrawLine(x1: F64, y1: F64, x2: F64, y2: F64, r: F64, g: F64, b: F64, a: F64)
+DrawText(text: str, x: F64, y: F64, size: I32, color: Color)
+DrawTexture(tex: Texture, x: F64, y: F64, w: F64, h: F64)
+DrawTextureRec(tex: Texture, x: F64, y: F64, w: F64, h: F64,
+               srcX: F64, srcY: F64, srcW: F64, srcH: F64)
+</code></pre>
+
+<h3 id="textures">Textures</h3>
+<pre><code class="language-ks">
+LoadTexture(path: str)    -&gt; Texture
+UnloadTexture(tex: Texture)
+</code></pre>
+
+<h3 id="fonts">Fonts</h3>
+<pre><code class="language-ks">
+LoadFont(path: str, size: I32) -&gt; Font
+UnloadFont(font: Font)
+</code></pre>
+
+<h3 id="audio-sounds">Audio — Sounds</h3>
+<pre><code class="language-ks">
+LoadSound(path: str)     -&gt; Sound
+UnloadSound(snd: Sound)
+PlaySound(snd: Sound)
+StopSound(snd: Sound)
+PauseSound(snd: Sound)
+ResumeSound(snd: Sound)
+IsSoundPlaying(snd: Sound)  -&gt; Bool
+SetSoundVolume(snd: Sound, volume: F64)
+</code></pre>
+
+<h3 id="audio-music">Audio — Music</h3>
+<pre><code class="language-ks">
+LoadMusic(path: str)     -&gt; Music
+UnloadMusic(mus: Music)
+PlayMusic(mus: Music)
+StopMusic(mus: Music)
+PauseMusic(mus: Music)
+ResumeMusic(mus: Music)
+UpdateMusic(mus: Music)
+IsMusicPlaying(mus: Music)  -&gt; Bool
+SetMusicVolume(mus: Music, volume: F64)
+SetMusicLooping(mus: Music, loop: Bool)
+SetMasterVolume(volume: F64)
+</code></pre>
+
+<h3 id="debug">Debug</h3>
+<pre><code class="language-ks">
+DebugMode(enabled: Bool)
+IsDebugMode() -&gt; Bool
+</code></pre>
+
+<h3 id="camera">Camera</h3>
+<pre><code class="language-ks">
+Camera2D(x: F64, y: F64, zoom: F64, rotation: F64) -&gt; Camera2D
+BeginCamera2D(cam: Camera2D)
+EndCamera2D()
+Camera2DFollow(cam: Camera2D, targetX: F64, targetY: F64, speed: F64, dt: F64)
+Camera2DClamp(cam: Camera2D, worldX: F64, worldY: F64, worldW: F64, worldH: F64,
+              viewW: F64, viewH: F64)
+Camera2DShake(cam: Camera2D, magnitude: F64)
+Camera2DLerp(from: Camera2D, to: Camera2D, t: F64) -&gt; Camera2D
+</code></pre>
+
+<h3 id="collision-detection">Collision Detection</h3>
+<pre><code class="language-ks">
+Rectangle(x: F64, y: F64, w: F64, h: F64) -&gt; Rectangle
+Circle(x: F64, y: F64, radius: F64) -&gt; Circle
+CheckCollisionRecs(a: Rectangle, b: Rectangle) -&gt; Bool
+CheckCollisionCircles(a: Circle, b: Circle) -&gt; Bool
+CheckCollisionCircleRec(c: Circle, r: Rectangle) -&gt; Bool
+</code></pre>
+
+<h3 id="random">Random</h3>
+<pre><code class="language-ks">
+Random.Seed()
+Random.Seed(seed: I32)
+Random.Range(min: I32, max: I32) -&gt; I32
+Random.RangeF(min: F64, max: F64) -&gt; F64
+Random.Value() -&gt; F64
+Random.Bool(probability: F64) -&gt; Bool
+</code></pre>
+
+<h3 id="color">Color</h3>
+<pre><code class="language-ks">
+Color(r: F64, g: F64, b: F64, a: F64) -&gt; Color
+</code></pre>
+
+<p><strong>Presets:</strong> <code>RED</code>, <code>GREEN</code>, <code>BLUE</code>, <code>WHITE</code>, <code>BLACK</code>, <code>YELLOW</code>, <code>CYAN</code>, <code>MAGENTA</code>, <code>ORANGE</code>, <code>GRAY</code>, <code>BLANK</code></p>
+
+<h3 id="vec2">Vec2</h3>
+<pre><code class="language-ks">
+Vec2(x: F64, y: F64) -&gt; Vec2
+
+# Methods (called on a Vec2 value):
+v.Length()        -&gt; F64
+v.LengthSq()     -&gt; F64
+v.Normalized()    -&gt; Vec2
+v.Dot(other)      -&gt; F64
+v.Distance(other) -&gt; F64
+v.DistanceSq(other) -&gt; F64
+v.Rotated(angle)  -&gt; Vec2
+v.Reflected(normal) -&gt; Vec2
+</code></pre>
+
+<h3 id="tilegrid">TileGrid</h3>
+<pre><code class="language-ks">
+TileGrid(tileW: I32, tileH: I32) -&gt; TileGrid
+grid.WorldToTile(worldX: F64, worldY: F64)  -&gt; TileCoord
+grid.TileToWorld(tileX: I32, tileY: I32)    -&gt; WorldPos
+grid.Snap(worldX: F64, worldY: F64)         -&gt; WorldPos
+grid.TileCenter(tileX: I32, tileY: I32)     -&gt; WorldPos
+grid.DrawGrid(originX: F64, originY: F64, cols: I32, rows: I32)
+</code></pre>
+
+<h3 id="timer">Timer</h3>
+
+<p>Frame-rate independent timers for gameplay events. Call <code>Timer.UpdateAll(dt)</code> every frame.</p>
+
+<pre><code class="language-ks">
+# API
+Timer.Create(id: Str, duration: F64, repeating: Bool, callback: [&amp;]())
+Timer.UpdateAll(dt: F64)        # MUST call every frame
+Timer.Pause(id: Str)
+Timer.Resume(id: Str)
+Timer.Reset(id: Str)
+Timer.Remove(id: Str)
+Timer.RemoveAll()
+Timer.Exists(id: Str)     -&gt; Bool
+Timer.Finished(id: Str)   -&gt; Bool
+Timer.Remaining(id: Str)  -&gt; F64
+</code></pre>
+
+<p><strong>Example:</strong></p>
+<pre><code class="language-ks">
+#include &lt;engine&gt;
+
+func main() {
+    InitWindow(400, 300, &quot;Timer Demo&quot;, false);
+    SetTargetFPS(60);
+
+    let mut count: I32 = 0;
+
+    # Repeating timer: increments counter every second
+    Timer.Create(&quot;counter&quot;, 1.0, true, [&amp;]() {
+        count = count + 1;
+        Print(&quot;Count: &quot;, count);
+    });
+
+    # One-shot timer: prints a message after 5 seconds
+    Timer.Create(&quot;alert&quot;, 5.0, false, [&amp;]() {
+        Print(&quot;5 seconds have passed!&quot;);
+    });
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        Timer.UpdateAll(dt);  # tick all timers
+
+        if KeyPressed(Key.P) {
+            Timer.Pause(&quot;counter&quot;);
+            Print(&quot;Paused&quot;);
+        }
+        if KeyPressed(Key.R) {
+            Timer.Resume(&quot;counter&quot;);
+            Print(&quot;Resumed&quot;);
+        }
+
+        ClearBackground(0.1, 0.1, 0.15);
+        DrawText(&quot;Count: &quot; + ToString(count), 10.0, 10.0, 24, WHITE);
+
+        if !Timer.Finished(&quot;alert&quot;) {
+            let rem: F64 = Timer.Remaining(&quot;alert&quot;);
+            DrawText(&quot;Alert in: &quot; + ToString(rem), 10.0, 50.0, 16, GRAY);
+        } else {
+            DrawText(&quot;Alert fired!&quot;, 10.0, 50.0, 16, YELLOW);
+        }
+
+        Present();
+        PollEvents();
+    }
+}
+</code></pre>
+
+<h3 id="ui">UI</h3>
+<pre><code class="language-ks">
+UI.AddButton(id: Str, text: Str, x: F64, y: F64)
+UI.AddLabel(id: Str, text: Str, x: F64, y: F64, fontSize: I32, color: Color)
+UI.AddPanel(id: Str, x: F64, y: F64, w: F64, h: F64)
+UI.AddImage(id: Str, tex: Texture, x: F64, y: F64, w: F64, h: F64)
+UI.PanelAddChild(panelId: Str, childId: Str)
+UI.OnClick(id: Str, callback: func())
+UI.AddTextBox(id: Str, text: Str, x: F64, y: F64, w: F64, h: F64, typewriter: Bool, charsPerSec: F64)
+UI.Connect(id: Str, signal: Str, callback: func())
+UI.Update()
+UI.Draw()
+UI.WantsInput() -&gt; Bool
+UI.Remove(id: Str)
+UI.Clear()
+MeasureTextWidth(text: Str, fontSize: I32) -&gt; F64
+</code></pre>
+
+<p><strong>Signals:</strong> <code>"clicked"</code>, <code>"hovered"</code>, <code>"unhovered"</code></p>
+
+<h3 id="signals">Signals</h3>
+<pre><code class="language-ks">
+# Inside a node — connect to a signal
+Connect(&quot;signal_name&quot;, func() {
+    Print(&quot;signal fired!&quot;);
+});
+
+# Inside a node — emit a signal
+Emit(&quot;player_dead&quot;);
+</code></pre>
+
+<p>Collision signals are automatic when using <code>Collider2D</code> children:</p>
+<pre><code class="language-ks">
+node Player : Node2D {
+    func OnCollisionEnter(other: Collider2D) {
+        Print(&quot;hit: &quot;, other.name);
+    }
+    func OnCollisionExit(other: Collider2D) {
+        Print(&quot;left: &quot;, other.name);
+    }
+}
+</code></pre>
+
+<h3 id="output">Output</h3>
+<pre><code class="language-ks">
+Print(fmt: str, ...)   # printf-style format string
+ToString(val) -&gt; str
+</code></pre>
+
+<hr>
+
+<h2 id="17-cmake-integration">17. CMake Integration</h2>
+
+<p>For larger projects, use <code>konscript_sources()</code> in your CMakeLists.txt:</p>
+
+<pre><code class="language-cmake">
+cmake_minimum_required(VERSION 3.16)
+project(MyGame LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+
+add_subdirectory(KonEngine)
+
+add_executable(MyGame)
+target_link_libraries(MyGame PRIVATE KonEngine)
+konscript_sources(MyGame src/main.ks src/player.ks)
+</code></pre>
+
+<p><code>konscript_sources</code> compiles each <code>.ks</code> file to a <code>.ks.cpp</code> and adds it to the target automatically.</p>
+
+<hr>
+
+<h2 id="18-known-limitations">18. Known Limitations</h2>
+
+<ul>
+<li><strong>No pointer type annotations</strong> — don't write <code>Player*</code> in <code>let</code> declarations. Node types are automatically pointers in generated C++.</li>
+<li><strong><code>Print</code> uses printf format strings</strong> — <code>%d</code> for integers, <code>%f</code> for floats, <code>%s</code> for strings. <code>std::string</code> values need <code>.c_str()</code> which isn't yet available in KonScript — use <code>str</code> literals instead.</li>
+<li><strong><code>wait</code> and <code>spawn</code></strong> — compile to stub comments. Coroutine/async support requires a VM scheduler not yet implemented.</li>
+<li><strong><code>switch</code> on enums</strong> — enum variant qualification in case values isn't yet handled by the typechecker.</li>
+<li><strong>No modules</strong> — all code in a project shares one namespace. Use unique names to avoid conflicts.</li>
+</ul>
+</div>
+<div class="doc-section"><h1 id="roadmap">Roadmap</h1>
+
+<p>KonEngine is still in early stages. Here's the full plan for where it's headed.</p>
+
+<h2 id="done">Done</h2>
+
+<h3 id="v0-4-0">v0.4.0</h3>
+<ul>
+<li>OpenGL 2D renderer (rectangles, circles, lines)</li>
+<li>Texture loading + drawing + sprite sheet support</li>
+<li>Text rendering with custom and default font (Inconsolata)</li>
+<li>Input system (keyboard, mouse, gamepad)</li>
+<li>Color system with presets</li>
+<li>Audio (sound effects + music streaming via miniaudio)</li>
+<li>Delta time + FPS cap</li>
+<li>VSync toggle</li>
+<li>Cross-platform (Linux + Windows)</li>
+</ul>
+
+<h3 id="v0-5-0">v0.5.0</h3>
+<ul>
+<li>Camera system (pan, zoom, rotation)</li>
+<li>Collision detection (AABB, circle, circle vs rectangle)</li>
+</ul>
+
+<h3 id="v0-6-0-node-scene-system">v0.6.0 -- Node & Scene System</h3>
+<ul>
+<li>Base Node class with parent pointers and signals</li>
+<li>Node2D, Sprite2D nodes with pivot/origin support</li>
+<li>Scene tree (Godot-style hierarchy)</li>
+<li>Auto update/draw</li>
+<li>Collider2D integrated into scene tree</li>
+<li>CollisionWorld with SAT, enter/exit signals, layer/mask filtering</li>
+</ul>
+
+<h3 id="v0-7-0-animator">v0.7.0 -- Animator</h3>
+<ul>
+<li>Sprite sheet animation (frame by frame)</li>
+<li>Keyframe animation for nodes (position, rotation, scale, alpha)</li>
+<li>AnimationPlayer node (auto-detects parent Sprite2D)</li>
+<li>16 easing curves</li>
+<li><code>.anim</code> text format + <code>anim_compiler</code> tool -> <code>.konani</code> binary</li>
+<li><code>anim_compiler</code> Qt GUI tool (cross-platform)</li>
+</ul>
+
+<h3 id="v0-8-0-konanimator-polish">v0.8.0 -- KonAnimator & Polish</h3>
+<ul>
+<li>Standalone Qt-based animation editor (KonAnimator)</li>
+<li>Visual spritesheet frame editor (click+drag to define frames)</li>
+<li>Live OpenGL preview with zoom, pan, fullscreen</li>
+<li>Keyframe track editor with timeline</li>
+<li>Direct <code>.anim</code> save/load and one-click <code>.konani</code> compile</li>
+<li><code>DebugMode(true)</code> -- FPS overlay, mouse crosshair, auto collider visualization</li>
+<li>Test suite with headless + visual tests (<code>./build-test.sh</code>)</li>
+<li>Cross-platform builds (Linux + Windows, cross-compile from Linux via MXE)</li>
+<li>GitHub Actions CI/CD with automatic release packaging</li>
+</ul>
+
+<h3 id="v0-9-0-asset-pipeline-scripting">v0.9.0 -- Asset Pipeline + Scripting</h3>
+<ul>
+<li>AES-256 asset encryption</li>
+<li><code>.konpak</code> file bundler (pack + encrypt all assets into one file)</li>
+<li>Asset manager pattern (<code>konpak.hpp</code> + <code>UnpackAssets()</code>/<code>Asset()</code>)</li>
+<li><strong>KonPaktor</strong> -- Qt GUI asset manager (browse, add, remove, preview pack contents)</li>
+<li><strong>konpak</strong> -- CLI tool (<code>create</code>, <code>add</code>, <code>remove</code>, <code>list</code>, <code>extract</code>)</li>
+<li>Compile-time key baking (<code>KON_PACK_KEY</code>) for release builds</li>
+<li><strong>KonScript v0.1.0</strong> -- custom scripting language that compiles to C++</li>
+<li>Lexer, parser, type checker, C++ code generator</li>
+<li>Types: I8/I16/I32/I64, U8-U64, F32/F64, Bool, str, String, Vec2</li>
+<li>Arrays <code>[T]</code>, fixed arrays <code>[T; N]</code>, tuples <code>(T, T)</code>, nullable <code>T?</code></li>
+<li>Structs, enums with payloads, node declarations, classes</li>
+<li>Full operator set, null coalescing <code>??</code>, safe member access <code>?.</code>, force unwrap <code>!</code></li>
+<li>Control flow: if/else, while, loop, for-in, for-C, switch/case</li>
+<li>Functions, return types, multiple return via tuples</li>
+<li>Engine integration: <code>node Player : Node2D</code> maps to KonEngine node types</li>
+<li>Lifecycle hooks: <code>Ready</code>, <code>Update</code>, <code>Draw</code>, <code>OnCollisionEnter</code>, <code>OnCollisionExit</code></li>
+<li><code>konscript</code> backend compiler + <code>ksc</code> frontend runner</li>
+<li><code>--lex</code>, <code>--parse</code>, <code>--check</code> debug modes</li>
+<li>CMake integration (<code>konscript_sources()</code> function)</li>
+<li>Renderer performance overhaul (v0.9.0 patch)</li>
+<li>Uniform location caching (fixed bug: locations were cached before link)</li>
+<li><code>UseProgram()</code> guard -- skips redundant shader switches</li>
+<li>Colored quad batcher -- all <code>DrawRectangle</code> calls collected into one <code>glDrawArrays</code> per frame</li>
+<li>Projection matrix uploaded once per frame, not per draw call</li>
+<li><code>DrawGlyph</code> no longer re-uploads projection on every glyph</li>
+<li>VSync off by default, uncapped FPS when no <code>SetTargetFPS()</code> is called</li>
+<li>MSVC compatibility fix in test suite (nested brace-init for <code>std::vector</code>)</li>
+</ul>
+
+<h3 id="v0-9-1-api-polish-performance">v0.9.1 -- API Polish + Performance</h3>
+<ul>
+<li><code>ClearBackground(Color)</code> overload — use color presets like <code>ClearBackground(BLACK)</code></li>
+<li>Color overload threaded through entire API: IRenderer, OpenGLRenderer, Window, global functions</li>
+<li>KonScript typechecker updated to accept <code>ClearBackground(Color)</code> in addition to <code>(r, g, b)</code></li>
+<li><strong>Physics usability fixes:</strong></li>
+<li><code>CollisionWorld*</code> auto-propagated to all nodes via <code>Scene::Add()</code></li>
+<li><code>MoveAndCollide(dx, dy)</code> no longer requires passing <code>CollisionWorld&</code> manually</li>
+<li><code>RigidBody2D</code> auto-runs physics in <code>Update()</code> — no manual <code>PhysicsUpdate()</code> call needed</li>
+<li><code>RigidBody2D::onFloor</code> flag — true when touching a static body below</li>
+<li><code>AddCollider(w, h)</code> convenience overload — auto-generates collider name</li>
+<li><code>SweepResolve()</code> — fresh MTV checks against all statics (fixes stale contacts bug)</li>
+<li><strong>Rendering performance:</strong></li>
+<li>Line batching — all <code>DrawLine</code> calls batched into one <code>glDrawArrays(GL_LINES)</code> per flush</li>
+<li>Glyph batching — all <code>DrawGlyph</code> calls batched per atlas, single draw per font atlas</li>
+<li><code>FlushAll()</code> ensures correct draw order across batch types</li>
+<li>Debug grid (hundreds of lines) now renders in 1-2 draw calls instead of hundreds</li>
+<li><strong>Collision performance:</strong></li>
+<li>AABB broad-phase rejection before SAT narrow-phase</li>
+<li><code>SweepResolve</code> also uses broad-phase for fast kinematic/rigid body resolution</li>
+<li><strong>Cross-compilation fixes:</strong></li>
+<li><code>windows-toolchain.cmake</code> uses <code>MXE_ROOT</code> for correct MXE compiler paths</li>
+<li><code>build-windows.sh --pack</code> flag for KonPak support during cross-compile</li>
+<li><code>build-windows.sh --pack-key=KEY</code> for compile-time key baking</li>
+<li>Fixed <code>konpak.hpp</code> preprocessor guard for <code>__MINGW64__</code> toolchains</li>
+<li>MXE sysroot added to bcrypt include search paths</li>
+<li>Fixed <code>konscript --target windows --pack</code>: now passes <code>-DKON_USE_PACK</code> to CMake and links <code>bcrypt</code></li>
+<li><code>build-engine-lib.sh</code> Windows path now compiles with <code>-DKON_USE_PACK</code></li>
+<li>Updated C++ example (<code>examples/cpp_example/</code>) showcasing:</li>
+<li>Color presets, <code>ClearBackground(BLACK)</code></li>
+<li>KinematicBody2D with <code>MoveAndCollide</code>, StaticBody2D walls</li>
+<li>Camera2D follow, zoom, world mouse coordinates</li>
+<li>Collision enter/exit callbacks, text rendering, debug mode</li>
+<li>Comprehensive DOCS.md rewrite with dual KonScript + C++ examples for every feature</li>
+</ul>
+
+<h3 id="v0-9-2-ui-tilemap-konscript-expansion">v0.9.2 -- UI, Tilemap, KonScript Expansion</h3>
+<ul>
+<li><strong>UI system</strong> -- screen-space Button, Label, Panel with hover/pressed states</li>
+<li><code>UIAddButton</code>, <code>UIAddLabel</code>, <code>UIAddPanel</code> with string ID lookup</li>
+<li>Click detection with <code>UIWantsInput()</code> input blocking</li>
+<li>Panel children with coordinate offset</li>
+<li>KonScript API: <code>UI.AddButton()</code>, <code>UI.OnClick()</code>, <code>UI.Update()</code>, <code>UI.Draw()</code></li>
+<li><strong>Tilemap system</strong> -- full tile data storage with tileset rendering</li>
+<li><code>Tilemap</code> class: 2D grid of tile IDs, <code>Set</code>/<code>Get</code>/<code>Fill</code>/<code>Clear</code>/<code>Resize</code></li>
+<li>Tileset spritesheet rendering (tile IDs map to spritesheet cells)</li>
+<li>Tile click detection: <code>GetTileAt()</code>, <code>GetTileIdAt()</code></li>
+<li><code>DrawTileAt()</code> for placing individual tiles at exact world positions</li>
+<li><strong>Isometric grid</strong> -- <code>IsometricGrid</code> with diamond-shaped tiles</li>
+<li><code>TileToScreen</code> / <code>ScreenToTile</code> coordinate conversion</li>
+<li>Diamond grid drawing and highlight</li>
+<li><strong>KonScript ternary operator</strong> -- <code>condition ? trueVal : falseVal</code></li>
+<li><strong>KonScript engine bindings expansion:</strong></li>
+<li>Random: <code>Random.Seed()</code>, <code>Random.Range()</code>, <code>Random.RangeF()</code>, <code>Random.Value()</code>, <code>Random.Bool()</code></li>
+<li>Gamepad: <code>GamepadConnected()</code>, <code>GamepadDown/Pressed/Released()</code>, <code>GamepadAxis()</code></li>
+<li>Camera: <code>Camera2DFollow()</code>, <code>Camera2DClamp()</code>, <code>Camera2DShake()</code>, <code>Camera2DLerp()</code></li>
+<li>Audio queries: <code>IsSoundPlaying()</code>, <code>IsMusicPlaying()</code>, <code>SetMusicLooping()</code>, <code>UnloadSound/Music()</code></li>
+<li>Collision: <code>CheckCollisionRecs()</code>, <code>CheckCollisionCircles()</code>, <code>CheckCollisionCircleRec()</code></li>
+<li>Font: <code>LoadFont()</code>, <code>UnloadFont()</code>, <code>MeasureTextWidth()</code></li>
+<li>Texture: <code>DrawTexture()</code>, <code>DrawTextureRec()</code> with tinting</li>
+<li>Letterbox: <code>GetDesignWidth/Height()</code>, <code>GetLetterboxScale()</code>, <code>GetGameMouseX/Y()</code></li>
+<li>Window: <code>SetVsync()</code>, <code>BeginCamera2D()</code>, <code>EndCamera2D()</code></li>
+<li>Constructors: <code>Rectangle()</code>, <code>Circle()</code>, <code>Color()</code>, <code>TileGrid()</code></li>
+<li>Comprehensive documentation rewrite for all features (dual KonScript + C++ examples)</li>
+</ul>
+
+<hr>
+
+<h2 id="upcoming">Upcoming</h2>
+
+<h3 id="v0-10-0-editor-mvp">v0.10.0 -- Editor MVP</h3>
+<ul>
+<li>Viewport panel</li>
+<li>Hierarchy + properties panels</li>
+<li>Scene open/save</li>
+<li>Asset browser</li>
+</ul>
+
+<h3 id="v0-11-0-editor-scripting">v0.11.0 -- Editor Scripting</h3>
+<ul>
+<li>Built-in code editor</li>
+<li>Project management (new/open project)</li>
+<li>In-editor compile + run games</li>
+</ul>
+
+<h3 id="v1-0-0-stable-release">v1.0.0 -- Stable Release</h3>
+<ul>
+<li>Polish</li>
+<li>Full documentation</li>
+<li>Ready for serious use</li>
+</ul>
+
+<hr>
+
+<h2 id="far-future">Far Future</h2>
+<ul>
+<li>KonScript LLVM native code backend (<code>IRGen</code> alongside existing C++ transpiler)</li>
+<li>LLVM bundled inside editor so end users never need a toolchain</li>
+<li>Pre-built export templates per platform, cross-compile via LLVM target triples</li>
+<li>KonScript self-hosting (compiler written in KonScript) ✓ done</li>
+<li>3D rendering</li>
+<li>Networking</li>
+</ul>
+
+<h2 id="no-guarantees">No Guarantees</h2>
+<p>This is a personal project built for personal use and for friends.</p>
+<p>Features get added when I need them. Nothing here is a promise.</p>
+</div>
+
+</main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const groups = document.querySelectorAll('.doc-group');
+    const sections = document.querySelectorAll('.doc-section');
+
+    function showSection(idx) {
+        sections.forEach((s, i) => s.classList.toggle('active', i === idx));
+        groups.forEach((g, i) => {
+            g.classList.toggle('open', i === idx);
+            g.querySelector('.doc-group-title').classList.toggle('active', i === idx);
+        });
+    }
+
+    groups.forEach((g, i) => {
+        g.querySelector('.doc-group-title').addEventListener('click', () => showSection(i));
+    });
+
+    // Show first section by default
+    showSection(0);
+});
+</script>
+</body>
+</html>

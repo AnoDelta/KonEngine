@@ -43,6 +43,26 @@ private:
 	float  quadBuffer[MAX_BATCH_QUADS * BATCH_FLOATS_PER_QUAD];
 	int    quadCount = 0;
 
+	// --- Line batcher (DrawLine) ---
+	// Vertex layout: x, y, r, g, b, a  (6 floats), 2 verts per line
+	static constexpr int MAX_BATCH_LINES = 4096;
+	static constexpr int BATCH_FLOATS_PER_LINE = 12; // 2 verts * 6 floats
+	GLuint lineBatchVAO, lineBatchVBO;
+	float  lineBuffer[MAX_BATCH_LINES * BATCH_FLOATS_PER_LINE];
+	int    lineCount = 0;
+
+	// --- Glyph batcher (DrawGlyph) ---
+	// Vertex layout: x, y, u, v, r, g, b, a (8 floats), 6 verts per glyph
+	static constexpr int MAX_BATCH_GLYPHS = 2048;
+	static constexpr int BATCH_FLOATS_PER_GLYPH = 48; // 6 verts * 8 floats
+	GLuint glyphBatchVAO, glyphBatchVBO;
+	GLuint glyphBatchShaderProgram;
+	GLint  loc_glyph_proj;
+	GLint  loc_glyph_sampler;
+	float  glyphBuffer[MAX_BATCH_GLYPHS * BATCH_FLOATS_PER_GLYPH];
+	int    glyphCount = 0;
+	GLuint glyphCurrentAtlas = 0;
+
 	// --- State cache ---
 	GLuint activeProgram = 0;
 
@@ -56,16 +76,22 @@ private:
 	void SetupTextureShader();
 	void SetupTextShader();
 	void SetupBatchShader();
+	void SetupGlyphBatchShader();
 
 	void CreateCircleBuffers();
 	void CreateLineBuffers();
 	void CreateTextureBuffers();
 	void CreateTextBuffers();
 	void CreateBatchBuffers();
+	void CreateLineBatchBuffers();
+	void CreateGlyphBatchBuffers();
 
 	// --- Internal helpers ---
 	void UseProgram(GLuint prog);
 	void FlushQuads();
+	void FlushLines();
+	void FlushGlyphs();
+	void FlushAll();
 
 public:
 	OpenGLRenderer();
@@ -73,6 +99,7 @@ public:
 
 	void Init()    override;
 	void Clear(float r, float g, float b) override;
+	void Clear(Color color) override;
 	void Present() override;
 
 	void SetProjectionMatrix(int screenWidth, int screenHeight);
@@ -90,6 +117,7 @@ public:
 	void DrawLine(float x1, float y1, float x2, float y2, Color color) override;
 
 	Texture LoadTexture(const char* path) override;
+	Texture LoadTextureSmooth(const char* path) override;
 	void    UnloadTexture(Texture& texture) override;
 
 	void DrawTexture(Texture& texture, float x, float y, float width, float height) override;

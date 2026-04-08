@@ -107,6 +107,13 @@ ksc --lex main.ks      # dump tokens
 | `Node2D` | `Node2D*` | engine node types are always pointers |
 | `Collider2D` | `Collider2D*` | |
 | `Scene` | `Scene` | value type, not a pointer |
+| `Sound` | `Sound` | value type |
+| `Music` | `Music` | value type |
+| `Font` | `Font` | value type |
+| `Rectangle` | `Rectangle` | collision shape |
+| `Circle` | `Circle` | collision shape |
+| `Camera2D` | `Camera2D` | camera struct |
+| `TileGrid` | `TileGrid` | tile helper |
 
 Node types declared with `node` are also treated as pointers when used in `let` declarations.
 
@@ -139,7 +146,7 @@ Top-level constants compile to `constexpr`. Constants inside functions compile t
 
 ---
 
-## 5. Functions
+## 5. Functions & Lambdas
 
 ```ks
 func Add(a: I32, b: I32) -> I32 {
@@ -164,6 +171,32 @@ func main() {
 node Player : Node2D {
     pub func GetHealth() -> I32 { return health; }
 }
+```
+
+**Lambdas / closures:**
+
+KonScript supports C++ style lambdas with `[]` or `[&]` captures. Both compile to `[&]` in C++ (captures are always by reference).
+
+```ks
+# C++ style — [] or [&] both work
+let triple = [](x: I32) -> I32 { return x * 3; };
+let quad = [&](x: I32) -> I32 { return x * 4; };
+
+# No-parameter lambdas (common for callbacks)
+UI.OnClick("btn", []() { Print("clicked!"); });
+
+# With captures — lambdas can read and modify surrounding variables
+let mut score: I32 = 0;
+UI.OnClick("score", [&]() {
+    score = score + 10;
+    Print("Score: ", score);
+});
+
+# Timer callbacks
+Timer.Create("tick", 1.0, true, [&]() {
+    score = score + 1;
+    Print("Tick! Score: ", score);
+});
 ```
 
 ---
@@ -299,13 +332,75 @@ node Player : Node2D {
 
 ### Lifecycle methods
 
-| Method | When called |
-|---|---|
-| `Ready()` | Once, when the node is added to the scene |
-| `Update(dt: F64)` | Every frame |
-| `Draw()` | Every frame after Update |
-| `OnCollisionEnter(other: Collider2D)` | When a child collider first overlaps another |
-| `OnCollisionExit(other: Collider2D)` | When they stop overlapping |
+| Method | When called | Use for |
+|---|---|---|
+| `Ready()` | Once, when added to scene | Setup, load resources |
+| `Update(dt: F64)` | Every frame | Movement, input, logic |
+| `Draw()` | Every frame after Update | Render sprites, shapes, text |
+| `OnCollisionEnter(other: Collider2D)` | When a collider starts touching | Damage, triggers |
+| `OnCollisionExit(other: Collider2D)` | When they stop touching | Reset states |
+| `OnDestroy()` | When the node is removed | Unload textures, stop music |
+
+### Custom methods
+
+Nodes can have any number of custom methods beyond lifecycle methods:
+
+```ks
+node Enemy : Node2D {
+    let mut hp: I32 = 50;
+
+    func TakeDamage(amount: I32) {
+        hp = hp - amount;
+    }
+
+    func IsAlive() -> Bool {
+        return hp > 0;
+    }
+
+    func Heal(amount: I32) {
+        hp = hp + amount;
+        if hp > 100 { hp = 100; }
+    }
+}
+
+# In main:
+let enemy: Enemy = scene.add(Enemy, "goblin");
+enemy.TakeDamage(20);
+Print("Alive: ", enemy.IsAlive());
+```
+
+### Asset fields (Texture, Music, Sound)
+
+Nodes can store `Texture`, `Music`, and `Sound` as fields. They load when the node is created.
+
+```ks
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture("player.png");
+    let mut bgm: Music = LoadMusic("theme.mp3");
+    let mut jump: Sound = LoadSound("jump.wav");
+
+    func Ready() {
+        PlayMusic(bgm);
+    }
+
+    func Update(dt: F64) {
+        UpdateMusic(bgm);
+        if KeyPressed(Key.Space) { PlaySound(jump); }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x, y, 32.0, 32.0);
+    }
+
+    func OnDestroy() {
+        UnloadTexture(sprite);
+        UnloadMusic(bgm);
+        UnloadSound(jump);
+    }
+}
+```
+
+> `LoadTexture`/`LoadMusic`/`LoadSound` are global — backed by a singleton AssetManager. Any node, anywhere, can call them. No need to pass references.
 
 ### Inherited Node2D fields
 
@@ -317,7 +412,7 @@ scaleX, scaleY
 rotation
 originX, originY  # pivot (0.5 = center)
 active        # Bool
-name          # str
+name          # Str
 ```
 
 ### Adding child nodes inside a node
@@ -332,6 +427,55 @@ node Player : Node2D {
         col.height = 48.0;
     }
 }
+```
+
+### Multi-file projects
+
+Split nodes into separate `.ks` files and include them:
+
+**player.ks:**
+```ks
+node Player : Node2D {
+    let mut sprite: Texture = LoadTexture("player.png");
+    let mut speed: F64 = 200.0;
+
+    func Update(dt: F64) {
+        if KeyDown(Key.D) { x = x + speed * dt; }
+    }
+
+    func Draw() {
+        DrawTexture(sprite, x, y, 32.0, 32.0);
+    }
+}
+```
+
+**main.ks:**
+```ks
+#include <engine>
+#include "player.ks"
+
+func main() {
+    InitWindow(800, 600, "Game");
+    SetTargetFPS(60);
+    let scene: Scene = Scene();
+    let player: Player = scene.add(Player, "p1");
+    player.x = 400.0;
+
+    while !WindowShouldClose() {
+        scene.update(GetDeltaTime());
+        ClearBackground(0.1, 0.1, 0.1);
+        scene.draw();
+        Present();
+        PollEvents();
+    }
+}
+```
+
+Compile from your project directory:
+```bash
+cd my_game
+konscript main.ks
+./main
 ```
 
 ---
@@ -398,9 +542,23 @@ x <= y   x >= y
 x && y   x || y   !x
 ```
 
+### Ternary
+```ks
+x ? y : z        # y if x is true, else z
+```
+
 ### Cast
 ```ks
 let f: F64 = 10 as F64;
+```
+
+### Ternary conditional
+```ks
+let val: Str = condition ? "yes" : "no";
+let max: I32 = a > b ? a : b;
+
+# Right-associative chaining
+let tier: Str = score > 90 ? "A" : score > 80 ? "B" : "C";
 ```
 
 ### Null coalescing
@@ -508,13 +666,22 @@ These are available when `#include <engine>` is at the top of your file.
 ### Window
 ```ks
 InitWindow(width: I32, height: I32, title: str);
+InitWindow(width: I32, height: I32, title: str, resizable: Bool);
 WindowShouldClose() -> Bool
 Present()
 PollEvents()
 ClearBackground(r: F64, g: F64, b: F64)
 SetTargetFPS(fps: I32)
+SetVsync(enabled: Bool)
 GetWindowWidth() -> I32
 GetWindowHeight() -> I32
+GetDesignWidth() -> I32
+GetDesignHeight() -> I32
+GetLetterboxScale() -> F64
+GetLetterboxOffsetX() -> F64
+GetLetterboxOffsetY() -> F64
+GetGameMouseX() -> F64
+GetGameMouseY() -> F64
 ```
 
 ### Time
@@ -524,12 +691,19 @@ GetTime()      -> F64
 GetFPS()       -> I32
 ```
 
-### Input
+### Input — Keyboard
 ```ks
 KeyDown(key: Key)     -> Bool
 KeyPressed(key: Key)  -> Bool
 KeyReleased(key: Key) -> Bool
+```
 
+**Key constants:** `Key.A`–`Key.Z`, `Key.Num0`–`Key.Num9`, `Key.Space`, `Key.Enter`,
+`Key.Esc`, `Key.Tab`, `Key.Backspace`, `Key.Shift`, `Key.Ctrl`, `Key.Alt`,
+`Key.Up`, `Key.Down`, `Key.Left`, `Key.Right`, `Key.F1`–`Key.F12`
+
+### Input — Mouse
+```ks
 MouseDown(btn: Mouse)     -> Bool
 MousePressed(btn: Mouse)  -> Bool
 MouseReleased(btn: Mouse) -> Bool
@@ -540,11 +714,24 @@ GetMouseDeltaY() -> F64
 GetMouseScroll() -> F64
 ```
 
-**Key constants:** `Key.A`–`Key.Z`, `Key.Num0`–`Key.Num9`, `Key.Space`, `Key.Enter`,
-`Key.Esc`, `Key.Tab`, `Key.Backspace`, `Key.Shift`, `Key.Ctrl`, `Key.Alt`,
-`Key.Up`, `Key.Down`, `Key.Left`, `Key.Right`, `Key.F1`–`Key.F12`
-
 **Mouse constants:** `Mouse.Left`, `Mouse.Right`, `Mouse.Middle`
+
+### Input — Gamepad
+```ks
+GamepadConnected(player: I32)                        -> Bool
+GamepadDown(player: I32, btn: Gamepad.Button)        -> Bool
+GamepadPressed(player: I32, btn: Gamepad.Button)     -> Bool
+GamepadReleased(player: I32, btn: Gamepad.Button)    -> Bool
+GamepadAxis(player: I32, axis: Gamepad.Axis)         -> F64
+```
+
+**Gamepad buttons:** `Gamepad.A`, `Gamepad.B`, `Gamepad.X`, `Gamepad.Y`,
+`Gamepad.LeftBumper`, `Gamepad.RightBumper`, `Gamepad.Back`, `Gamepad.Start`,
+`Gamepad.LeftThumb`, `Gamepad.RightThumb`,
+`Gamepad.DPadUp`, `Gamepad.DPadRight`, `Gamepad.DPadDown`, `Gamepad.DPadLeft`
+
+**Gamepad axes:** `Gamepad.LeftX`, `Gamepad.LeftY`, `Gamepad.RightX`, `Gamepad.RightY`,
+`Gamepad.LeftTrigger`, `Gamepad.RightTrigger`
 
 ### Rendering
 ```ks
@@ -552,24 +739,228 @@ DrawRectangle(x: F64, y: F64, w: F64, h: F64, r: F64, g: F64, b: F64, a: F64)
 DrawCircle(x: F64, y: F64, radius: F64, r: F64, g: F64, b: F64, a: F64)
 DrawLine(x1: F64, y1: F64, x2: F64, y2: F64, r: F64, g: F64, b: F64, a: F64)
 DrawText(text: str, x: F64, y: F64, size: I32, color: Color)
+DrawTexture(tex: Texture, x: F64, y: F64, w: F64, h: F64)
+DrawTextureRec(tex: Texture, x: F64, y: F64, w: F64, h: F64,
+               srcX: F64, srcY: F64, srcW: F64, srcH: F64)
 ```
 
-### Audio
+### Textures
 ```ks
-PlaySound(path: str)
-StopSound(path: str)
-PlayMusic(path: str)
-StopMusic()
-PauseMusic()
-ResumeMusic()
-SetMusicVolume(volume: F64)
-SetSoundVolume(volume: F64)
+LoadTexture(path: str)    -> Texture
+UnloadTexture(tex: Texture)
+```
+
+### Fonts
+```ks
+LoadFont(path: str, size: I32) -> Font
+UnloadFont(font: Font)
+```
+
+### Audio — Sounds
+```ks
+LoadSound(path: str)     -> Sound
+UnloadSound(snd: Sound)
+PlaySound(snd: Sound)
+StopSound(snd: Sound)
+PauseSound(snd: Sound)
+ResumeSound(snd: Sound)
+IsSoundPlaying(snd: Sound)  -> Bool
+SetSoundVolume(snd: Sound, volume: F64)
+```
+
+### Audio — Music
+```ks
+LoadMusic(path: str)     -> Music
+UnloadMusic(mus: Music)
+PlayMusic(mus: Music)
+StopMusic(mus: Music)
+PauseMusic(mus: Music)
+ResumeMusic(mus: Music)
+UpdateMusic(mus: Music)
+IsMusicPlaying(mus: Music)  -> Bool
+SetMusicVolume(mus: Music, volume: F64)
+SetMusicLooping(mus: Music, loop: Bool)
+SetMasterVolume(volume: F64)
 ```
 
 ### Debug
 ```ks
 DebugMode(enabled: Bool)
 IsDebugMode() -> Bool
+```
+
+### Camera
+```ks
+Camera2D(x: F64, y: F64, zoom: F64, rotation: F64) -> Camera2D
+BeginCamera2D(cam: Camera2D)
+EndCamera2D()
+Camera2DFollow(cam: Camera2D, targetX: F64, targetY: F64, speed: F64, dt: F64)
+Camera2DClamp(cam: Camera2D, worldX: F64, worldY: F64, worldW: F64, worldH: F64,
+              viewW: F64, viewH: F64)
+Camera2DShake(cam: Camera2D, magnitude: F64)
+Camera2DLerp(from: Camera2D, to: Camera2D, t: F64) -> Camera2D
+```
+
+### Collision Detection
+```ks
+Rectangle(x: F64, y: F64, w: F64, h: F64) -> Rectangle
+Circle(x: F64, y: F64, radius: F64) -> Circle
+CheckCollisionRecs(a: Rectangle, b: Rectangle) -> Bool
+CheckCollisionCircles(a: Circle, b: Circle) -> Bool
+CheckCollisionCircleRec(c: Circle, r: Rectangle) -> Bool
+```
+
+### Random
+```ks
+Random.Seed()
+Random.Seed(seed: I32)
+Random.Range(min: I32, max: I32) -> I32
+Random.RangeF(min: F64, max: F64) -> F64
+Random.Value() -> F64
+Random.Bool(probability: F64) -> Bool
+```
+
+### Color
+```ks
+Color(r: F64, g: F64, b: F64, a: F64) -> Color
+```
+
+**Presets:** `RED`, `GREEN`, `BLUE`, `WHITE`, `BLACK`, `YELLOW`, `CYAN`, `MAGENTA`, `ORANGE`, `GRAY`, `BLANK`
+
+### Vec2
+```ks
+Vec2(x: F64, y: F64) -> Vec2
+
+# Methods (called on a Vec2 value):
+v.Length()        -> F64
+v.LengthSq()     -> F64
+v.Normalized()    -> Vec2
+v.Dot(other)      -> F64
+v.Distance(other) -> F64
+v.DistanceSq(other) -> F64
+v.Rotated(angle)  -> Vec2
+v.Reflected(normal) -> Vec2
+```
+
+### TileGrid
+```ks
+TileGrid(tileW: I32, tileH: I32) -> TileGrid
+grid.WorldToTile(worldX: F64, worldY: F64)  -> TileCoord
+grid.TileToWorld(tileX: I32, tileY: I32)    -> WorldPos
+grid.Snap(worldX: F64, worldY: F64)         -> WorldPos
+grid.TileCenter(tileX: I32, tileY: I32)     -> WorldPos
+grid.DrawGrid(originX: F64, originY: F64, cols: I32, rows: I32)
+```
+
+### Timer
+
+Frame-rate independent timers for gameplay events. Call `Timer.UpdateAll(dt)` every frame.
+
+```ks
+# API
+Timer.Create(id: Str, duration: F64, repeating: Bool, callback: [&]())
+Timer.UpdateAll(dt: F64)        # MUST call every frame
+Timer.Pause(id: Str)
+Timer.Resume(id: Str)
+Timer.Reset(id: Str)
+Timer.Remove(id: Str)
+Timer.RemoveAll()
+Timer.Exists(id: Str)     -> Bool
+Timer.Finished(id: Str)   -> Bool
+Timer.Remaining(id: Str)  -> F64
+```
+
+**Example:**
+```ks
+#include <engine>
+
+func main() {
+    InitWindow(400, 300, "Timer Demo", false);
+    SetTargetFPS(60);
+
+    let mut count: I32 = 0;
+
+    # Repeating timer: increments counter every second
+    Timer.Create("counter", 1.0, true, [&]() {
+        count = count + 1;
+        Print("Count: ", count);
+    });
+
+    # One-shot timer: prints a message after 5 seconds
+    Timer.Create("alert", 5.0, false, [&]() {
+        Print("5 seconds have passed!");
+    });
+
+    while !WindowShouldClose() {
+        let dt: F64 = GetDeltaTime();
+        Timer.UpdateAll(dt);  # tick all timers
+
+        if KeyPressed(Key.P) {
+            Timer.Pause("counter");
+            Print("Paused");
+        }
+        if KeyPressed(Key.R) {
+            Timer.Resume("counter");
+            Print("Resumed");
+        }
+
+        ClearBackground(0.1, 0.1, 0.15);
+        DrawText("Count: " + ToString(count), 10.0, 10.0, 24, WHITE);
+
+        if !Timer.Finished("alert") {
+            let rem: F64 = Timer.Remaining("alert");
+            DrawText("Alert in: " + ToString(rem), 10.0, 50.0, 16, GRAY);
+        } else {
+            DrawText("Alert fired!", 10.0, 50.0, 16, YELLOW);
+        }
+
+        Present();
+        PollEvents();
+    }
+}
+```
+
+### UI
+```ks
+UI.AddButton(id: Str, text: Str, x: F64, y: F64)
+UI.AddLabel(id: Str, text: Str, x: F64, y: F64, fontSize: I32, color: Color)
+UI.AddPanel(id: Str, x: F64, y: F64, w: F64, h: F64)
+UI.AddImage(id: Str, tex: Texture, x: F64, y: F64, w: F64, h: F64)
+UI.PanelAddChild(panelId: Str, childId: Str)
+UI.OnClick(id: Str, callback: func())
+UI.AddTextBox(id: Str, text: Str, x: F64, y: F64, w: F64, h: F64, typewriter: Bool, charsPerSec: F64)
+UI.Connect(id: Str, signal: Str, callback: func())
+UI.Update()
+UI.Draw()
+UI.WantsInput() -> Bool
+UI.Remove(id: Str)
+UI.Clear()
+MeasureTextWidth(text: Str, fontSize: I32) -> F64
+```
+
+**Signals:** `"clicked"`, `"hovered"`, `"unhovered"`
+
+### Signals
+```ks
+# Inside a node — connect to a signal
+Connect("signal_name", func() {
+    Print("signal fired!");
+});
+
+# Inside a node — emit a signal
+Emit("player_dead");
+```
+
+Collision signals are automatic when using `Collider2D` children:
+```ks
+node Player : Node2D {
+    func OnCollisionEnter(other: Collider2D) {
+        Print("hit: ", other.name);
+    }
+    func OnCollisionExit(other: Collider2D) {
+        Print("left: ", other.name);
+    }
+}
 ```
 
 ### Output

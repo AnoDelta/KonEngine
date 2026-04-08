@@ -88,9 +88,22 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     side->setContentsMargins(20, 28, 20, 20);
     side->setSpacing(0);
 
-    // Logo — replace :/logo.png resource to customize
+    // Logo — try filesystem logo.png first, then Qt resource, then fallback
     auto* logo = new QLabel();
-    QPixmap px(":/logo.png");
+    QPixmap px;
+    // Try filesystem paths (logo.png in repo root)
+    QStringList logoPaths = {
+        QCoreApplication::applicationDirPath() + "/logo.png",
+        QCoreApplication::applicationDirPath() + "/../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../logo.png",
+        QCoreApplication::applicationDirPath() + "/../../../logo.png",
+        "logo.png",
+        ":/logo.png",  // Qt resource fallback
+    };
+    for (auto& p : logoPaths) {
+        px = QPixmap(p);
+        if (!px.isNull()) break;
+    }
     if (px.isNull()) {
         logo->setText(QString::fromUtf8("\xe2\xac\xa1")); // ⬡ fallback
         logo->setStyleSheet("color: #0078d7; font-size: 36px; background: transparent;");
@@ -123,6 +136,12 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     openBtn->setFixedHeight(38);
     openBtn->setCursor(Qt::PointingHandCursor);
     side->addWidget(openBtn);
+    side->addSpacing(8);
+
+    auto* openFileBtn = new QPushButton("  \xf0\x9f\x93\x84 Open File (.ks)");
+    openFileBtn->setFixedHeight(38);
+    openFileBtn->setCursor(Qt::PointingHandCursor);
+    side->addWidget(openFileBtn);
 
     side->addStretch();
 
@@ -214,9 +233,10 @@ WelcomeScreen::WelcomeScreen(QWidget* parent) : QDialog(parent) {
     root->addWidget(right);
 
     // Connections
-    connect(newBtn,    &QPushButton::clicked, this, &WelcomeScreen::onNewProject);
-    connect(openBtn,   &QPushButton::clicked, this, &WelcomeScreen::onOpenProject);
-    connect(removeBtn, &QPushButton::clicked, this, &WelcomeScreen::onRemoveRecent);
+    connect(newBtn,      &QPushButton::clicked, this, &WelcomeScreen::onNewProject);
+    connect(openBtn,     &QPushButton::clicked, this, &WelcomeScreen::onOpenProject);
+    connect(openFileBtn, &QPushButton::clicked, this, &WelcomeScreen::onOpenFile);
+    connect(removeBtn,   &QPushButton::clicked, this, &WelcomeScreen::onRemoveRecent);
     connect(openSel,   &QPushButton::clicked, this, &WelcomeScreen::onOpenSelected);
     connect(m_recentList, &QListWidget::itemDoubleClicked,
             this, &WelcomeScreen::onRecentDoubleClicked);
@@ -324,6 +344,15 @@ void WelcomeScreen::onOpenProject() {
         "KonScript Project (*.konproj);;All Files (*)");
     if (path.isEmpty()) return;
     addRecent(path);
+    m_selectedProject = path;
+    accept();
+}
+
+void WelcomeScreen::onOpenFile() {
+    QString path = QFileDialog::getOpenFileName(this, "Open KonScript File",
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
+        "KonScript Files (*.ks);;All Files (*)");
+    if (path.isEmpty()) return;
     m_selectedProject = path;
     accept();
 }

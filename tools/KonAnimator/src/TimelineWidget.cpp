@@ -1,10 +1,59 @@
 #include "TimelineWidget.hpp"
 #include <QPainter>
+#include <QPainterPath>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QResizeEvent>
 #include <cmath>
 #include <algorithm>
+
+// ── Easing — mirrors PreviewWidget / KonEngine curves.hpp ────────────────
+static float applyEaseForCurve(Ease e, float t) {
+    using E = Ease;
+    switch (e) {
+    case E::Linear:         return t;
+    case E::EaseIn:         return t * t;
+    case E::EaseOut:        return t * (2.0f - t);
+    case E::EaseInOut:      return t < 0.5f ? 2*t*t : -1+(4-2*t)*t;
+    case E::EaseInCubic:    return t*t*t;
+    case E::EaseOutCubic:   { float u=1-t; return 1-u*u*u; }
+    case E::EaseInOutCubic: return t<0.5f ? 4*t*t*t : 1-std::pow(-2*t+2,3)/2;
+    case E::EaseInElastic:
+        if (t==0||t==1) return t;
+        return -std::pow(2,8*t-8)*std::sin((t*8-8.75f)*(2*3.14159265f)/3);
+    case E::EaseOutElastic:
+        if (t==0||t==1) return t;
+        return std::pow(2,-8*t)*std::sin((t*8-0.75f)*(2*3.14159265f)/3)+1;
+    case E::EaseInOutElastic:
+        if (t==0||t==1) return t;
+        { const float c=(2*3.14159265f)/4.5f;
+          return t<0.5f
+            ? -(std::pow(2, 16*t-8)*std::sin((16*t-9.125f)*c))/2
+            :  (std::pow(2,-16*t+8)*std::sin((16*t-9.125f)*c))/2+1; }
+    case E::EaseOutBounce: {
+        float n=7.5625f,d=2.75f;
+        if (t<1/d)    return n*t*t;
+        if (t<2/d)    { t-=1.5f/d;  return n*t*t+0.75f; }
+        if (t<2.5f/d) { t-=2.25f/d; return n*t*t+0.9375f; }
+                        t-=2.625f/d; return n*t*t+0.984375f; }
+    case E::EaseInBounce:
+        return 1-applyEaseForCurve(E::EaseOutBounce,1-t);
+    case E::EaseInOutBounce:
+        return t<0.5f
+            ? (1-applyEaseForCurve(E::EaseOutBounce,1-2*t))/2
+            : (1+applyEaseForCurve(E::EaseOutBounce,2*t-1))/2;
+    case E::EaseInBack:
+        { float c=1.2f; return (c+1)*t*t*t-c*t*t; }
+    case E::EaseOutBack:
+        { float c=1.2f,u=t-1; return 1+(c+1)*u*u*u+c*u*u; }
+    case E::EaseInOutBack:
+        { float c=1.2f*1.525f;
+          return t<0.5f
+            ? (std::pow(2*t,2)*((c+1)*2*t-c))/2
+            : (std::pow(2*t-2,2)*((c+1)*(2*t-2)+c)+2)/2; }
+    default: return t;
+    }
+}
 
 TimelineWidget::TimelineWidget(QWidget* parent) : QWidget(parent) {
     setMouseTracking(true);
@@ -137,6 +186,40 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
 
             p.setPen(QColor(45,45,45));
             p.drawLine(0, y+kTrackH-1, width(), y+kTrackH-1);
+
+            // Interpolation curve between adjacent keyframes (selected track only)
+            if (ti == m_selTrack && tr.keys.size() >= 2) {
+                constexpr int kSamples = 20;
+                int cy = y + kTrackH / 2;
+                int halfH = kTrackH / 2 - 3; // vertical extent of curve preview
+
+                for (int ki = 0; ki + 1 < (int)tr.keys.size(); ki++) {
+                    const Keyframe& kA = tr.keys[ki];
+                    const Keyframe& kB = tr.keys[ki + 1];
+                    int x0 = timeToX(kA.time);
+                    int x1 = timeToX(kB.time);
+                    // Skip if entirely off-screen
+                    if (x1 < kLabelW - 8 || x0 > width() + 8) continue;
+
+                    QPainterPath curvePath;
+                    for (int s = 0; s <= kSamples; s++) {
+                        float frac = (float)s / (float)kSamples;
+                        float eased = applyEaseForCurve(kA.curve, frac);
+                        // Clamp for elastic/bounce overshoot
+                        float clamped = std::max(-0.2f, std::min(1.2f, eased));
+                        int px = x0 + (int)((x1 - x0) * frac);
+                        // y: top of track = eased 1.0, bottom = eased 0.0
+                        int py = cy + (int)(halfH * (1.0f - 2.0f * clamped));
+                        if (s == 0)
+                            curvePath.moveTo(px, py);
+                        else
+                            curvePath.lineTo(px, py);
+                    }
+                    p.setBrush(Qt::NoBrush);
+                    p.setPen(QPen(QColor(120, 220, 120, 160), 1.5));
+                    p.drawPath(curvePath);
+                }
+            }
 
             // Keyframe diamonds
             for (int ki = 0; ki < (int)tr.keys.size(); ki++) {

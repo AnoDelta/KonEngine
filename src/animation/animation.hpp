@@ -26,9 +26,9 @@ struct AnimationFrame {
 struct Keyframe {
     float time  = 0.0f;
     float value = 0.0f;
-    Ease  curve = Ease::EaseInOut; // how to travel FROM this key TO the next
+    Ease  curve = Ease::Linear; // how to travel FROM this key TO the next
 
-    Keyframe(float time, float value, Ease curve = Ease::EaseInOut)
+    Keyframe(float time, float value, Ease curve = Ease::Linear)
         : time(time), value(value), curve(curve) {}
 };
 
@@ -39,7 +39,7 @@ struct KeyframeTrack {
     KeyframeTrack() = default;
     KeyframeTrack(const std::string& name) : name(name) {}
 
-    KeyframeTrack& AddKey(float time, float value, Ease curve = Ease::EaseInOut) {
+    KeyframeTrack& AddKey(float time, float value, Ease curve = Ease::Linear) {
         keyframes.push_back({ time, value, curve });
         return *this;
     }

@@ -76,4 +76,19 @@ if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
         COMMENT "Copying Qt DLLs...")
 endif()
 
+# -----------------------------------------------------------------------
+# anim_compiler — standalone .anim → .konani compiler (CLI + GUI)
+# -----------------------------------------------------------------------
+set(ANIM_COMPILER_SRC "${ENGINE_ROOT}/src/animation/anim_compiler.cpp")
+if(EXISTS "${ANIM_COMPILER_SRC}")
+    add_executable(anim_compiler ${ANIM_COMPILER_SRC})
+    target_include_directories(anim_compiler PRIVATE
+        ${ENGINE_ROOT}/src/animation
+    )
+    target_link_libraries(anim_compiler PRIVATE
+        Qt5::Core Qt5::Gui Qt5::Widgets
+    )
+    install(TARGETS anim_compiler DESTINATION bin)
+endif()
+
 install(TARGETS KonAnimator DESTINATION bin)

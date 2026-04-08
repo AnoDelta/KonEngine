@@ -14,6 +14,8 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QGroupBox>
+#include <QSet>
+#include <QRegularExpression>
 
 // ── Node type registry ────────────────────────────────────────────────────
 struct NodeTypeInfo {
@@ -533,13 +535,13 @@ void SceneTree::updateNodePosition(const QString& name, float x, float y) {
     if (!m_tree->topLevelItemCount()) return;
     if (auto* found = find(m_tree->topLevelItem(0))) {
         found->setData(0,Qt::UserRole+3,x); found->setData(0,Qt::UserRole+4,y);
-        autoSaveScene();
+        // Don't autoSave here — called on every mouse move during drag.
+        // Scene is saved on drag release via nodeMovedFinal → writeInstancePosition.
     }
 }
 
 void SceneTree::autoSaveScene() {
-    fprintf(stderr,"[SceneTree] autoSave: loading=%d path=%s\n",
-            m_loading, m_scenePath.toUtf8().constData());
+    if (m_readOnly) return;  // NEVER overwrite monolithic .ks files
     if (m_loading || m_scenePath.isEmpty()) return;
     auto* root = m_tree->topLevelItem(0);
     if (!root || root->childCount() == 0) return;
@@ -547,6 +549,7 @@ void SceneTree::autoSaveScene() {
 }
 
 void SceneTree::saveCurrentScene() {
+    if (m_readOnly) return;  // NEVER overwrite monolithic .ks files
     if (m_scenePath.isEmpty()) return;
     auto* root = m_tree->topLevelItem(0);
     if (!root || root->childCount() == 0) return;
@@ -590,18 +593,308 @@ void SceneTree::loadScene(const QString& path) {
         rootItem->setData(0,Qt::UserRole,"Scene"); rootItem->setData(0,Qt::UserRole+1,rootName);
         rootItem->setExpanded(true);
         jsonToTree(rootItem, root.value("children").toArray());
-        m_sceneLoaded = true; emit sceneLoaded(path); return;
+        m_sceneLoaded = true; m_loading = false; emit sceneLoaded(path); return;
     }
 
     QString src = QString::fromUtf8(data);
 
-    QRegularExpression reNode(R"(node\s+(\w+)\s*:\s*\w+\s*\{)");
-    auto mNode = reNode.match(src);
-    QString rootName = mNode.hasMatch() ? mNode.captured(1) : "Main";
+    // Detect if this is a monolithic file (has func main()) vs a scene file
+    bool isMonolithic = src.contains("func main()") || src.contains("func main()");;
+
+    // For scene files: root = first node definition
+    // For monolithic: root = filename, children = scene.add() calls
+    QString rootName;
+    if (!isMonolithic) {
+        QRegularExpression reNode(R"(node\s+(\w+)\s*:\s*\w+\s*\{)");
+        auto mNode = reNode.match(src);
+        rootName = mNode.hasMatch() ? mNode.captured(1) : "Main";
+    } else {
+        rootName = QFileInfo(path).baseName();
+    }
 
     auto* rootItem = new QTreeWidgetItem(m_tree,{"🎬  "+rootName});
     rootItem->setData(0,Qt::UserRole,"Scene"); rootItem->setData(0,Qt::UserRole+1,rootName);
     rootItem->setExpanded(true);
+
+    if (isMonolithic) {
+        // ── Monolithic file: parse node definitions and scene.add() calls ──
+
+        // Step 1: Scan for const declarations and build a lookup map.
+        // Matches patterns like: const screenWidth = 900;
+        QMap<QString, float> constMap;
+        {
+            QRegularExpression reConst(R"(const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*([^;]+);)");
+            auto itConst = reConst.globalMatch(src);
+            while (itConst.hasNext()) {
+                auto cm = itConst.next();
+                QString name = cm.captured(1).trimmed();
+                QString val  = cm.captured(2).trimmed();
+                bool ok = false;
+                float v = val.toFloat(&ok);
+                if (ok) constMap[name] = v;
+            }
+        }
+        // Also extract InitWindow(w, h, ...) arguments as screenWidth/screenHeight
+        {
+            QRegularExpression reInit(R"(InitWindow\s*\(\s*(\d+)\s*,\s*(\d+)\s*,)");
+            auto im = reInit.match(src);
+            if (im.hasMatch()) {
+                if (!constMap.contains("screenWidth"))
+                    constMap["screenWidth"] = im.captured(1).toFloat();
+                if (!constMap.contains("screenHeight"))
+                    constMap["screenHeight"] = im.captured(2).toFloat();
+                // Store game resolution on the root item (UserRole+8 = width, +9 = height)
+                rootItem->setData(0, Qt::UserRole+8, im.captured(1).toInt());
+                rootItem->setData(0, Qt::UserRole+9, im.captured(2).toInt());
+            }
+        }
+
+        // First, collect all node definitions: node Name : Base { ... }
+        QRegularExpression reAllNodes(R"(node\s+(\w+)\s*:\s*(\w+)\s*\{)");
+        auto itNodes = reAllNodes.globalMatch(src);
+        QMap<QString, QTreeWidgetItem*> nodeItems; // typeName → tree item
+
+        // Helper: try to evaluate a value expression to a float.
+        // Handles:
+        //   - Plain numeric literals: "450" -> 450
+        //   - Simple binary expressions with one const: "screenWidth / 2" -> 450
+        //   - Simple binary expressions with two literals: "700 / 1.5" -> 466.67
+        // Returns false if the expression is too complex.
+        auto tryParseNumeric = [&constMap](const QString& val, float* out) -> bool {
+            QString trimmed = val.trimmed();
+            if (trimmed.isEmpty()) return false;
+
+            // Try plain numeric literal first
+            {
+                bool ok = false;
+                float v = trimmed.toFloat(&ok);
+                if (ok) { if (out) *out = v; return true; }
+            }
+
+            // Try simple binary expression: operand op operand
+            // where each operand is a number or a known const
+            static QRegularExpression reBinOp(R"(^(\w[\w.]*)\s*([+\-\*/])\s*(\w[\w.]*)$)");
+            auto m = reBinOp.match(trimmed);
+            if (!m.hasMatch()) return false;
+
+            QString lhs = m.captured(1).trimmed();
+            QChar   op  = m.captured(2).at(0);
+            QString rhs = m.captured(3).trimmed();
+
+            // Resolve each operand to a float
+            auto resolveOperand = [&constMap](const QString& s, float* v) -> bool {
+                bool ok = false;
+                float f = s.toFloat(&ok);
+                if (ok) { *v = f; return true; }
+                if (constMap.contains(s)) { *v = constMap[s]; return true; }
+                return false;
+            };
+
+            float lVal = 0, rVal = 0;
+            if (!resolveOperand(lhs, &lVal) || !resolveOperand(rhs, &rVal))
+                return false;
+
+            float result = 0;
+            if      (op == '+') result = lVal + rVal;
+            else if (op == '-') result = lVal - rVal;
+            else if (op == '*') result = lVal * rVal;
+            else if (op == '/') {
+                if (rVal == 0.0f) return false;
+                result = lVal / rVal;
+            } else {
+                return false;
+            }
+
+            if (out) *out = result;
+            return true;
+        };
+
+        while (itNodes.hasNext()) {
+            auto nm = itNodes.next();
+            QString nodeName = nm.captured(1);
+            QString baseType = nm.captured(2);
+            auto* nodeItem = addNode(rootItem, nodeName, baseType);
+            nodeItem->setData(0, Qt::UserRole+2, path);
+            nodeItems[nodeName] = nodeItem;
+
+            // Parse this.add() inside the node to find children
+            // Find the node's body
+            int braceStart = nm.capturedEnd();
+            int depth = 1, pos = braceStart;
+            while (pos < src.size() && depth > 0) {
+                if (src[pos] == '{') depth++;
+                else if (src[pos] == '}') depth--;
+                if (depth > 0) pos++;
+            }
+            QString body = src.mid(braceStart, pos - braceStart);
+
+            // Parse the node's own Ready() for x, y, width, height assignments
+            {
+                QRegularExpression reReady(R"(func\s+Ready\s*\(\s*\)\s*\{)");
+                auto rm = reReady.match(body);
+                if (rm.hasMatch()) {
+                    int rStart = rm.capturedEnd();
+                    int rDepth = 1, rPos = rStart;
+                    while (rPos < body.size() && rDepth > 0) {
+                        if (body[rPos] == QLatin1Char('{')) rDepth++;
+                        else if (body[rPos] == QLatin1Char('}')) rDepth--;
+                        if (rDepth > 0) rPos++;
+                    }
+                    QString readyBody = body.mid(rStart, rPos - rStart);
+
+                    // Parse bare assignments: x = value; y = value; width = value; height = value;
+                    // Only match assignments that are NOT prefixed by a variable name (i.e. not "foo.x = ...")
+                    QRegularExpression reAssign(R"((?:^|[;\n\{])\s*(\w+)\s*=\s*([^;]+);)");
+                    auto itAssign = reAssign.globalMatch(readyBody);
+                    while (itAssign.hasNext()) {
+                        auto am = itAssign.next();
+                        QString prop = am.captured(1).trimmed();
+                        QString val  = am.captured(2).trimmed();
+                        float numVal = 0;
+                        if (!tryParseNumeric(val, &numVal)) continue; // skip expressions
+                        if (prop == "x")      nodeItem->setData(0, Qt::UserRole+3, numVal);
+                        else if (prop == "y") nodeItem->setData(0, Qt::UserRole+4, numVal);
+                        else if (prop == "width")  nodeItem->setData(0, Qt::UserRole+5, numVal);
+                        else if (prop == "height") nodeItem->setData(0, Qt::UserRole+6, numVal);
+                    }
+                }
+            }
+
+            // Parse this.add(Type, "name") inside the body
+            QRegularExpression reChildAdd(R"RE(let\s+mut\s+(\w+)\s*:\s*(\w+)\s*=\s*this\.add\(\s*\w+\s*,\s*"([^"]+)"\s*\))RE");
+            auto itChildren = reChildAdd.globalMatch(body);
+            while (itChildren.hasNext()) {
+                auto cm = itChildren.next();
+                QString childVar = cm.captured(1);
+                QString childType = cm.captured(2);
+                QString childName = cm.captured(3);
+                auto* childItem = addNode(nodeItem, childName, childType);
+
+                // Parse position from Ready() body
+                QRegularExpression rxX(QString(R"(%1\s*[.=]\s*x\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(childVar)));
+                QRegularExpression rxY(QString(R"(%1\s*[.=]\s*y\s*=\s*([\d.+\-]+))").arg(QRegularExpression::escape(childVar)));
+                auto mx = rxX.match(body); auto my = rxY.match(body);
+                if (mx.hasMatch()) childItem->setData(0, Qt::UserRole+3, mx.captured(1).toFloat());
+                if (my.hasMatch()) childItem->setData(0, Qt::UserRole+4, my.captured(1).toFloat());
+            }
+        }
+
+        // Parse scene.add(Type, "name") in func main() for the top-level scene hierarchy
+        QRegularExpression reSceneAdd(R"RE((\w+)\.add\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
+        // Find func main() body
+        QRegularExpression reMain(R"(func\s+main\s*\([^)]*\)\s*(?:->\s*\w+\s*)?\{)");
+        auto mainMatch = reMain.match(src);
+        if (mainMatch.hasMatch()) {
+            int mainStart = mainMatch.capturedEnd();
+            int depth = 1, pos = mainStart;
+            while (pos < src.size() && depth > 0) {
+                if (src[pos] == '{') depth++;
+                else if (src[pos] == '}') depth--;
+                if (depth > 0) pos++;
+            }
+            QString mainBody = src.mid(mainStart, pos - mainStart);
+
+            // Parse variable.x = value assignments in main()
+            QMap<QString, QString> varToType; // varName → typeName
+            QRegularExpression reVarAdd(R"RE(let\s+mut\s+(\w+)\s*:\s*(\w+)\s*=\s*\w+\.add\(\s*\w+\s*,\s*"[^"]+"\s*\))RE");
+            auto itVars = reVarAdd.globalMatch(mainBody);
+            while (itVars.hasNext()) {
+                auto vm = itVars.next();
+                varToType[vm.captured(1)] = vm.captured(2);
+            }
+
+            // Parse position/size assignments: varName.x = value; varName.width = value; etc.
+            for (auto it = varToType.constBegin(); it != varToType.constEnd(); ++it) {
+                QString var = it.key();
+                QString type = it.value();
+                // Find the node item for this type
+                QTreeWidgetItem* item = nodeItems.value(type, nullptr);
+                if (!item) {
+                    // It's an instance, find or create under root
+                    for (int i = 0; i < rootItem->childCount(); i++) {
+                        if (rootItem->child(i)->data(0, Qt::UserRole+1).toString() == type)
+                            item = rootItem->child(i);
+                    }
+                }
+                if (!item) continue;
+
+                // Parse x, y, width, height assignments from main()
+                QRegularExpression rxProp(QString(R"(%1\.(\w+)\s*=\s*([^;]+);)").arg(QRegularExpression::escape(var)));
+                auto itProps = rxProp.globalMatch(mainBody);
+                while (itProps.hasNext()) {
+                    auto pm = itProps.next();
+                    QString prop = pm.captured(1).trimmed();
+                    QString val  = pm.captured(2).trimmed();
+                    float numVal = 0;
+                    if (!tryParseNumeric(val, &numVal)) continue; // skip expressions
+                    if (prop == "x")           item->setData(0, Qt::UserRole+3, numVal);
+                    else if (prop == "y")      item->setData(0, Qt::UserRole+4, numVal);
+                    else if (prop == "width")  item->setData(0, Qt::UserRole+5, numVal);
+                    else if (prop == "height") item->setData(0, Qt::UserRole+6, numVal);
+                }
+            }
+
+            // Parse LoadTexture / SetTexture calls in main() to associate textures with nodes
+            // Step 1: let mut varName: Texture = LoadTexture("path") → texVarToPath
+            QMap<QString, QString> texVarToPath;
+            {
+                QRegularExpression reTex(R"RE(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))RE");
+                auto itTex = reTex.globalMatch(mainBody);
+                while (itTex.hasNext()) {
+                    auto tm = itTex.next();
+                    texVarToPath[tm.captured(1)] = tm.captured(2);
+                    fprintf(stderr, "[SceneTree] Texture var: %s → %s\n",
+                            tm.captured(1).toUtf8().constData(), tm.captured(2).toUtf8().constData());
+                }
+                if (texVarToPath.isEmpty())
+                    fprintf(stderr, "[SceneTree] No LoadTexture calls found in main()\n");
+            }
+            // Step 2: nodeVar.SetTexture(texVar) → associate node with texture path
+            {
+                QRegularExpression reSetTex(R"((\w+)\.SetTexture\s*\(\s*(\w+)\s*\))");
+                auto itSetTex = reSetTex.globalMatch(mainBody);
+                while (itSetTex.hasNext()) {
+                    auto sm = itSetTex.next();
+                    QString nodeVar = sm.captured(1);
+                    QString texVar  = sm.captured(2);
+                    fprintf(stderr, "[SceneTree] SetTexture: %s.SetTexture(%s)\n",
+                            nodeVar.toUtf8().constData(), texVar.toUtf8().constData());
+                    if (!texVarToPath.contains(texVar)) {
+                        fprintf(stderr, "[SceneTree]   texVar '%s' not in texVarToPath\n", texVar.toUtf8().constData());
+                        continue;
+                    }
+                    // Find the tree item for this nodeVar
+                    QString nodeType = varToType.value(nodeVar);
+                    fprintf(stderr, "[SceneTree]   nodeVar '%s' → type '%s'\n",
+                            nodeVar.toUtf8().constData(), nodeType.toUtf8().constData());
+                    QTreeWidgetItem* item = nodeItems.value(nodeType, nullptr);
+                    if (!item) {
+                        for (int i = 0; i < rootItem->childCount(); i++) {
+                            if (rootItem->child(i)->data(0, Qt::UserRole+1).toString() == nodeType)
+                                item = rootItem->child(i);
+                        }
+                    }
+                    if (item) {
+                        item->setData(0, Qt::UserRole+7, texVarToPath[texVar]);
+                        fprintf(stderr, "[SceneTree]   → set texture '%s' on '%s'\n",
+                                texVarToPath[texVar].toUtf8().constData(),
+                                item->data(0, Qt::UserRole+1).toString().toUtf8().constData());
+                    } else {
+                        fprintf(stderr, "[SceneTree]   → no tree item found for type '%s'\n",
+                                nodeType.toUtf8().constData());
+                    }
+                }
+            }
+        }
+
+        rootItem->setExpanded(true);
+        m_sceneLoaded = true;
+        emit sceneLoaded(path);
+        m_loading = false;
+        return;
+    }
+
+    // ── Scene file parsing (non-monolithic) ──────────────────────────────
 
     // Parse all .add() calls — handles both this.add() and parentVar.add()
     // Pattern: let mut varName: Type = parentExpr.add(Type, "name")
@@ -652,12 +945,42 @@ void SceneTree::loadScene(const QString& path) {
             if (mx.hasMatch()) child->setData(0,Qt::UserRole+3,mx.captured(1).toFloat());
             if (my.hasMatch()) child->setData(0,Qt::UserRole+4,my.captured(1).toFloat());
 
+            // Parse SetTexture / LoadTexture in the source or child script for texture association
+            {
+                // Check the current source for varName.SetTexture(texVar) patterns
+                // First build a LoadTexture map from the source
+                QMap<QString, QString> localTexVars;
+                QRegularExpression reLoadTex(R"RE(let\s+mut\s+(\w+)\s*:\s*Texture\s*=\s*LoadTexture\s*\(\s*"([^"]+)"\s*\))RE");
+                auto itLT = reLoadTex.globalMatch(source);
+                while (itLT.hasNext()) {
+                    auto ltm = itLT.next();
+                    localTexVars[ltm.captured(1)] = ltm.captured(2);
+                }
+                // Now find varName.SetTexture(texVar)
+                QRegularExpression reSetTex(QString(R"(%1\.SetTexture\s*\(\s*(\w+)\s*\))").arg(QRegularExpression::escape(call.varName)));
+                auto stm = reSetTex.match(source);
+                if (stm.hasMatch()) {
+                    QString texVar = stm.captured(1);
+                    if (localTexVars.contains(texVar))
+                        child->setData(0, Qt::UserRole+7, localTexVars[texVar]);
+                }
+            }
+
             // If this child has a script, parse that script too for its children
             if (!childScript.isEmpty()) {
                 QFile sf(childScript);
                 if (sf.open(QIODevice::ReadOnly)) {
                     QString childSrc = QTextStream(&sf).readAll();
                     sf.close();
+
+                    // Check child script for texture property or SetTexture call
+                    if (!child->data(0, Qt::UserRole+7).isValid()) {
+                        QRegularExpression reScriptTex(R"RE(LoadTexture\s*\(\s*"([^"]+)"\s*\))RE");
+                        auto stxm = reScriptTex.match(childSrc);
+                        if (stxm.hasMatch())
+                            child->setData(0, Qt::UserRole+7, stxm.captured(1));
+                    }
+
                     // Add "this" mapping for this child so its children parent correctly
                     varToItem["this"] = child;
                     parseSource(childSrc, childScript, child);
@@ -668,28 +991,33 @@ void SceneTree::loadScene(const QString& path) {
         }
     };
 
-    // First parse the scene file itself
+    // First parse the scene file itself (non-monolithic scene files)
     parseSource(src, path, rootItem);
 
     rootItem->setExpanded(true);
-    m_sceneLoaded = true; m_loading = false;
+    m_sceneLoaded = true;
+    // Keep m_loading true during the signal emission so autoSave is blocked.
+    // Reset it after the signal chain completes.
     emit sceneLoaded(path);
+    m_loading = false;
 }
 
 void SceneTree::saveScene(const QString& path) {
+    if (m_readOnly) return;  // NEVER overwrite monolithic .ks files
     auto* root = m_tree->topLevelItem(0);
     if (!root) return;
+    if (m_projectRoot.isEmpty()) return;
 
     QString sceneName = root->data(0,Qt::UserRole+1).toString();
     if (sceneName.isEmpty()) sceneName = "Main";
 
     QString ks;
-    ks += "# " + sceneName + ".ks — generated by KonEditor\n";
-    ks += "#include <engine>\n";
+    ks += "// " + sceneName + ".ks — generated by KonEditor\n";
 
     QStringList includes;
     std::function<void(QTreeWidgetItem*)> collectIncludes;
     collectIncludes = [&](QTreeWidgetItem* item) {
+        if (!item) return;
         QString script = item->data(0,Qt::UserRole+2).toString();
         if (!script.isEmpty()) {
             QString rel = QDir(m_projectRoot).relativeFilePath(script);
@@ -719,6 +1047,7 @@ void SceneTree::saveScene(const QString& path) {
     // writeNode passes parentVar so nested children use parentVar.add() not this.add()
     std::function<void(QTreeWidgetItem*,int,const QString&)> writeNode;
     writeNode = [&](QTreeWidgetItem* item, int depth, const QString& parentVar) {
+        if (!item) return;
         QString name = item->data(0,Qt::UserRole+1).toString();
         QString type = item->data(0,Qt::UserRole).toString();
         if (type == "Scene" || name.isEmpty()) {
@@ -771,6 +1100,7 @@ void SceneTree::saveScene(const QString& path) {
     // writePositions: looks up nameToVar — never re-derives independently
     std::function<void(QTreeWidgetItem*)> writePositions;
     writePositions = [&](QTreeWidgetItem* item) {
+        if (!item) return;
         QString name = item->data(0,Qt::UserRole+1).toString();
         QString type = item->data(0,Qt::UserRole).toString();
         if (type == "Scene" || name.isEmpty()) {

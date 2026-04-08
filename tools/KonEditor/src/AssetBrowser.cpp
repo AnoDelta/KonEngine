@@ -70,6 +70,8 @@ void AssetBrowser::onContextMenu(const QPoint& pos) {
     auto* revealAct  = menu.addAction("Show in File Manager");
     menu.addSeparator();
     auto* newFileAct = menu.addAction("New File...");
+    auto* newAnimAct = menu.addAction("New Animation File...");
+    auto* newPackAct = menu.addAction("New Asset Pack...");
     auto* newDirAct  = menu.addAction("New Folder...");
     menu.addSeparator();
     auto* renameAct  = menu.addAction("Rename...");
@@ -107,6 +109,26 @@ void AssetBrowser::onContextMenu(const QPoint& pos) {
                 emit fileDoubleClicked(dir + "/" + name);
             }
         }
+
+    } else if (chosen == newAnimAct) {
+        QString dir = isDir ? path : QFileInfo(path).absolutePath();
+        bool ok;
+        QString name = QInputDialog::getText(this, "New Animation", "File name:",
+            QLineEdit::Normal, "new_anim.anim", &ok);
+        if (ok && !name.isEmpty()) {
+            if (!name.endsWith(".anim")) name += ".anim";
+            QString fullPath = dir + "/" + name;
+            QFile f(fullPath);
+            if (f.open(QIODevice::WriteOnly)) {
+                f.write("# New animation\n\nanim idle\n\tdisplay 32 32 1\nend\n");
+                f.close();
+                emit fileDoubleClicked(fullPath);
+            }
+        }
+
+    } else if (chosen == newPackAct) {
+        QString dir = isDir ? path : QFileInfo(path).absolutePath();
+        emit newAssetPackRequested(dir);
 
     } else if (chosen == newDirAct) {
         QString dir = isDir ? path : QFileInfo(path).absolutePath();

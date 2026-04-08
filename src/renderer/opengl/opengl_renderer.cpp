@@ -19,7 +19,10 @@ OpenGLRenderer::OpenGLRenderer()
 	  textureVAO(0), textureVBO(0), textureShaderProgram(0),
 	  textVAO(0),    textVBO(0),    textShaderProgram(0),
 	  batchVAO(0),   batchVBO(0),   batchShaderProgram(0),
-	  quadCount(0),  activeProgram(0)
+	  quadCount(0),  activeProgram(0),
+	  lineBatchVAO(0), lineBatchVBO(0), lineCount(0),
+	  glyphBatchVAO(0), glyphBatchVBO(0), glyphBatchShaderProgram(0),
+	  glyphCount(0), glyphCurrentAtlas(0)
 {}
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -40,6 +43,13 @@ OpenGLRenderer::~OpenGLRenderer() {
 	glDeleteVertexArrays(1, &batchVAO);
 	glDeleteBuffers(1, &batchVBO);
 	glDeleteProgram(batchShaderProgram);
+
+	glDeleteVertexArrays(1, &lineBatchVAO);
+	glDeleteBuffers(1, &lineBatchVBO);
+
+	glDeleteVertexArrays(1, &glyphBatchVAO);
+	glDeleteBuffers(1, &glyphBatchVBO);
+	glDeleteProgram(glyphBatchShaderProgram);
 }
 
 // -----------------------------------------------------------------------
@@ -53,24 +63,37 @@ void OpenGLRenderer::Init() {
 	SetupTextureShader();
 	SetupTextShader();
 	SetupBatchShader();
+	SetupGlyphBatchShader();
 
 	CreateCircleBuffers();
 	CreateLineBuffers();
 	CreateTextureBuffers();
 	CreateTextBuffers();
 	CreateBatchBuffers();
+	CreateLineBatchBuffers();
+	CreateGlyphBatchBuffers();
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void OpenGLRenderer::Present() {
-	FlushQuads(); // push any remaining batched rects
+	FlushAll();
+}
+
+void OpenGLRenderer::FlushAll() {
+	FlushQuads();
+	FlushLines();
+	FlushGlyphs();
 }
 
 void OpenGLRenderer::Clear(float r, float g, float b) {
 	glClearColor(r, g, b, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+void OpenGLRenderer::Clear(Color color) {
+	Clear(color.r, color.g, color.b);
 }
 
 // -----------------------------------------------------------------------
@@ -97,6 +120,39 @@ void OpenGLRenderer::FlushQuads() {
 	quadCount = 0;
 }
 
+void OpenGLRenderer::FlushLines() {
+	if (lineCount == 0) return;
+
+	// Lines reuse the same batch shader (position + color)
+	UseProgram(batchShaderProgram);
+	glBindVertexArray(lineBatchVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, lineBatchVBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0,
+	                lineCount * BATCH_FLOATS_PER_LINE * sizeof(float),
+	                lineBuffer);
+	glLineWidth(2.0f);
+	glDrawArrays(GL_LINES, 0, lineCount * 2);
+	glLineWidth(1.0f);
+	lineCount = 0;
+}
+
+void OpenGLRenderer::FlushGlyphs() {
+	if (glyphCount == 0) return;
+
+	UseProgram(glyphBatchShaderProgram);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, glyphCurrentAtlas);
+	glUniform1i(loc_glyph_sampler, 0);
+
+	glBindVertexArray(glyphBatchVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, glyphBatchVBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0,
+	                glyphCount * BATCH_FLOATS_PER_GLYPH * sizeof(float),
+	                glyphBuffer);
+	glDrawArrays(GL_TRIANGLES, 0, glyphCount * 6);
+	glyphCount = 0;
+}
+
 // -----------------------------------------------------------------------
 // Projection / camera
 // -----------------------------------------------------------------------
@@ -119,11 +175,14 @@ void OpenGLRenderer::SetProjectionMatrix(int w, int h) {
 	glUseProgram(batchShaderProgram);
 	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
 
-	activeProgram = batchShaderProgram;
+	glUseProgram(glyphBatchShaderProgram);
+	glUniformMatrix4fv(loc_glyph_proj, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+
+	activeProgram = glyphBatchShaderProgram;
 }
 
 void OpenGLRenderer::BeginCamera2D(const Camera2D& cam) {
-	FlushQuads(); // must flush before changing projection
+	FlushAll(); // must flush before changing projection
 
 	savedProjectionMatrix = projectionMatrix;
 
@@ -145,6 +204,10 @@ void OpenGLRenderer::BeginCamera2D(const Camera2D& cam) {
 	glUseProgram(textureShaderProgram);
 	glUniformMatrix4fv(loc_tex_proj, 1, GL_FALSE, glm::value_ptr(camProj));
 
+	glUseProgram(glyphBatchShaderProgram);
+	glUniformMatrix4fv(loc_glyph_proj, 1, GL_FALSE, glm::value_ptr(camProj));
+
+	// Batch shader must be last so activeProgram cache stays in sync
 	glUseProgram(batchShaderProgram);
 	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(camProj));
 
@@ -152,7 +215,7 @@ void OpenGLRenderer::BeginCamera2D(const Camera2D& cam) {
 }
 
 void OpenGLRenderer::EndCamera2D() {
-	FlushQuads(); // flush camera-space rects before restoring projection
+	FlushAll(); // flush camera-space geometry before restoring projection
 
 	glUseProgram(shaderProgram);
 	glUniformMatrix4fv(loc_shape_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
@@ -160,6 +223,10 @@ void OpenGLRenderer::EndCamera2D() {
 	glUseProgram(textureShaderProgram);
 	glUniformMatrix4fv(loc_tex_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
 
+	glUseProgram(glyphBatchShaderProgram);
+	glUniformMatrix4fv(loc_glyph_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
+
+	// Batch shader must be last so activeProgram cache stays in sync
 	glUseProgram(batchShaderProgram);
 	glUniformMatrix4fv(loc_batch_proj, 1, GL_FALSE, glm::value_ptr(savedProjectionMatrix));
 
@@ -466,6 +533,98 @@ void OpenGLRenderer::CreateBatchBuffers() {
 	glBindVertexArray(0);
 }
 
+void OpenGLRenderer::CreateLineBatchBuffers() {
+	glGenVertexArrays(1, &lineBatchVAO);
+	glGenBuffers(1, &lineBatchVBO);
+	glBindVertexArray(lineBatchVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, lineBatchVBO);
+	glBufferData(GL_ARRAY_BUFFER,
+	             MAX_BATCH_LINES * BATCH_FLOATS_PER_LINE * sizeof(float),
+	             nullptr, GL_DYNAMIC_DRAW);
+	// Same layout as quad batch: position (xy) + color (rgba)
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(2 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+}
+
+void OpenGLRenderer::CreateGlyphBatchBuffers() {
+	glGenVertexArrays(1, &glyphBatchVAO);
+	glGenBuffers(1, &glyphBatchVBO);
+	glBindVertexArray(glyphBatchVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, glyphBatchVBO);
+	glBufferData(GL_ARRAY_BUFFER,
+	             MAX_BATCH_GLYPHS * BATCH_FLOATS_PER_GLYPH * sizeof(float),
+	             nullptr, GL_DYNAMIC_DRAW);
+	// Layout: position (xy) + texcoord (uv) + color (rgba) = 8 floats
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(2 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(4 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+}
+
+void OpenGLRenderer::SetupGlyphBatchShader() {
+	const char* vertSrc = R"(
+		#version 330 core
+		layout(location = 0) in vec2 position;
+		layout(location = 1) in vec2 texCoord;
+		layout(location = 2) in vec4 color;
+		uniform mat4 projection;
+		out vec2 TexCoord;
+		out vec4 vColor;
+		void main() {
+			gl_Position = projection * vec4(position, 0.0, 1.0);
+			TexCoord = texCoord;
+			vColor = color;
+		}
+	)";
+
+	const char* fragSrc = R"(
+		#version 330 core
+		in vec2 TexCoord;
+		in vec4 vColor;
+		out vec4 FragColor;
+		uniform sampler2D tex;
+		void main() {
+			float alpha = texture(tex, TexCoord).r;
+			FragColor = vec4(vColor.rgb, vColor.a * alpha);
+		}
+	)";
+
+	int ok; char log[512];
+
+	GLuint vert = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vert, 1, &vertSrc, nullptr);
+	glCompileShader(vert);
+	glGetShaderiv(vert, GL_COMPILE_STATUS, &ok);
+	if (!ok) { glGetShaderInfoLog(vert, 512, nullptr, log); std::cerr << "glyph batch vert: " << log << "\n"; }
+
+	GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(frag, 1, &fragSrc, nullptr);
+	glCompileShader(frag);
+	glGetShaderiv(frag, GL_COMPILE_STATUS, &ok);
+	if (!ok) { glGetShaderInfoLog(frag, 512, nullptr, log); std::cerr << "glyph batch frag: " << log << "\n"; }
+
+	glyphBatchShaderProgram = glCreateProgram();
+	glAttachShader(glyphBatchShaderProgram, vert);
+	glAttachShader(glyphBatchShaderProgram, frag);
+	glLinkProgram(glyphBatchShaderProgram);
+	glGetProgramiv(glyphBatchShaderProgram, GL_LINK_STATUS, &ok);
+	if (!ok) { glGetProgramInfoLog(glyphBatchShaderProgram, 512, nullptr, log); std::cerr << "glyph batch link: " << log << "\n"; }
+
+	glDeleteShader(vert);
+	glDeleteShader(frag);
+
+	loc_glyph_proj    = glGetUniformLocation(glyphBatchShaderProgram, "projection");
+	loc_glyph_sampler = glGetUniformLocation(glyphBatchShaderProgram, "tex");
+}
+
 // -----------------------------------------------------------------------
 // Draw — Rectangles (batched)
 // -----------------------------------------------------------------------
@@ -500,7 +659,7 @@ void OpenGLRenderer::DrawRectangle(float x, float y, float w, float h, Color c) 
 
 void OpenGLRenderer::DrawCircle(float x, float y, float radius,
                                  float r, float g, float b, float a) {
-	FlushQuads(); // flush rects before switching shader
+	FlushAll(); // flush batched geometry before switching shader
 
 	UseProgram(shaderProgram);
 
@@ -524,22 +683,13 @@ void OpenGLRenderer::DrawCircle(float x, float y, float radius, Color c) {
 
 void OpenGLRenderer::DrawLine(float x1, float y1, float x2, float y2,
                                float r, float g, float b, float a) {
-	FlushQuads();
+	if (lineCount >= MAX_BATCH_LINES)
+		FlushLines();
 
-	UseProgram(shaderProgram);
-
-	glm::mat4 identity = glm::mat4(1.0f);
-	glUniformMatrix4fv(loc_shape_transform, 1, GL_FALSE, glm::value_ptr(identity));
-	glUniform4f(loc_shape_color, r, g, b, a);
-
-	float verts[] = { x1, y1, x2, y2 };
-	glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
-
-	glBindVertexArray(lineVAO);
-	glLineWidth(2.0f);
-	glDrawArrays(GL_LINE_STRIP, 0, 2);
-	glLineWidth(1.0f);
+	float* v = &lineBuffer[lineCount * BATCH_FLOATS_PER_LINE];
+	v[ 0]=x1; v[ 1]=y1; v[ 2]=r; v[ 3]=g; v[ 4]=b; v[ 5]=a;
+	v[ 6]=x2; v[ 7]=y2; v[ 8]=r; v[ 9]=g; v[10]=b; v[11]=a;
+	lineCount++;
 }
 
 void OpenGLRenderer::DrawLine(float x1, float y1, float x2, float y2, Color c) {
@@ -560,16 +710,37 @@ Texture OpenGLRenderer::LoadTexture(const char* path) {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	int w, h, channels;
-	unsigned char* data = stbi_load(path, &w, &h, &channels, 0);
+	// Force 4 channels (RGBA) to avoid GL_RGB row alignment issues
+	unsigned char* data = stbi_load(path, &w, &h, &channels, 4);
 	if (!data) {
 		std::cerr << "Failed to load texture: " << path << "\n";
 		glDeleteTextures(1, &id);
 		return {0, 0, 0};
 	}
 
-	GLenum fmt = (channels == 4) ? GL_RGBA : GL_RGB;
-	glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, data);
-	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+	stbi_image_free(data);
+	return {id, w, h};
+}
+
+Texture OpenGLRenderer::LoadTextureSmooth(const char* path) {
+	GLuint id;
+	glGenTextures(1, &id);
+	glBindTexture(GL_TEXTURE_2D, id);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	int w, h, channels;
+	unsigned char* data = stbi_load(path, &w, &h, &channels, 4);
+	if (!data) {
+		std::cerr << "Failed to load texture: " << path << "\n";
+		glDeleteTextures(1, &id);
+		return {0, 0, 0};
+	}
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 	stbi_image_free(data);
 	return {id, w, h};
 }
@@ -594,7 +765,7 @@ void OpenGLRenderer::DrawTextureRec(Texture& tex, float x, float y, float w, flo
 
 void OpenGLRenderer::DrawTextureRec(Texture& tex, float x, float y, float w, float h,
                                      float srcX, float srcY, float srcW, float srcH, Color tint) {
-	FlushQuads(); // flush pending rects before switching shader/texture
+	FlushAll(); // flush batched geometry before switching shader/texture
 
 	UseProgram(textureShaderProgram);
 
@@ -629,27 +800,26 @@ void OpenGLRenderer::DrawTextureRec(Texture& tex, float x, float y, float w, flo
 void OpenGLRenderer::DrawGlyph(unsigned int atlasID,
                                 float x, float y, float w, float h,
                                 float u0, float v0, float u1, float v1, Color color) {
-	FlushQuads();
+	// Flush if atlas changes or buffer is full
+	if (glyphCount > 0 && glyphCurrentAtlas != atlasID)
+		FlushGlyphs();
+	if (glyphCount >= MAX_BATCH_GLYPHS)
+		FlushGlyphs();
 
-	UseProgram(textShaderProgram);
+	glyphCurrentAtlas = atlasID;
 
-	// projection is already uploaded in SetProjectionMatrix — no need to re-upload every glyph
-	glUniform4f(loc_text_color, color.r, color.g, color.b, color.a);
-	glUniform1i(loc_text_sampler, 0);
+	float cr = color.r, cg = color.g, cb = color.b, ca = color.a;
+	float x2 = x + w, y2 = y + h;
+	float* g = &glyphBuffer[glyphCount * BATCH_FLOATS_PER_GLYPH];
 
-	float verts[] = {
-		x,     y,      u0, v0,
-		x + w, y,      u1, v0,
-		x + w, y + h,  u1, v1,
-		x,     y + h,  u0, v1,
-	};
+	// Triangle 1: top-left, top-right, bottom-right
+	g[ 0]=x;  g[ 1]=y;  g[ 2]=u0; g[ 3]=v0; g[ 4]=cr; g[ 5]=cg; g[ 6]=cb; g[ 7]=ca;
+	g[ 8]=x2; g[ 9]=y;  g[10]=u1; g[11]=v0; g[12]=cr; g[13]=cg; g[14]=cb; g[15]=ca;
+	g[16]=x2; g[17]=y2; g[18]=u1; g[19]=v1; g[20]=cr; g[21]=cg; g[22]=cb; g[23]=ca;
+	// Triangle 2: top-left, bottom-right, bottom-left
+	g[24]=x;  g[25]=y;  g[26]=u0; g[27]=v0; g[28]=cr; g[29]=cg; g[30]=cb; g[31]=ca;
+	g[32]=x2; g[33]=y2; g[34]=u1; g[35]=v1; g[36]=cr; g[37]=cg; g[38]=cb; g[39]=ca;
+	g[40]=x;  g[41]=y2; g[42]=u0; g[43]=v1; g[44]=cr; g[45]=cg; g[46]=cb; g[47]=ca;
 
-	glBindVertexArray(textVAO);
-	glBindBuffer(GL_ARRAY_BUFFER, textVBO);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, atlasID);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	glyphCount++;
 }

@@ -12,6 +12,7 @@ public:
 	virtual void Init() = 0;
 	virtual void Present() = 0;
 	virtual void Clear(float r, float g, float b) = 0;
+	virtual void Clear(Color color) = 0;
 
 	// 2D Drawing Operations
 	virtual void DrawRectangle(float x, float y, float width, float height, 
@@ -22,6 +23,7 @@ public:
 					   float r, float g, float b, float a = 1.0f) = 0;
 
 	virtual Texture LoadTexture(const char* path) = 0;
+	virtual Texture LoadTextureSmooth(const char* path) = 0;
 	virtual void UnloadTexture(Texture& texture) = 0;
 	virtual void DrawTexture(Texture& texture, float x, float y, float width, float height) = 0;
 	virtual void DrawTextureRec(Texture& texture, float x, float y, float width, float height,
