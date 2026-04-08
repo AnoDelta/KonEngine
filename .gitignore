@@ -47,7 +47,7 @@ src/window/kon_logo.h
 # >>> PRE-RELEASE: Remove these lines for 1.0 official release <<<
 # These files will be committed once the final assets are ready.
 # -----------------------------------------------------------------------
-logo.png
+# logo.png
 *.dll
 *.a
 *.lib
