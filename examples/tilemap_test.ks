@@ -24,7 +24,7 @@ const TILE_H: I32 = 32;
 const CAM_SPEED: F64 = 300.0;
 
 func main() {
-    InitWindow(800, 600, "Tilemap Test", true);
+    InitWindow(800, 600, "Tilemap Test", false);
     SetTargetFPS(60);
 
     // Create tilemap
@@ -101,7 +101,7 @@ func main() {
         }
 
         // ── Render ──
-        ClearBackground(0.06, 0.06, 0.1);
+        ClearBackground(0.15, 0.15, 0.25);
 
         BeginCamera2D(cam);
 

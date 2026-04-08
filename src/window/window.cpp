@@ -201,7 +201,7 @@ void Present() {
 		window->drawLine(mx-cs, my,    mx+cs, my,    1,0,0,1);
 		window->drawLine(mx,    my-cs, mx,    my+cs, 1,0,0,1);
 
-		// Debug grid — draw even without a camera (use default identity)
+		// Debug grid — world-space origin axes only (subtle landmark)
 		{
 			Camera2D gridCam = s_hasCameraThisFrame
 				? s_lastCamera
@@ -214,27 +214,9 @@ void Present() {
 			float left  = camX-halfW, right  = camX+halfW;
 			float top   = camY-halfH, bottom = camY+halfH;
 
-			float minPixelGap = 4.0f;
-
-			// Fine grid (32px world units) — semi-transparent so game content shows through
-			if (32.0f * zoom >= minPixelGap) {
-				float s = 32.0f;
-				float sx = floorf(left/s)*s, sy = floorf(top/s)*s;
-				for (float x=sx; x<=right;  x+=s) window->drawLine(x,top,x,bottom, 0.22f,0.22f,0.30f,0.25f);
-				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.22f,0.22f,0.30f,0.25f);
-			}
-
-			// Coarse grid (256px world units)
-			if (256.0f * zoom >= minPixelGap) {
-				float s = 256.0f;
-				float sx = floorf(left/s)*s, sy = floorf(top/s)*s;
-				for (float x=sx; x<=right;  x+=s) window->drawLine(x,top,x,bottom, 0.38f,0.38f,0.50f,0.4f);
-				for (float y=sy; y<=bottom; y+=s) window->drawLine(left,y,right,y,  0.38f,0.38f,0.50f,0.4f);
-			}
-
-			// World origin axes — slightly more visible but still transparent
-			window->drawLine(left,0, right,0,  0.55f,0.55f,0.75f,0.5f);
-			window->drawLine(0,top,  0,bottom,  0.55f,0.55f,0.75f,0.5f);
+			// World origin axes only — no full grid (too invasive)
+			window->drawLine(left,0, right,0,  0.4f,0.4f,0.6f,0.35f);
+			window->drawLine(0,top,  0,bottom,  0.4f,0.4f,0.6f,0.35f);
 
 			window->endCamera2D();
 		}
