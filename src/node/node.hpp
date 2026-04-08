@@ -62,11 +62,17 @@ public:
         std::lock_guard<std::mutex> lock(m_childMutex);
         auto it = std::remove_if(children.begin(), children.end(),
             [&](const std::unique_ptr<Node>& n) { return n->name == childName; });
-        // Call OnDestroy on removed nodes before erasing
+        // Call OnDestroy recursively: descendants first, then the child
         for (auto ri = it; ri != children.end(); ++ri) {
+            (*ri)->ForEachDescendant([](Node* n) { n->OnDestroy(); });
             (*ri)->OnDestroy();
         }
         children.erase(it, children.end());
+    }
+
+    // Remove this node from its parent (calls OnDestroy recursively)
+    void Remove() {
+        if (parent) parent->RemoveChild(name);
     }
 
     void ForEachDescendant(std::function<void(Node*)> fn) {

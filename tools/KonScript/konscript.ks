@@ -3696,12 +3696,17 @@ func cg_gen_expr(idx: I32) -> Str {
             if method == "set"    { return obj + "[" + args + "]"; }
             if method == "get"    { return obj + ".count(" + args + ") ? std::make_optional(" + obj + "[" + args + "]) : std::nullopt"; }
             if method == "has"    { return obj + ".count(" + args + ") > 0"; }
-            if method == "remove" { return obj + ".erase(" + args + ")"; }
-            // Scene methods (modular mapping)
+            // Node.remove("child") → node->RemoveChild("child") [node pointers only]
+            if method == "remove" && (cg_is_ptr(obj) || cg_type_is_ptr(obj_type)) {
+                return obj + "->RemoveChild(" + args + ")";
+            }
+            // Scene methods: scene.remove/update/draw/clear/get
             let scene_mapped: Str = cg_scene_method(method);
             if scene_mapped.len() > 0 {
                 return obj + "." + scene_mapped + "(" + args + ")";
             }
+            // HashMap/collection remove (only if not a node or scene)
+            if method == "remove" { return obj + ".erase(" + args + ")"; }
             // File namespace methods
             if method == "read"   { return "_ks_fread(" + args + ")"; }
             if method == "write"  { return "_ks_fwrite(" + args + ")"; }
@@ -3748,7 +3753,7 @@ func cg_gen_expr(idx: I32) -> Str {
                 if method == "CellAt" { cg_last_type = "TileCoord"; return obj + ".CellAt(" + args + ")"; }
             }
             // Node methods: use -> for pointer types, . for values
-            let mut call_is_ptr: Bool = cg_is_ptr(obj) || cg_type_is_ptr(obj_type);
+            let mut call_is_ptr: Bool = cg_is_ptr(obj) || cg_type_is_ptr(obj_type) || obj == "this";
             let mut call_acc: Str = ".";
             if call_is_ptr { call_acc = "->"; }
             return obj + call_acc + method + "(" + args + ")";
